@@ -1,0 +1,149 @@
+// SE7 Hub — banco NOVO e exclusivo do sistema unificado.
+//
+// Regra que vale para o projeto inteiro: esta DATABASE_URL NUNCA aponta para o
+// MySQL do sistema Laravel. Enquanto o Laravel continuar sendo o sistema de
+// registro de alunos/turmas/matriculas, ele e lido em modo somente leitura por
+// src/db/legacy/ — nunca escrito.
+//
+// Todas as tabelas usam o prefixo `hub_`. Isso e proposital: o banco do
+// se7-inadimplencia (Supabase) ja tem uma tabela `usuarios`, e o plano de longo
+// prazo e os dois viverem no mesmo Postgres. O prefixo garante que a fusao nao
+// vai colidir com nada.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// DATABASE_URL = pooler do Supabase (6543), usado pela aplicacao.
+// DIRECT_URL   = conexao direta (5432), usada so por `prisma db push`/migrate —
+// mudanca de schema nao passa pelo pooler de transacao.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Acesso
+//
+// Um Usuario e uma PESSOA, nao um perfil. A mesma pessoa pode ser professor e
+// responsavel por um filho matriculado ao mesmo tempo — por isso papel e
+// vinculo sao tabelas separadas, e nao colunas em Usuario.
+// ---------------------------------------------------------------------------
+
+model Usuario {
+  id            String    @id @default(uuid())
+  nome          String
+  email         String    @unique
+  avatarUrl     String?
+  ativo         Boolean   @default(true)
+  ultimoLoginEm DateTime?
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+
+  identidades      Identidade[]
+  papeis           Papel[]
+  vinculos         Vinculo[]
+  tentativasVinculo TentativaVinculo[]
+
+  @@map("hub_usuarios")
+}
+
+enum Provedor {
+  GOOGLE
+  SENHA
+}
+
+// Uma linha por forma de entrar. Google e o caminho normal; SENHA existe so
+// para as contas de administracao nao ficarem trancadas do lado de fora se o
+// login social falhar (senhaHash em bcrypt, nunca MD5).
+model Identidade {
+  id          String   @id @default(uuid())
+  usuarioId   String
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  provedor    Provedor
+  provedorSub String   // 'sub' do Google, ou o proprio email quando provedor = SENHA
+  senhaHash   String?
+  criadoEm    DateTime @default(now())
+
+  @@unique([provedor, provedorSub])
+  @@index([usuarioId])
+  @@map("hub_identidades")
+}
+
+enum PapelNome {
+  ADMIN
+  SECRETARIA
+  PROFESSOR
+  RESPONSAVEL
+}
+
+model Papel {
+  id        String    @id @default(uuid())
+  usuarioId String
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nome      PapelNome
+  criadoEm  DateTime  @default(now())
+
+  @@unique([usuarioId, nome])
+  @@map("hub_papeis")
+}
+
+enum TipoVinculo {
+  RESPONSAVEL // aponta para customers.id no Laravel
+  PROFESSOR   // aponta para teachers.id no Laravel
+}
+
+// Liga a conta Google a uma linha real do sistema Laravel. Sem vinculo, o
+// usuario esta autenticado mas nao "e" ninguem — nao ve dado de aluno nenhum.
+model Vinculo {
+  id           String      @id @default(uuid())
+  usuarioId    String
+  usuario      Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo         TipoVinculo
+  legacyId     Int         // customers.id ou teachers.id no MySQL do Laravel
+  cpf          String?     // so digitos, so para RESPONSAVEL (professor nao tem CPF no legado)
+  confirmadoEm DateTime    @default(now())
+
+  // Uma linha do legado pertence a uma conta so. Se duas pessoas tentarem
+  // reivindicar o mesmo CPF, a segunda e recusada e cai para atendimento.
+  @@unique([tipo, legacyId])
+  @@index([usuarioId])
+  @@map("hub_vinculos")
+}
+
+// O vinculo por CPF e o unico ponto do sistema onde alguem autenticado consulta
+// a base pelo documento de outra pessoa. Sem registro e limite, isso vira o
+// mesmo problema de enumeracao de CPF que existe hoje na API publica do
+// Laravel. Toda tentativa entra aqui, com o CPF em hash — o numero em claro
+// nunca e gravado nesta tabela.
+model TentativaVinculo {
+  id        String   @id @default(uuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cpfHash   String
+  sucesso   Boolean
+  ip        String   @default("")
+  criadoEm  DateTime @default(now())
+
+  @@index([usuarioId, criadoEm])
+  @@map("hub_tentativas_vinculo")
+}
+
+// Professor, secretaria e admin nao entram sozinhos: o acesso e por convite.
+// Isso e uma consequencia do schema do Laravel, nao uma escolha de produto — a
+// tabela `teachers` nao tem CPF nem email, entao nao ha como o proprio
+// professor provar quem e no primeiro acesso.
+model Convite {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  papel        PapelNome
+  legacyId     Int?       // teachers.id, quando o convite e para um professor
+  criadoPorId  String?
+  expiraEm     DateTime
+  usadoEm      DateTime?
+  criadoEm     DateTime   @default(now())
+
+  @@index([email])
+  @@map("hub_convites")
+}

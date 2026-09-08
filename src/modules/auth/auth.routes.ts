@@ -1,0 +1,187 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { PapelNome } from "@prisma/client";
+import { prisma } from "../../lib/prisma.js";
+import { googleConfigurado } from "../../config/env.js";
+import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
+import { GoogleNaoConfiguradoError, TokenGoogleInvalidoError, verificarIdToken } from "./google.js";
+import {
+  ContaInativaError,
+  CpfInvalidoError,
+  CpfJaVinculadoError,
+  CpfNaoEncontradoError,
+  LimiteTentativasError,
+  entrarComGoogle,
+  montarToken,
+  vincularPorCpf,
+} from "./auth.service.js";
+
+// required_error alem do min(): sem ele, campo ausente devolve o "Required"
+// cru do Zod em vez da mensagem em portugues que o front mostra ao usuario.
+const googleSchema = z.object({
+  idToken: z
+    .string({ required_error: "idToken e obrigatorio." })
+    .min(1, "idToken e obrigatorio."),
+});
+
+const cpfSchema = z.object({
+  cpf: z
+    .string({ required_error: "Informe o CPF." })
+    .min(11, "Informe o CPF completo."),
+});
+
+const conviteSchema = z.object({
+  email: z.string().email("Email invalido."),
+  papel: z.enum(["ADMIN", "SECRETARIA", "PROFESSOR"]),
+  legacyId: z.number().int().positive().optional(),
+  validadeDias: z.number().int().min(1).max(90).default(14),
+});
+
+export async function authRoutes(app: FastifyInstance) {
+  // Diz ao front o que esta ligado, para ele nao mostrar um botao do Google que
+  // vai falhar. Unica rota de auth sem autenticacao alguma.
+  app.get("/auth/config", async () => ({ google: googleConfigurado }));
+
+  app.post("/auth/google", async (request, reply) => {
+    const body = googleSchema.parse(request.body);
+
+    try {
+      const perfil = await verificarIdToken(body.idToken);
+      const usuario = await entrarComGoogle(perfil);
+      const payload = montarToken(usuario);
+
+      return reply.send({
+        token: app.jwt.sign(payload),
+        usuario: {
+          id: usuario.id,
+          nome: usuario.nome,
+          email: usuario.email,
+          avatarUrl: usuario.avatarUrl,
+          papeis: payload.papeis,
+          // O front usa isto para decidir se manda a pessoa para a tela de CPF
+          // antes de qualquer outra coisa.
+          vinculoPendente:
+            payload.papeis.includes("RESPONSAVEL") && payload.responsavelId === undefined,
+        },
+      });
+    } catch (err) {
+      if (err instanceof GoogleNaoConfiguradoError) {
+        return reply.code(503).send({ message: err.message });
+      }
+      if (err instanceof TokenGoogleInvalidoError) {
+        return reply.code(401).send({ message: err.message });
+      }
+      if (err instanceof ContaInativaError) {
+        return reply.code(403).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/auth/vincular-cpf", { preHandler: [app.autenticar] }, async (request, reply) => {
+    const body = cpfSchema.parse(request.body);
+
+    try {
+      const { responsavel } = await vincularPorCpf(
+        request.user.sub,
+        body.cpf,
+        request.ip,
+      );
+
+      const usuario = await prisma.usuario.findUniqueOrThrow({
+        where: { id: request.user.sub },
+        include: { papeis: true, vinculos: true },
+      });
+
+      // Token novo: o anterior nao carrega o responsavelId, e e o token que
+      // autoriza a leitura do legado.
+      return reply.send({
+        token: app.jwt.sign(montarToken(usuario)),
+        responsavel: { id: responsavel.id, nome: responsavel.nome },
+      });
+    } catch (err) {
+      if (err instanceof CpfInvalidoError) return reply.code(400).send({ message: err.message });
+      if (err instanceof LimiteTentativasError) return reply.code(429).send({ message: err.message });
+      if (err instanceof CpfNaoEncontradoError) return reply.code(404).send({ message: err.message });
+      if (err instanceof CpfJaVinculadoError) return reply.code(409).send({ message: err.message });
+      if (err instanceof LegadoIndisponivelError) {
+        return reply.code(503).send({
+          message: "Cadastro indisponivel no momento. Tente novamente em alguns minutos.",
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.get("/auth/eu", { preHandler: [app.autenticar] }, async (request) => ({
+    id: request.user.sub,
+    nome: request.user.nome,
+    email: request.user.email,
+    papeis: request.user.papeis,
+    responsavelId: request.user.responsavelId ?? null,
+    professorId: request.user.professorId ?? null,
+  }));
+
+  // Professor e secretaria entram por convite — ver o comentario em
+  // prisma/schema.prisma (model Convite) para o porque.
+  app.post(
+    "/auth/convites",
+    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    async (request, reply) => {
+      const body = conviteSchema.parse(request.body);
+      const email = body.email.toLowerCase();
+
+      if (body.papel === "PROFESSOR" && body.legacyId === undefined) {
+        return reply.code(400).send({
+          message: "Convite de professor precisa do legacyId (id do professor no sistema atual).",
+        });
+      }
+
+      const expiraEm = new Date(Date.now() + body.validadeDias * 24 * 60 * 60 * 1000);
+
+      const convite = await prisma.convite.upsert({
+        where: { email },
+        create: {
+          email,
+          papel: body.papel as PapelNome,
+          legacyId: body.legacyId ?? null,
+          criadoPorId: request.user.sub,
+          expiraEm,
+        },
+        update: {
+          papel: body.papel as PapelNome,
+          legacyId: body.legacyId ?? null,
+          criadoPorId: request.user.sub,
+          expiraEm,
+          usadoEm: null,
+        },
+      });
+
+      return reply.code(201).send({
+        id: convite.id,
+        email: convite.email,
+        papel: convite.papel,
+        expiraEm: convite.expiraEm,
+      });
+    },
+  );
+
+  app.get(
+    "/auth/convites",
+    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    async () =>
+      prisma.convite.findMany({
+        orderBy: { criadoEm: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          email: true,
+          papel: true,
+          legacyId: true,
+          expiraEm: true,
+          usadoEm: true,
+          criadoEm: true,
+        },
+      }),
+  );
+}

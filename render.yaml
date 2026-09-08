@@ -1,0 +1,43 @@
+# Blueprint do Render para o SE7 Hub.
+#
+# Servico NOVO e separado: nao mexe no `se7-cobrancas` (se7-inadimplencia) nem
+# na hospedagem do Laravel. Os tres rodam ao mesmo tempo durante a transicao.
+#
+# O banco nao esta descrito aqui de proposito — o Postgres gratuito do Render
+# expira em 30 dias. O banco do Hub fica no Supabase, igual ao do se7-cobrancas.
+services:
+  - type: web
+    name: se7-hub
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    # `prisma db push` nao roda aqui: em producao a conexao e pelo pooler de
+    # transacao, por onde mudanca de schema nao passa. Schema se aplica a parte,
+    # com DIRECT_URL. O seed e idempotente e pode repetir.
+    startCommand: node dist/db/seed.js && node dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: TZ
+        value: America/Fortaleza
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: ASAAS_API_KEY
+        sync: false
+      # Liberar so quando o usuario somente-leitura do MySQL existir.
+      - key: LEGACY_MYSQL_HOST
+        sync: false
+      - key: LEGACY_MYSQL_USER
+        sync: false
+      - key: LEGACY_MYSQL_PASSWORD
+        sync: false
+      - key: LEGACY_MYSQL_DATABASE
+        sync: false
