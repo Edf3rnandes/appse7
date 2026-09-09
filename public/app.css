@@ -343,3 +343,22 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tabela-cartoes td > * { text-align: right; }
   .tabela-cartoes td:first-child > * { text-align: left; }
 }
+
+/* --------------------------------------------------------------------------
+   Abas em duas linhas no celular.
+
+   Com `flex: 1` e uma aba a mais, a última ("Acessos") saía da tela a 430px —
+   e o corte não era visível: parecia que a aba não existia. Abaixo de 560px
+   elas quebram em linhas de três, que continuam sendo alvos grandes de toque.
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+  .abas { flex-wrap: wrap; }
+  .aba { flex: 1 1 28%; }
+}
+
+/* Registro de lista com ações próprias — ver linhaMatricula(). Difere de
+   .item porque o texto ocupa a largura inteira e os botões vêm abaixo, em vez
+   de disputarem a mesma linha. */
+.registro { padding: 14px 0; border-top: 1px solid var(--rule); }
+.registro:first-child { border-top: 0; }
+.registro .titulo { font-weight: 600; }

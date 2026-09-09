@@ -363,8 +363,15 @@ export async function cadastroRoutes(app: FastifyInstance) {
   // ----------------------------------------------------------------- alunos
   app.get("/escola/alunos", equipe, async (request) => {
     const { busca, limite, pagina, incluirArquivados } = paginacao.parse(request.query);
+    // Os alunos de uma família só. Sem isto a tela de matrícula teria de
+    // baixar a escola inteira e filtrar no navegador.
+    const { responsavelId } = z
+      .object({ responsavelId: z.string().uuid().optional() })
+      .parse(request.query);
+
     const where = {
       ...(incluirArquivados ? {} : { arquivadoEm: null }),
+      ...(responsavelId ? { responsavelId } : {}),
       ...contem(busca, ["nome"]),
     };
 
@@ -472,7 +479,10 @@ export async function cadastroRoutes(app: FastifyInstance) {
     // lotada só aparecia quando o professor reclamava.
     if (turma.capacidade != null && turma._count.matriculas >= turma.capacidade) {
       return reply.code(409).send({
-        message: `A turma ${turma.nome} está com as ${turma.capacidade} vagas preenchidas.`,
+        message:
+          turma.capacidade === 1
+            ? `A turma ${turma.nome} tem uma vaga só, e ela já está preenchida.`
+            : `A turma ${turma.nome} está com as ${turma.capacidade} vagas preenchidas.`,
       });
     }
 
