@@ -119,8 +119,8 @@ preparo inteiro cabe num arquivo para colar no **SQL Editor** do Supabase daquel
 **`prisma/instalar-no-supabase.sql`** — cria o schema `hub`, acrescenta a coluna `observacoes`
 ao cronograma e cria as tabelas do Hub. Não pede terminal nem expõe a senha do banco.
 
-Quem tiver a `DIRECT_URL` em mãos (porta 5432, nunca o pooler de transação) pode fazer o mesmo
-pelo terminal:
+Quem tiver em mãos a conexão direta do Supabase (porta 5432, nunca o pooler de transação) pode
+fazer o mesmo pelo terminal:
 
 ```bash
 psql "$DIRECT_URL" -f prisma/instalar-no-supabase.sql

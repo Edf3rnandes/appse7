@@ -24,9 +24,9 @@ services:
         value: America/Fortaleza
       - key: JWT_SECRET
         generateValue: true
+      # Copie o mesmo valor do servico se7-cobrancas: e o que faz o cronograma
+      # ser a mesma tabela nos dois sistemas.
       - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false

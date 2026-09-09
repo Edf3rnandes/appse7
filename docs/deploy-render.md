@@ -15,15 +15,21 @@ usar o Blueprint (**New → Blueprint**), ele lê esse arquivo e cria o serviço
 
 ## 2. Variáveis de ambiente
 
-### Copiadas do `se7-cobrancas`, sem alterar nada
+### Copiada do `se7-cobrancas`, sem alterar nada
 
-Estas duas têm de ser **exatamente as mesmas** do outro serviço. É isso que faz
+Uma só, e ela tem de ser **exatamente a mesma** do outro serviço. É isso que faz
 o cronograma ser a mesma tabela nos dois sistemas.
 
 | Variável | Onde pegar |
 |---|---|
 | `DATABASE_URL` | Render → `se7-cobrancas` → Environment → mesma variável |
-| `DIRECT_URL` | idem |
+
+**`DIRECT_URL` não é necessária.** Ela só serve ao CLI do Prisma, em `db push` e
+migrações; em tempo de execução o app usa apenas `DATABASE_URL`. Como as tabelas
+do Hub são criadas pelo `instalar-no-supabase.sql`, não há migração para rodar —
+e é por isso que o próprio `se7-cobrancas` também roda sem ela. Se um dia
+precisar mudar schema pela CLI, pegue a conexão direta em Supabase → Project
+Settings → Database → Connection string, porta **5432** (nunca a 6543).
 
 ### Novas
 

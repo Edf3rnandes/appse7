@@ -2,9 +2,19 @@ import "dotenv/config";
 import { z } from "zod";
 
 const schema = z.object({
-  // Postgres proprio do Hub (Supabase). Nunca o MySQL do Laravel.
+  // Postgres do Hub (Supabase), compartilhado com o se7-inadimplencia.
+  // Nunca o MySQL do Laravel.
   DATABASE_URL: z.string().min(1),
-  DIRECT_URL: z.string().min(1),
+
+  // Opcional de proposito. O Prisma Client so usa `url` em tempo de execucao;
+  // `directUrl` existe para o CLI (db push, migrate). Como o servico em
+  // producao nao roda migracao — as tabelas do Hub sao criadas por
+  // prisma/instalar-no-supabase.sql —, exigir esta variavel so criaria um
+  // obstaculo: o proprio se7-cobrancas nao a tem configurada.
+  //
+  // Preencha apenas para rodar mudanca de schema, e ai com a conexao direta
+  // (porta 5432): pelo pooler de transacao (6543) elas nao passam.
+  DIRECT_URL: z.string().default(""),
 
   JWT_SECRET: z.string().min(32, "JWT_SECRET precisa de pelo menos 32 caracteres."),
   PORT: z.coerce.number().default(3400),
