@@ -73,7 +73,7 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao, prepararImagem, fotoDaContaGoogle } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
@@ -172,6 +172,50 @@ const STATUS_MATRICULA = {
   CANCELADA: ["erro", "Cancelada"],
 };
 
+/** "Beatriz Honor" -> "BH", enquanto não há foto. */
+function iniciais(nome) {
+  const partes = (nome || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+}
+
+/** Manda a foto já reduzida, nos dois tamanhos que o sistema guarda. */
+async function enviarFoto(alunoId, dataUrlGrande, arquivo) {
+  const recado = document.querySelector(`[data-erro-foto="${alunoId}"]`);
+  recado?.classList.add("oculto");
+
+  try {
+    const [grande, mini] = arquivo
+      ? await Promise.all([prepararImagem(arquivo, 400, 0.78), prepararImagem(arquivo, 96, 0.7)])
+      : [{ dataUrl: dataUrlGrande }, { dataUrl: await reduzirDataUrl(dataUrlGrande, 96) }];
+
+    await api(`/portal/alunos/${alunoId}/foto`, {
+      method: "PUT",
+      body: JSON.stringify({ foto: grande.dataUrl, miniatura: mini.dataUrl }),
+    });
+    await carregarAlunos();
+  } catch (e) {
+    if (recado) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+    }
+  }
+}
+
+/** Reduz um data URL que já temos em memória — usado na foto do Google. */
+async function reduzirDataUrl(dataUrl, lado) {
+  const img = await new Promise((ok) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.src = dataUrl;
+  });
+  const tela = document.createElement("canvas");
+  tela.width = lado;
+  tela.height = lado;
+  tela.getContext("2d").drawImage(img, 0, 0, lado, lado);
+  return tela.toDataURL("image/jpeg", 0.7);
+}
+
 async function carregarAlunos() {
   const painel = el("painelAlunos");
   try {
@@ -186,12 +230,40 @@ async function carregarAlunos() {
     painel.innerHTML = `<div class="pilha">${alunos.map((a) => {
       const m = a.matricula;
       const [cor, texto] = m ? (STATUS_MATRICULA[m.status] || ["neutra", m.status]) : ["neutra", "Sem matrícula"];
+      // O aluno que é a própria pessoa logada — adulto responsável por si.
+      // Só nesse caso a foto da conta Google é o rosto certo: a mãe que entra
+      // com o Gmail dela tem o rosto dela, não o da filha.
+      const ehAPropriaPessoa =
+        (Sessao.usuario?.nome || "").trim().toLowerCase() === a.nome.trim().toLowerCase();
+
       return `
         <article class="cartao">
-          <div class="linha">
-            <span class="aluno-nome">${escapar(a.nome)}</span>
-            <span class="pilula ${cor}">${escapar(texto)}</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="retrato">
+              ${a.fotoMiniatura
+                ? `<img src="${escapar(a.fotoMiniatura)}" alt="">`
+                : `<span>${escapar(iniciais(a.nome))}</span>`}
+            </span>
+            <div style="flex:1;min-width:0">
+              <div class="linha">
+                <span class="aluno-nome">${escapar(a.nome)}</span>
+                <span class="pilula ${cor}">${escapar(texto)}</span>
+              </div>
+            </div>
           </div>
+
+          <div class="barra-acoes" style="margin-top:10px">
+            <label class="botao fantasma" for="foto-${a.id}" style="cursor:pointer;padding-left:0">
+              ${a.fotoMiniatura ? "Trocar foto" : "Enviar foto"}
+            </label>
+            <input type="file" id="foto-${a.id}" data-foto="${a.id}" accept="image/*" hidden>
+            ${ehAPropriaPessoa && Sessao.usuario?.avatarUrl && !a.fotoMiniatura
+              ? `<button class="botao fantasma" type="button" data-google="${a.id}">Usar a foto do Google</button>`
+              : ""}
+            ${a.fotoMiniatura
+              ? `<button class="botao fantasma" type="button" data-semfoto="${a.id}">Remover</button>` : ""}
+          </div>
+          <div class="aviso erro oculto" data-erro-foto="${a.id}" style="margin-top:8px"></div>
           ${m ? `<p class="meta" style="margin:8px 0 0">
                    ${escapar(m.turma || "Turma não informada")}
                    ${m.unidade ? " · " + escapar(m.unidade) : ""}
@@ -199,12 +271,55 @@ async function carregarAlunos() {
                  </p>
                  ${m.expiraEm ? `<p class="meta" style="margin:4px 0 0">Vence em ${fmt.data(m.expiraEm)}</p>` : ""}`
               : `<p class="meta" style="margin:8px 0 0">Este aluno ainda não tem matrícula ativa.</p>`}
-          <button class="botao fantasma" data-freq="${a.id}" style="margin-top:10px;padding-left:0">
+          <button class="botao fantasma" data-freq="${a.id}" style="margin-top:6px;padding-left:0">
             Ver frequência
           </button>
           <div data-freq-alvo="${a.id}"></div>
         </article>`;
     }).join("")}</div>`;
+
+    painel.querySelectorAll("[data-foto]").forEach((campo) => {
+      campo.addEventListener("change", () => {
+        const arquivo = campo.files?.[0];
+        if (arquivo) enviarFoto(campo.dataset.foto, null, arquivo);
+      });
+    });
+
+    painel.querySelectorAll("[data-google]").forEach((botao) => {
+      botao.addEventListener("click", async () => {
+        botao.disabled = true;
+        const copia = await fotoDaContaGoogle(Sessao.usuario?.avatarUrl);
+        if (copia) {
+          await enviarFoto(botao.dataset.google, copia, null);
+          return;
+        }
+        // O Google recusou a leitura do pixel (canvas contaminado). Não dá para
+        // insistir: sobra escolher um arquivo, que é o caminho de todo mundo.
+        botao.disabled = false;
+        const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.google}"]`);
+        if (recado) {
+          recado.textContent = "Não foi possível copiar a foto do Google. Escolha uma foto do aparelho.";
+          recado.classList.remove("oculto");
+        }
+      });
+    });
+
+    painel.querySelectorAll("[data-semfoto]").forEach((botao) => {
+      botao.addEventListener("click", async () => {
+        botao.disabled = true;
+        try {
+          await api(`/portal/alunos/${botao.dataset.semfoto}/foto`, { method: "DELETE" });
+          await carregarAlunos();
+        } catch (e) {
+          botao.disabled = false;
+          const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.semfoto}"]`);
+          if (recado) {
+            recado.textContent = e.message;
+            recado.classList.remove("oculto");
+          }
+        }
+      });
+    });
 
     painel.querySelectorAll("[data-freq]").forEach((botao) => {
       botao.addEventListener("click", () => alternarFrequencia(botao));

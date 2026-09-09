@@ -12,6 +12,14 @@ import { tratadorDeErro } from "../../lib/erros.js";
 
 const alunoParams = z.object({ id: z.string().uuid() });
 
+// Mesmo limite e mesma checagem das outras imagens do sistema.
+const LIMITE_IMAGEM = 1_500_000;
+
+const imagemDataUrl = z
+  .string()
+  .refine((v) => /^data:image\/(jpeg|png|webp);base64,/.test(v), "Formato de imagem não aceito.")
+  .refine((v) => v.length <= LIMITE_IMAGEM, "A imagem ficou grande demais. Use uma menor.");
+
 // Todo dado do responsavel sai daqui a partir do `responsavelId` do TOKEN.
 // Nenhuma rota deste arquivo aceita CPF ou id de responsavel como criterio de
 // busca vindo do cliente — o id do aluno so entra depois de passar pela
@@ -118,6 +126,60 @@ export async function portalRoutes(app: FastifyInstance) {
           professor: p.professor.nome,
         })),
       };
+    },
+  );
+
+  /**
+   * O responsável manda a foto do próprio filho.
+   *
+   * É o que resolve as fotos de verdade. A secretaria não tem foto de 570
+   * alunos e não vai fotografar um por um na quadra; o pai tem dezenas no
+   * celular e leva quinze segundos para escolher uma. Espalhar o trabalho por
+   * quem já tem o material é a diferença entre a chamada com rosto existir e
+   * não existir.
+   *
+   * A posse é conferida aqui, como em toda rota deste arquivo: o id do aluno
+   * vem do navegador e não vale nada até casar com o vínculo do token.
+   */
+  app.put(
+    "/portal/alunos/:id/foto",
+    { preHandler: [app.exigirResponsavel] },
+    async (request, reply) => {
+      const { id } = alunoParams.parse(request.params);
+      const { foto, miniatura } = z
+        .object({ foto: imagemDataUrl, miniatura: imagemDataUrl })
+        .parse(request.body);
+
+      const aluno = await prisma.aluno.findFirst({
+        where: { id, responsavelId: request.user.responsavelId!, arquivadoEm: null },
+        select: { id: true },
+      });
+      // 404 e não 403: não confirmamos nem que o aluno existe.
+      if (!aluno) return reply.code(404).send({ message: "Aluno nao encontrado." });
+
+      await prisma.aluno.update({
+        where: { id },
+        data: { foto, fotoMiniatura: miniatura },
+      });
+
+      return { fotoMiniatura: miniatura };
+    },
+  );
+
+  app.delete(
+    "/portal/alunos/:id/foto",
+    { preHandler: [app.exigirResponsavel] },
+    async (request, reply) => {
+      const { id } = alunoParams.parse(request.params);
+
+      const aluno = await prisma.aluno.findFirst({
+        where: { id, responsavelId: request.user.responsavelId!, arquivadoEm: null },
+        select: { id: true },
+      });
+      if (!aluno) return reply.code(404).send({ message: "Aluno nao encontrado." });
+
+      await prisma.aluno.update({ where: { id }, data: { foto: null, fotoMiniatura: null } });
+      return reply.code(204).send();
     },
   );
 

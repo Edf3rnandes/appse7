@@ -265,14 +265,29 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
 
   if (jaVinculado) return { vinculo: jaVinculado, responsavel };
 
-  const vinculo = await prisma.vinculo.create({
-    data: {
-      usuarioId,
-      tipo: TipoVinculo.RESPONSAVEL,
-      responsavelId: responsavel.id,
-      cpf,
-    },
+  // Se a conta ja tem um vinculo de responsavel solto, aproveitamos ele em vez
+  // de criar um segundo. Isso acontece de verdade: a chave estrangeira e
+  // ON DELETE SET NULL, entao apagar um responsavel no cadastro deixa a conta
+  // dele com o vinculo sem destino. Sem este reaproveitamento a pessoa fica com
+  // dois vinculos RESPONSAVEL, e quem aparece primeiro pode ser o vazio — o
+  // portal abre sem nenhum filho e sem dizer por que.
+  const solto = await prisma.vinculo.findFirst({
+    where: { usuarioId, tipo: TipoVinculo.RESPONSAVEL, responsavelId: null },
   });
+
+  const vinculo = solto
+    ? await prisma.vinculo.update({
+        where: { id: solto.id },
+        data: { responsavelId: responsavel.id, cpf },
+      })
+    : await prisma.vinculo.create({
+        data: {
+          usuarioId,
+          tipo: TipoVinculo.RESPONSAVEL,
+          responsavelId: responsavel.id,
+          cpf,
+        },
+      });
 
   return { vinculo, responsavel };
 }
@@ -286,8 +301,15 @@ type UsuarioComRelacoes = {
 };
 
 export function montarToken(usuario: UsuarioComRelacoes): TokenHub {
-  const responsavel = usuario.vinculos.find((v) => v.tipo === TipoVinculo.RESPONSAVEL);
-  const professor = usuario.vinculos.find((v) => v.tipo === TipoVinculo.PROFESSOR);
+  // Entre vinculos do mesmo tipo, vale o que aponta para alguem. Um vinculo com
+  // o destino nulo (responsavel apagado no cadastro) nao pode ganhar do bom so
+  // por vir antes na lista.
+  const responsavel = usuario.vinculos.find(
+    (v) => v.tipo === TipoVinculo.RESPONSAVEL && v.responsavelId,
+  );
+  const professor = usuario.vinculos.find(
+    (v) => v.tipo === TipoVinculo.PROFESSOR && v.professorId,
+  );
 
   return {
     sub: usuario.id,

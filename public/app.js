@@ -351,3 +351,58 @@ export function gradeDoMes(ano, mes, eventos, { hojeIso = null } = {}) {
 
   return `<div class="calendario">${cabecalho}${celulas.join("")}</div>`;
 }
+
+/**
+ * Transforma a foto da conta Google em imagem própria do sistema.
+ *
+ * Copia, não aponta. Guardar a URL do Google parece mais barato e é pior: ela
+ * deixa de existir quando a pessoa troca ou remove a foto, e aí a chamada
+ * mostra um quadrado quebrado. Pior ainda, a lista da turma passaria a
+ * depender de o celular do professor alcançar o Google — na beira da praia,
+ * com sinal ruim, é justamente quando ele precisa da lista.
+ *
+ * O download acontece no navegador de quem está logado, que é quem já tem
+ * essa imagem carregada na tela. Se o Google recusar a leitura pelo canvas
+ * (é uma imagem de outro domínio), devolvemos null e a tela oferece escolher
+ * um arquivo — em vez de deixar um erro sem explicação.
+ */
+export async function fotoDaContaGoogle(url, ladoMaximo = 400, qualidade = 0.78) {
+  if (!url) return null;
+
+  // `s400-c` pede ao Google a versão de 400px já recortada em quadrado. Sem
+  // isso vem a original, que pode ter 2000px e um enquadramento largo.
+  const nitida = url.replace(/=s\d+(-c)?$/, "") + "=s400-c";
+
+  const imagem = await new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = nitida;
+  });
+  if (!imagem) return null;
+
+  const lado = Math.min(ladoMaximo, imagem.width, imagem.height) || ladoMaximo;
+  const tela = document.createElement("canvas");
+  tela.width = lado;
+  tela.height = lado;
+
+  const ctx = tela.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, lado, lado);
+  // Recorte quadrado a partir do centro: fotos de perfil variam de proporção,
+  // e o retrato do sistema é redondo.
+  const corte = Math.min(imagem.width, imagem.height);
+  ctx.drawImage(
+    imagem,
+    (imagem.width - corte) / 2, (imagem.height - corte) / 2, corte, corte,
+    0, 0, lado, lado,
+  );
+
+  try {
+    return tela.toDataURL("image/jpeg", qualidade);
+  } catch {
+    // Canvas contaminado: o Google não liberou a leitura desta imagem.
+    return null;
+  }
+}
