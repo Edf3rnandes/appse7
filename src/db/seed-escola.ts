@@ -1,64 +1,30 @@
-import { DiaDaSemana, StatusMatricula } from "@prisma/client";
+import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 /**
- * Dados de demonstração da escola.
+ * Dados de demonstração: planos, professores e algumas famílias.
  *
- * Serve para o sistema ser navegável antes da importação: dá para sentar com
- * a secretaria e com os professores, usar as telas de verdade e ajustar o que
- * estiver errado, sem esperar a virada.
+ * Serve para o sistema ser navegável antes da importação dos alunos: dá para
+ * sentar com a secretaria e com os professores, usar as telas de verdade e
+ * ajustar o que estiver errado, sem esperar a virada.
  *
- * Idempotente pelo nome de cada registro — rodar duas vezes não duplica.
- * NÃO roda sozinho em lugar nenhum: é `npm run seed:escola`, à mão.
+ * Unidades e turmas NÃO saem daqui — são as de verdade, e vêm de
+ * `npm run importar:turmas`. Este seed roda depois e se apoia nelas.
+ *
+ * Os planos são inventados: os 43 planos reais virão com a importação, e até
+ * lá dois planos ligados a todas as turmas bastam para exercitar a matrícula.
+ *
+ * Idempotente. NÃO roda sozinho em lugar nenhum: é `npm run seed:escola`.
  */
 
-// Unidades e turmas com os nomes que a escola usa de verdade, tirados do
-// painel atual: "BA TQ Adulto 2 (Avançado)" é Bancários, terça e quinta.
-const UNIDADES = [
-  { nome: "Bancários", endereco: "Av. Governador Flávio Ribeiro Coutinho" },
-  { nome: "Bessa", endereco: "Av. Gov. Ademar Veloso da Silveira" },
-];
-
 const PLANOS = [
-  { nome: "Mensal (Bancários T/Q)", valor: 190, parcelas: 1 },
-  { nome: "Semestral (Bancários T/Q)", valor: 990, parcelas: 6, descontoPercentual: 10 },
-  { nome: "Mensal (Bessa T/Q)", valor: 190, parcelas: 1 },
-  { nome: "Semestral (Bessa T/Q)", valor: 990, parcelas: 6, descontoPercentual: 10 },
+  { nome: "Mensal", valor: 190, parcelas: 1 },
+  { nome: "Semestral", valor: 990, parcelas: 6, descontoPercentual: 10 },
 ];
 
 const PROFESSORES = [
   { nome: "Rafael Lima", email: "rafael@exemplo.com" },
   { nome: "Juliana Alves", email: "juliana@exemplo.com" },
-];
-
-const TURMAS = [
-  {
-    nome: "BA TQ Adulto 2 (Avançado)",
-    unidade: "Bancários",
-    categoria: "Adulto",
-    capacidade: 16,
-    dias: [DiaDaSemana.TERCA, DiaDaSemana.QUINTA],
-    inicio: "19:00",
-    fim: "20:30",
-  },
-  {
-    nome: "BA TQ Adulto 1",
-    unidade: "Bancários",
-    categoria: "Adulto",
-    capacidade: 16,
-    dias: [DiaDaSemana.TERCA, DiaDaSemana.QUINTA],
-    inicio: "17:30",
-    fim: "19:00",
-  },
-  {
-    nome: "BS TQ Kids",
-    unidade: "Bessa",
-    categoria: "Kids",
-    capacidade: 12,
-    dias: [DiaDaSemana.TERCA, DiaDaSemana.QUINTA],
-    inicio: "08:00",
-    fim: "09:00",
-  },
 ];
 
 const FAMILIAS = [
@@ -80,11 +46,10 @@ const FAMILIAS = [
 ];
 
 async function main() {
-  const unidades = new Map<string, string>();
-  for (const u of UNIDADES) {
-    const existente = await prisma.unidade.findFirst({ where: { nome: u.nome } });
-    const salva = existente ?? (await prisma.unidade.create({ data: u }));
-    unidades.set(u.nome, salva.id);
+  const turmas = await prisma.turma.findMany({ include: { unidade: true } });
+  if (turmas.length === 0) {
+    console.error("Nenhuma turma no banco. Rode antes: npm run importar:turmas");
+    process.exit(1);
   }
 
   const planos = new Map<string, string>();
@@ -92,6 +57,18 @@ async function main() {
     const existente = await prisma.plano.findFirst({ where: { nome: p.nome } });
     const salvo = existente ?? (await prisma.plano.create({ data: p }));
     planos.set(p.nome, salvo.id);
+  }
+
+  // Todo plano vale para toda turma, só na demonstração: assim dá para
+  // matricular em qualquer uma das 46 sem cadastrar 46 combinações à mão.
+  for (const turma of turmas) {
+    for (const planoId of planos.values()) {
+      await prisma.planoTurma.upsert({
+        where: { planoId_turmaId: { planoId, turmaId: turma.id } },
+        create: { planoId, turmaId: turma.id },
+        update: {},
+      });
+    }
   }
 
   const professores = new Map<string, string>();
@@ -102,34 +79,19 @@ async function main() {
       update: { nome: p.nome },
     });
     professores.set(p.nome, salvo.id);
-  }
 
-  const turmas = new Map<string, string>();
-  for (const t of TURMAS) {
-    const existente = await prisma.turma.findFirst({ where: { nome: t.nome } });
-    if (existente) {
-      turmas.set(t.nome, existente.id);
-      continue;
+    // Na demonstração cada professor pega as turmas de duas unidades, para o
+    // app dele não abrir com as 46 de uma vez.
+    const doProfessor = turmas.filter((t) =>
+      ["Bancários", "Bessa"].includes(t.unidade.nome),
+    );
+    for (const turma of doProfessor) {
+      await prisma.professorTurma.upsert({
+        where: { professorId_turmaId: { professorId: salvo.id, turmaId: turma.id } },
+        create: { professorId: salvo.id, turmaId: turma.id },
+        update: {},
+      });
     }
-
-    const criada = await prisma.turma.create({
-      data: {
-        nome: t.nome,
-        categoria: t.categoria,
-        capacidade: t.capacidade,
-        unidadeId: unidades.get(t.unidade)!,
-        horarios: { create: t.dias.map((dia) => ({ dia, inicio: t.inicio, fim: t.fim })) },
-        professores: {
-          create: [...professores.values()].map((professorId) => ({ professorId })),
-        },
-        planos: {
-          create: [...planos.entries()]
-            .filter(([nome]) => nome.includes(t.unidade))
-            .map(([, planoId]) => ({ planoId })),
-        },
-      },
-    });
-    turmas.set(t.nome, criada.id);
   }
 
   for (const familia of FAMILIAS) {
@@ -140,6 +102,12 @@ async function main() {
     });
 
     for (const a of familia.alunos) {
+      const turma = turmas.find((t) => t.nome === a.turma);
+      if (!turma) {
+        console.warn(`turma "${a.turma}" não existe; ${a.nome} ficou sem matrícula.`);
+        continue;
+      }
+
       const existente = await prisma.aluno.findFirst({
         where: { nome: a.nome, responsavelId: responsavel.id },
       });
@@ -147,41 +115,32 @@ async function main() {
         existente ??
         (await prisma.aluno.create({ data: { nome: a.nome, responsavelId: responsavel.id } }));
 
-      const turmaId = turmas.get(a.turma)!;
-      const turma = await prisma.turma.findUniqueOrThrow({ where: { id: turmaId } });
-
       const jaTem = await prisma.matricula.findFirst({
-        where: { alunoId: aluno.id, turmaId, arquivadoEm: null },
+        where: { alunoId: aluno.id, turmaId: turma.id, arquivadoEm: null },
       });
       if (jaTem) continue;
-
-      const planoDaUnidade = [...planos.entries()].find(([nome]) =>
-        nome.startsWith("Semestral") && nome.includes(a.turma.startsWith("BA") ? "Bancários" : "Bessa"),
-      );
 
       await prisma.matricula.create({
         data: {
           alunoId: aluno.id,
           responsavelId: responsavel.id,
-          turmaId,
+          turmaId: turma.id,
           unidadeId: turma.unidadeId,
-          planoId: planoDaUnidade![1],
+          planoId: planos.get("Semestral")!,
           status: StatusMatricula.CONFIRMADA,
         },
       });
     }
   }
 
-  const contagem = {
-    unidades: await prisma.unidade.count(),
-    turmas: await prisma.turma.count(),
-    planos: await prisma.plano.count(),
-    professores: await prisma.professor.count(),
+  console.log("demonstração pronta:", {
+    turmas: turmas.length,
+    planos: planos.size,
+    professores: professores.size,
     responsaveis: await prisma.responsavel.count(),
     alunos: await prisma.aluno.count(),
     matriculas: await prisma.matricula.count(),
-  };
-  console.log("escola de demonstração pronta:", contagem);
+  });
 }
 
 main()

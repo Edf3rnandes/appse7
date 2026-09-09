@@ -33,9 +33,17 @@ e-mail e senha; sem MySQL, as telas que dependem do sistema antigo respondem
 ## 3. Tabelas
 
 ```bash
-npx prisma db push     # cria o schema hub
-npx tsx src/db/seed.ts # cria o admin de ADMIN_EMAILS, com senha
+npx prisma db push        # cria o schema hub
+npm run seed              # admin de ADMIN_EMAILS, com senha
+npm run importar:turmas   # as 6 unidades e as 46 turmas de verdade
+npm run seed:escola       # planos, professores e famílias de demonstração
 ```
+
+A ordem importa: `seed:escola` se apoia nas turmas e para com um recado se
+elas não existirem. `importar:turmas` lê `prisma/dados/turmas.tsv`, que é a
+exportação do painel do sistema atual, e é repetível — a primeira coluna é o
+id de lá, guardado em `legacyId`, então rodar de novo atualiza em vez de
+duplicar.
 
 O cronograma mora numa tabela do **outro** sistema (`se7-inadimplencia`), que
 não é modelo do Prisma daqui — ver o comentário em

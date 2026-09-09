@@ -1,0 +1,50 @@
+# Turmas do sistema atual, exportadas do painel em 09/09/2026.
+# id	nome	horário	categoria	unidade	matriculados	capacidade
+# A coluna "matriculados" NÃO é importada: ela é o número de conferência para
+# quando os alunos vierem. Ver src/db/importar-turmas.ts.
+68	AG TQ Kids	Ter/Qui 18:00 às 18:50	Kids	Alagoa Grande	0	15
+67	AG TQ Teens	Ter/Qui 18:50 às 19:40	Teens	Alagoa Grande	0	15
+66	AG TQ Adultos	Ter/Qui 19:40 às 20:30	Adulto	Alagoa Grande	1	15
+65	AR QS Adultos	Qua/Sex 19:40 às 20:30	Adulto	Areia	10	15
+64	AR QS Kids	Qua/Sex 18:00 às 18:50	Kids	Areia	4	15
+63	AR QS Teens	Qua/Sex 18:50 às 19:40	Teens	Areia	3	15
+62	BA SQS Teens 1	Seg/Qua/Sex 17:00 às 17:50	Teens	Bancários	15	15
+61	BS SQ kids	Seg/Qua 17:00 às 17:50	Kids	Bessa	6	12
+60	BA TQ kids	Ter/Qui 17:30 às 18:20	Kids	Bancários	10	12
+59	Base III CB SQS	Seg/Qua/Sex 19:00 - 20:15	Competitivo	Cabo Branco	8	16
+58	BS SQ Adulto - Manhã	Seg/Qua 06:00 às 07:00	Adulto	Bessa	11	15
+57	Base BS TQ	Ter/Qui 16:00 às 18:00	Competitivo	Bessa	13	16
+54	AP TQ Adulto	Ter/Qui 17:10 às 18:00	Adulto	Altiplano	6	12
+53	CB TQ Adulto - Manhã	Ter/Qui 06:00 às 07:00	Adulto	Cabo Branco	10	15
+46	AP SE7 +90	Seg/Qua 18:30 às 20:00 e Sex 18:00 às 21:00	Adulto	Altiplano	7	15
+39	BA TQ Adulto 2 (Avançado)	Ter/Qui 20:50 às 21:40	Adulto	Bancários	19	16
+37	AP TQ Adulto 1	Ter/Qui 18:00 às 18:50	Adulto	Altiplano	13	25
+36	Sabadão	Sab 07:00 às 08:30	Adulto	Altiplano	26	25
+35	BS SQS Adulto 1	Seg/Qua/Sex 18:00 às 18:50	Adulto	Bessa	5	25
+34	BS SQS Teens	Seg/Qua/Sex 18:50 às 19:40	Teens	Bessa	21	25
+33	BS SQS Adulto 2	Seg/Qua/Sex 19:40 às 20:30	Adulto	Bessa	13	25
+32	Base II CB SQS	Seg/Qua/Sex 17:30 - 19:00	Competitivo	Cabo Branco	6	16
+30	BS TQ Adulto	Ter/Qui 19:40 às 20:30	Adulto	Bessa	24	25
+29	BS TQ Teens	Ter/Qui 18:50 às 19:40	Teens	Bessa	25	25
+28	BS TQ Kids	Ter/Qui 18:00 às 18:50	Kids	Bessa	14	18
+27	Base AP TQ	Ter/Qui 16:00 às 18:00	Competitivo	Altiplano	21	16
+26	AP TQ Adulto 2	Ter/Qui 20:00 às 20:50	Adulto	Altiplano	27	30
+25	AP TQ Teens	Ter/Qui 19:10 às 20:00	Teens	Altiplano	23	35
+24	AP TQ Kids 1	Ter/Qui 18:20 às 19:10	Kids	Altiplano	20	18
+23	BA SQS Adulto	Seg/Qua/Sex 19:40 às 20:30	Adulto	Bancários	21	25
+21	BA TQ Adulto 1	Ter/Qui 20:00 às 20:50	Adulto	Bancários	14	25
+20	BA SQS Teens 2	Seg/Qua/Sex 18:50 às 19:40	Teens	Bancários	23	25
+19	BA TQ Teens 2	Ter/Qui 19:10 às 20:00	Teens	Bancários	21	25
+18	BA TQ Teens 1	Ter/Qui 18:20 às 19:10	Teens	Bancários	22	25
+17	BA SQS Kids	Seg/Qua/Sex 18:00 às 18:50	Kids	Bancários	17	18
+15	Base CB SQS	Seg/Qua/Sex 15:00 às 17:00	Competitivo	Cabo Branco	4	16
+14	CB TQ Adulto 2	Ter/Qui 19:40 às 20:30	Adulto	Cabo Branco	18	24
+13	CB TQ Adulto 1	Ter/Qui 18:00 às 18:50	Adulto	Cabo Branco	9	15
+11	CB SQ Adulto 2	Seg/Qua 18:30 às 19:20	Adulto	Cabo Branco	3	15
+10	CB SQS SE7+90 - Adulto	Seg/Qua 17:00 às 18:30 e Sex 17:00 as 19:00	Adulto	Cabo Branco	7	15
+9	CB TQ Teens 2	Ter/Qui 19:40 às 20:30	Teens	Cabo Branco	11	14
+8	CB TQ Teens 1	Ter/Qui 18:50 às 19:40	Teens	Cabo Branco	10	16
+6	CB SQ Teens 2	Seg/Qua 18:20 às 19:10	Teens	Cabo Branco	5	15
+5	CB SQ Teens 1	Seg/Qua 17:30 às 18:20	Teens	Cabo Branco	11	15
+4	CB TQ Kids 2	Ter/Qui 18:50 às 19:40	Kids	Cabo Branco	2	15
+3	CB TQ Kids 1	Ter/Qui 18:00 às 18:50	Kids	Cabo Branco	4	15
