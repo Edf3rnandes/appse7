@@ -30,7 +30,13 @@ export async function portalRoutes(app: FastifyInstance) {
     const alunos = await prisma.aluno.findMany({
       where: { responsavelId: request.user.responsavelId!, arquivadoEm: null },
       orderBy: { nome: "asc" },
-      include: {
+      // `select` em vez de `include`: a foto grande não tem o que fazer numa
+      // lista, e o responsável costuma abrir isto na rede móvel.
+      select: {
+        id: true,
+        nome: true,
+        nascimento: true,
+        fotoMiniatura: true,
         matriculas: {
           where: { arquivadoEm: null },
           // A matrícula que vale primeiro; entre as de mesmo status, a mais
@@ -38,7 +44,10 @@ export async function portalRoutes(app: FastifyInstance) {
           // cancelada de 2024 no lugar da confirmada de agora.
           orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
           take: 1,
-          include: {
+          select: {
+            id: true,
+            status: true,
+            expiraEm: true,
             turma: { select: { nome: true, categoria: true } },
             unidade: { select: { nome: true } },
             plano: { select: { nome: true } },
@@ -53,6 +62,7 @@ export async function portalRoutes(app: FastifyInstance) {
         id: a.id,
         nome: a.nome,
         nascimento: a.nascimento,
+        fotoMiniatura: a.fotoMiniatura,
         matricula: m
           ? {
               id: m.id,

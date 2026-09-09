@@ -528,12 +528,23 @@ model Responsavel {
 }
 
 model Aluno {
-  id         String    @id @default(uuid())
-  legacyId   Int?      @unique
-  nome       String
-  fotoUrl    String?
-  nascimento DateTime? @db.Date
-  observacao String?
+  id            String    @id @default(uuid())
+  legacyId      Int?      @unique
+  nome          String
+  // A foto vive no banco, como data URL, e não num diretório.
+  //
+  // O sistema atual grava o arquivo em storage/photo e guarda o caminho. No
+  // Render isso perderia as fotos a cada deploy: o disco é efêmero, e o
+  // arquivo some enquanto a linha do aluno continua apontando para ele.
+  //
+  // São duas: a miniatura acompanha as listas (chamada, cadastro), e a
+  // grande abre só quando alguém pede. Sem essa separação, uma lista de
+  // cinquenta alunos arrastaria mais de um megabyte para desenhar rostos de
+  // 40 pixels — foi o mesmo cuidado que a arte do cronograma exigiu.
+  foto          String? // ~400px, aberta sob demanda
+  fotoMiniatura String? // ~96px, viaja nas listas
+  nascimento    DateTime? @db.Date
+  observacao    String?
 
   responsavelId String?
   responsavel   Responsavel? @relation(fields: [responsavelId], references: [id])

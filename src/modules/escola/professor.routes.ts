@@ -93,7 +93,9 @@ export async function professorRoutes(app: FastifyInstance) {
         prisma.matricula.findMany({
           where: { turmaId: id, status: StatusMatricula.CONFIRMADA, arquivadoEm: null },
           include: {
-            aluno: { select: { id: true, nome: true } },
+            // A miniatura, nunca a foto grande: a lista de chamada de uma
+            // turma de 25 é aberta na quadra, em rede móvel.
+            aluno: { select: { id: true, nome: true, fotoMiniatura: true } },
             responsavel: { select: { nome: true } },
           },
         }),
@@ -124,6 +126,7 @@ export async function professorRoutes(app: FastifyInstance) {
           numero: i + 1,
           id: m.aluno.id,
           nome: m.aluno.nome,
+          foto: m.aluno.fotoMiniatura,
           responsavel: m.responsavel.nome,
           jaLancado: lancados.has(m.alunoId),
           presente: lancados.get(m.alunoId) ?? false,

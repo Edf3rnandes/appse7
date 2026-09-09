@@ -20,6 +20,15 @@ import { hoje, mesesAFrente } from "../../lib/datas.js";
 
 const idParams = z.object({ id: z.string().uuid() });
 
+// Mesmo limite e mesma checagem da arte do cronograma. O navegador já reduz
+// antes de enviar; isto aqui é a barreira final.
+const LIMITE_IMAGEM = 1_500_000;
+
+const imagemDataUrl = z
+  .string()
+  .refine((v) => /^data:image\/(jpeg|png|webp);base64,/.test(v), "Formato de imagem não aceito.")
+  .refine((v) => v.length <= LIMITE_IMAGEM, "A imagem ficou grande demais. Use uma menor.");
+
 // Data de calendário vinda da query. Meia-noite UTC, pelo mesmo motivo do
 // resto do sistema: `new Date("2026-09-08")` já é UTC, mas passar a string
 // crua deixaria o fuso do servidor decidir o dia.
@@ -109,7 +118,6 @@ const alunoSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use AAAA-MM-DD.")
     .transform((v) => new Date(`${v}T00:00:00.000Z`))
     .optional(),
-  fotoUrl: z.string().max(500).optional(),
   observacao: z.string().max(1000).optional(),
 });
 
@@ -396,7 +404,17 @@ export async function cadastroRoutes(app: FastifyInstance) {
         orderBy: { nome: "asc" },
         skip: (pagina - 1) * limite,
         take: limite,
-        include: {
+        // `select` e não `include`: com include, todos os campos escalares
+        // viriam junto, e `foto` (uns 25 KB por aluno) arrastaria mais de um
+        // megabyte numa página de cinquenta. Só a miniatura viaja.
+        select: {
+          id: true,
+          nome: true,
+          nascimento: true,
+          observacao: true,
+          arquivadoEm: true,
+          responsavelId: true,
+          fotoMiniatura: true,
           responsavel: { select: { id: true, nome: true, telefone: true } },
           matriculas: {
             where: { arquivadoEm: null, status: { not: StatusMatricula.CANCELADA } },
@@ -659,7 +677,12 @@ export async function cadastroRoutes(app: FastifyInstance) {
 
     const aluno = await prisma.aluno.findUnique({
       where: { id: alunoId },
-      include: { responsavel: { select: { nome: true, telefone: true } } },
+      select: {
+        id: true,
+        nome: true,
+        fotoMiniatura: true,
+        responsavel: { select: { nome: true, telefone: true } },
+      },
     });
     if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado." });
 
@@ -687,6 +710,54 @@ export async function cadastroRoutes(app: FastifyInstance) {
         professor: r.professor.nome,
       })),
     };
+  });
+
+  /**
+   * Foto do aluno.
+   *
+   * Chega já reduzida e recomprimida pelo navegador, em dois tamanhos: a
+   * miniatura para as listas e a maior para abrir. O limite aqui é a última
+   * barreira — uma foto crua de celular passa de 5 MB e viraria uma linha
+   * gigante no banco.
+   *
+   * Para que serve: o professor que pega uma turma nova tem vinte e cinco
+   * crianças e nenhum rosto. A lista de chamada com foto resolve isso na
+   * primeira aula, não na terceira semana.
+   */
+  app.put("/escola/alunos/:id/foto", equipe, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const { foto, miniatura } = z
+      .object({ foto: imagemDataUrl, miniatura: imagemDataUrl })
+      .parse(request.body);
+
+    await prisma.aluno.update({
+      where: { id },
+      data: { foto, fotoMiniatura: miniatura },
+    });
+
+    // Devolve só a miniatura: quem acabou de enviar já tem a imagem na tela,
+    // e mandá-la de volta seria pagar o dobro pelo mesmo dado.
+    return { fotoMiniatura: miniatura };
+  });
+
+  app.delete("/escola/alunos/:id/foto", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    await prisma.aluno.update({ where: { id }, data: { foto: null, fotoMiniatura: null } });
+    return reply.code(204).send();
+  });
+
+  /** A foto grande, sob demanda — nunca em lista. */
+  app.get("/escola/alunos/:id/foto", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const aluno = await prisma.aluno.findUnique({
+      where: { id },
+      select: { foto: true, nome: true },
+    });
+
+    if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado." });
+    if (!aluno.foto) return reply.code(404).send({ message: "Esse aluno não tem foto." });
+
+    return { nome: aluno.nome, foto: aluno.foto };
   });
 
   // ------------------------------------------------------------- matrículas

@@ -251,6 +251,13 @@ async function carregarAlunos() {
   }
 }
 
+/** "Beatriz Honor" -> "BH", enquanto o aluno não tem foto. */
+function iniciais(nome) {
+  const partes = (nome || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+}
+
 // A numeração vem do servidor e não muda com a busca: o número 7 continua sendo
 // o mesmo aluno com a lista filtrada, que é como o professor chama em quadra.
 function linhaAluno(a) {
@@ -258,6 +265,9 @@ function linhaAluno(a) {
     <button class="aluno" type="button" role="switch" aria-pressed="${a.presente ? "true" : "false"}"
             data-id="${a.id}" data-nome="${escapar((a.nome || "").toLowerCase())}">
       <span class="num">${String(a.numero).padStart(2, "0")}</span>
+      <span class="retrato pequeno">
+        ${a.foto ? `<img src="${escapar(a.foto)}" alt="">` : `<span>${escapar(iniciais(a.nome))}</span>`}
+      </span>
       <span class="nome-aluno">${escapar(a.nome)}</span>
       <span class="marca-presenca" aria-hidden="true">✓</span>
     </button>`;
