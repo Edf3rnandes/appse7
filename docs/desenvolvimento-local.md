@@ -85,11 +85,12 @@ O `/health` diz o que está ligado:
 
 ```json
 {"ok":true,"banco":true,"cronogramaCompartilhado":true,
- "google":false,"legado":false,"lancamentoFrequencia":false}
+ "google":false,"importacaoLegadoPronta":false}
 ```
 
-`google:false` e `legado:false` são o esperado numa máquina de
-desenvolvimento. `banco:false` ou `cronogramaCompartilhado:false` indicam que
+`google:false` e `importacaoLegadoPronta:false` são o esperado numa máquina de
+desenvolvimento — e em produção também, enquanto o Google não estiver
+configurado e a importação dos alunos não acontecer. `banco:false` ou `cronogramaCompartilhado:false` indicam que
 o passo 3 não foi feito.
 
 Entre em <http://localhost:3000/secretaria.html> com o e-mail de

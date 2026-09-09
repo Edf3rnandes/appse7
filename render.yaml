@@ -15,8 +15,13 @@ services:
     region: oregon
     buildCommand: npm install && npm run build
     # `prisma db push` nao roda aqui: em producao a conexao e pelo pooler de
-    # transacao, por onde mudanca de schema nao passa. Schema se aplica a parte,
-    # com DIRECT_URL. O seed e idempotente e pode repetir.
+    # transacao, por onde mudanca de schema nao passa. O schema vem de
+    # prisma/instalar-no-supabase.sql, colado no SQL Editor do Supabase.
+    #
+    # O seed so garante a conta de ADMIN_EMAILS, e e idempotente. As turmas,
+    # os planos e a escola de demonstracao NAO entram aqui: sao comandos
+    # rodados a mao uma vez (npm run importar:turmas / importar:planos), e
+    # repeti-los a cada deploy so gastaria tempo de partida.
     startCommand: node dist/db/seed.js && node dist/server.js
     healthCheckPath: /health
     envVars:
@@ -32,14 +37,15 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
+      # Valvula de escape: com ela, as contas de ADMIN_EMAILS ganham login por
+      # e-mail e senha alem do Google. Sem Google configurado, e a unica porta.
+      - key: SEED_ADMIN_SENHA
+        sync: false
       - key: ASAAS_API_KEY
         sync: false
-      # Endereco do sistema Laravel, usado so para GRAVAR frequencia
-      # (ex.: https://sistema.se7volei.com.br). Sem isso o app sobe e apenas o
-      # envio da chamada responde 503.
-      - key: LEGACY_API_URL
-        sync: false
-      # Liberar so quando o usuario somente-leitura do MySQL existir.
+      # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a
+      # escola mora no Postgres do Hub. Estas variaveis servem so a importacao
+      # unica dos alunos, quando ela acontecer — e podem ficar vazias ate la.
       - key: LEGACY_MYSQL_HOST
         sync: false
       - key: LEGACY_MYSQL_USER

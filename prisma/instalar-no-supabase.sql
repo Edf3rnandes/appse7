@@ -1,79 +1,83 @@
--- ============================================================================
--- SE7 Hub — instalação no banco compartilhado com o se7-inadimplencia
+-- ===========================================================================
+-- SE7 Hub — instalação no Supabase
 --
--- COLE ESTE ARQUIVO INTEIRO no SQL Editor do Supabase, no projeto que o
--- se7-cobrancas (se7-inadimplencia) já usa em produção, e clique em Run.
--- Não precisa de terminal, nem da CLI, nem de expor a senha do banco.
+-- Cole isto inteiro no SQL Editor do Supabase (o mesmo projeto do
+-- se7-inadimplencia) e clique em Run.
 --
--- O que ele faz, e só isso:
---   1. cria o schema `hub`, onde ficam as tabelas do Hub;
---   2. acrescenta a coluna `observacoes` em public.cronograma_semanas;
---   3. cria as tabelas do Hub dentro de `hub`.
+-- O QUE ELE FAZ
+--   1. Cria o schema `hub` e as 20 tabelas do sistema.
+--   2. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
--- Tudo é ADITIVO. Nenhum comando aqui altera, esvazia ou apaga qualquer coisa
--- que já exista: não há DROP, nem ALTER de coluna existente, nem DELETE.
--- As tabelas do se7-inadimplencia (cronograma_semanas, central_cards,
--- cobranca_registros, loja_*, usuarios, ...) continuam exatamente como estão.
+-- O QUE ELE NÃO TOCA
+--   Nada fora do schema `hub`. As tabelas do se7-inadimplencia
+--   (cronograma_semanas, central_cards, cobranca_registros, loja_*, usuarios,
+--   ...) vivem em `public` e seguem exatamente como estão. A única alteração
+--   ali é a coluna `observacoes`, aditiva, que aquele sistema não consulta.
 --
--- Pode rodar duas vezes sem problema: tudo usa IF NOT EXISTS.
+--   Não há DROP, DELETE nem TRUNCATE em nenhuma linha deste arquivo.
 --
--- Como conferir que deu certo, depois do Run:
---   select table_schema, table_name from information_schema.tables
---   where table_schema in ('hub','public') order by 1, 2;
--- ============================================================================
-
 -- ---------------------------------------------------------------------------
--- 1 e 2: schema do Hub e a coluna que o cronograma ganha
+-- ANTES DE RODAR, SE VOCÊ JÁ RODOU A VERSÃO ANTERIOR
+--
+--   A versão anterior criava 9 tabelas. O sistema agora tem 20, e três das
+--   antigas mudaram de forma: o vínculo da conta passou a apontar para
+--   professor/responsável por chave estrangeira, em vez de um id do MySQL.
+--   Este script não altera tabela existente, então ele vai falhar dizendo que
+--   `hub.usuarios` já existe.
+--
+--   O `hub` do seu Supabase tem só dados de teste — as contas e convites que
+--   criamos experimentando. Para recomeçar, rode ESTE comando sozinho,
+--   primeiro, conferindo que está escrito "hub" e não "public":
+--
+--       DROP SCHEMA "hub" CASCADE;
+--
+--   Ele apaga as tabelas do Hub e nada mais. Deixei fora deste arquivo de
+--   propósito: apagar dados tem de ser um clique consciente, não uma linha
+--   perdida no meio de quinhentas.
+--
+--   Se houver algo no `hub` que você queira guardar, salve antes.
 -- ---------------------------------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS hub;
+--
+-- COMO CONFERIR DEPOIS
+--   select table_schema, count(*) from information_schema.tables
+--    where table_schema in ('hub','public') group by 1;
+--   -- hub deve ter 20; public, o mesmo número de antes.
+-- ===========================================================================
 
--- Observações do treino para o professor (maré, quadra, material). O
--- se7-inadimplencia não consulta esta coluna, então segue funcionando igual.
+-- Observações do treino para o professor (maré, quadra, material). Aditiva: o
+-- se7-inadimplencia não consulta esta coluna e segue funcionando igual.
 ALTER TABLE public.cronograma_semanas
   ADD COLUMN IF NOT EXISTS observacoes text;
 
--- ---------------------------------------------------------------------------
--- 3: tabelas do Hub, dentro do schema `hub`
--- ---------------------------------------------------------------------------
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "hub";
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."Provedor" AS ENUM ('GOOGLE', 'SENHA');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."Provedor" AS ENUM ('GOOGLE', 'SENHA');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."PapelNome" AS ENUM ('ADMIN', 'SECRETARIA', 'PROFESSOR', 'RESPONSAVEL');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."PapelNome" AS ENUM ('ADMIN', 'SECRETARIA', 'PROFESSOR', 'RESPONSAVEL');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."TipoVinculo" AS ENUM ('RESPONSAVEL', 'PROFESSOR');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."TipoVinculo" AS ENUM ('RESPONSAVEL', 'PROFESSOR');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."TipoEvento" AS ENUM ('TREINO_ESPECIAL', 'CAMPEONATO', 'FESTIVAL', 'REUNIAO', 'AVALIACAO', 'FERIADO', 'OUTRO');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."TipoEvento" AS ENUM ('TREINO_ESPECIAL', 'CAMPEONATO', 'FESTIVAL', 'REUNIAO', 'AVALIACAO', 'FERIADO', 'OUTRO');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."TipoOcorrencia" AS ENUM ('TURMA_ERRADA', 'ALUNO_FALTANDO', 'REGISTRO_TREINO', 'OUTRO');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."TipoOcorrencia" AS ENUM ('TURMA_ERRADA', 'ALUNO_FALTANDO', 'REGISTRO_TREINO', 'OUTRO');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "hub"."StatusOcorrencia" AS ENUM ('ABERTA', 'RESOLVIDA');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE "hub"."StatusOcorrencia" AS ENUM ('ABERTA', 'RESOLVIDA');
+
+-- CreateEnum
+CREATE TYPE "hub"."DiaDaSemana" AS ENUM ('DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO');
+
+-- CreateEnum
+CREATE TYPE "hub"."StatusMatricula" AS ENUM ('CRIADA', 'PAGAMENTO_PENDENTE', 'CONFIRMADA', 'CANCELADA');
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."usuarios" (
+CREATE TABLE "hub"."usuarios" (
     "id" TEXT NOT NULL,
     "nome" TEXT NOT NULL,
     "email" TEXT NOT NULL,
@@ -87,7 +91,7 @@ CREATE TABLE IF NOT EXISTS "hub"."usuarios" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."identidades" (
+CREATE TABLE "hub"."identidades" (
     "id" TEXT NOT NULL,
     "usuarioId" TEXT NOT NULL,
     "provedor" "hub"."Provedor" NOT NULL,
@@ -99,7 +103,7 @@ CREATE TABLE IF NOT EXISTS "hub"."identidades" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."papeis" (
+CREATE TABLE "hub"."papeis" (
     "id" TEXT NOT NULL,
     "usuarioId" TEXT NOT NULL,
     "nome" "hub"."PapelNome" NOT NULL,
@@ -109,11 +113,12 @@ CREATE TABLE IF NOT EXISTS "hub"."papeis" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."vinculos" (
+CREATE TABLE "hub"."vinculos" (
     "id" TEXT NOT NULL,
     "usuarioId" TEXT NOT NULL,
     "tipo" "hub"."TipoVinculo" NOT NULL,
-    "legacyId" INTEGER NOT NULL,
+    "professorId" TEXT,
+    "responsavelId" TEXT,
     "cpf" TEXT,
     "confirmadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -121,7 +126,7 @@ CREATE TABLE IF NOT EXISTS "hub"."vinculos" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."tentativas_vinculo" (
+CREATE TABLE "hub"."tentativas_vinculo" (
     "id" TEXT NOT NULL,
     "usuarioId" TEXT NOT NULL,
     "cpfHash" TEXT NOT NULL,
@@ -133,11 +138,11 @@ CREATE TABLE IF NOT EXISTS "hub"."tentativas_vinculo" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."convites" (
+CREATE TABLE "hub"."convites" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "papel" "hub"."PapelNome" NOT NULL,
-    "legacyId" INTEGER,
+    "professorId" TEXT,
     "criadoPorId" TEXT,
     "expiraEm" TIMESTAMP(3) NOT NULL,
     "usadoEm" TIMESTAMP(3),
@@ -147,7 +152,7 @@ CREATE TABLE IF NOT EXISTS "hub"."convites" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."eventos" (
+CREATE TABLE "hub"."eventos" (
     "id" TEXT NOT NULL,
     "titulo" TEXT NOT NULL,
     "descricao" TEXT,
@@ -166,7 +171,7 @@ CREATE TABLE IF NOT EXISTS "hub"."eventos" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."configuracoes" (
+CREATE TABLE "hub"."configuracoes" (
     "chave" TEXT NOT NULL,
     "valor" TEXT NOT NULL,
     "atualizadoEm" TIMESTAMP(3) NOT NULL,
@@ -175,13 +180,13 @@ CREATE TABLE IF NOT EXISTS "hub"."configuracoes" (
 );
 
 -- CreateTable
-CREATE TABLE IF NOT EXISTS "hub"."ocorrencias" (
+CREATE TABLE "hub"."ocorrencias" (
     "id" TEXT NOT NULL,
     "tipo" "hub"."TipoOcorrencia" NOT NULL,
     "status" "hub"."StatusOcorrencia" NOT NULL DEFAULT 'ABERTA',
-    "professorLegacyId" INTEGER NOT NULL,
+    "professorId" TEXT NOT NULL,
     "professorNome" TEXT NOT NULL,
-    "turmaLegacyId" INTEGER,
+    "turmaId" TEXT,
     "turmaNome" TEXT,
     "alunoNome" TEXT,
     "descricao" TEXT NOT NULL,
@@ -194,63 +199,341 @@ CREATE TABLE IF NOT EXISTS "hub"."ocorrencias" (
     CONSTRAINT "ocorrencias_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX IF NOT EXISTS "usuarios_email_key" ON "hub"."usuarios"("email");
+-- CreateTable
+CREATE TABLE "hub"."unidades" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "descricao" TEXT,
+    "endereco" TEXT,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "unidades_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."turmas" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "categoria" TEXT,
+    "descricao" TEXT,
+    "link" TEXT,
+    "capacidade" INTEGER,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "aceitaNovasMatriculas" BOOLEAN NOT NULL DEFAULT true,
+    "unidadeId" TEXT NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "turmas_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."horarios_turma" (
+    "id" TEXT NOT NULL,
+    "turmaId" TEXT NOT NULL,
+    "dia" "hub"."DiaDaSemana" NOT NULL,
+    "inicio" TEXT NOT NULL,
+    "fim" TEXT NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "horarios_turma_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."professores" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "email" TEXT,
+    "telefone" TEXT,
+    "ativo" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "professores_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."professor_turma" (
+    "professorId" TEXT NOT NULL,
+    "turmaId" TEXT NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "professor_turma_pkey" PRIMARY KEY ("professorId","turmaId")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."planos" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "descricao" TEXT,
+    "valor" DECIMAL(10,2) NOT NULL,
+    "parcelas" INTEGER NOT NULL DEFAULT 1,
+    "ativo" BOOLEAN NOT NULL DEFAULT true,
+    "multiplasMatriculas" BOOLEAN NOT NULL DEFAULT false,
+    "descontoPercentual" INTEGER NOT NULL DEFAULT 0,
+    "descontoAteDias" INTEGER NOT NULL DEFAULT 0,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "planos_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."plano_turma" (
+    "planoId" TEXT NOT NULL,
+    "turmaId" TEXT NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "plano_turma_pkey" PRIMARY KEY ("planoId","turmaId")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."responsaveis" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "email" TEXT,
+    "telefone" TEXT,
+    "cpf" TEXT NOT NULL,
+    "cep" TEXT,
+    "logradouro" TEXT,
+    "numero" TEXT,
+    "complemento" TEXT,
+    "bairro" TEXT,
+    "cidade" TEXT,
+    "estado" TEXT,
+    "asaasCustomer" TEXT,
+    "arquivadoEm" TIMESTAMP(3),
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "responsaveis_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."alunos" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "nome" TEXT NOT NULL,
+    "fotoUrl" TEXT,
+    "nascimento" DATE,
+    "observacao" TEXT,
+    "responsavelId" TEXT,
+    "arquivadoEm" TIMESTAMP(3),
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "alunos_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."matriculas" (
+    "id" TEXT NOT NULL,
+    "legacyId" INTEGER,
+    "status" "hub"."StatusMatricula" NOT NULL DEFAULT 'CRIADA',
+    "alunoId" TEXT NOT NULL,
+    "responsavelId" TEXT NOT NULL,
+    "turmaId" TEXT NOT NULL,
+    "unidadeId" TEXT NOT NULL,
+    "planoId" TEXT NOT NULL,
+    "observacao" TEXT,
+    "expiraEm" DATE,
+    "asaasReferencia" TEXT,
+    "asaasPagamento" TEXT,
+    "linkPagamento" TEXT,
+    "asaasPayload" JSONB,
+    "canceladaEm" TIMESTAMP(3),
+    "arquivadoEm" TIMESTAMP(3),
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "matriculas_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."presencas" (
+    "id" TEXT NOT NULL,
+    "turmaId" TEXT NOT NULL,
+    "alunoId" TEXT NOT NULL,
+    "professorId" TEXT NOT NULL,
+    "data" DATE NOT NULL,
+    "presente" BOOLEAN NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "presencas_pkey" PRIMARY KEY ("id")
+);
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "identidades_usuarioId_idx" ON "hub"."identidades"("usuarioId");
+CREATE UNIQUE INDEX "usuarios_email_key" ON "hub"."usuarios"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX IF NOT EXISTS "identidades_provedor_provedorSub_key" ON "hub"."identidades"("provedor", "provedorSub");
+CREATE INDEX "identidades_usuarioId_idx" ON "hub"."identidades"("usuarioId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX IF NOT EXISTS "papeis_usuarioId_nome_key" ON "hub"."papeis"("usuarioId", "nome");
+CREATE UNIQUE INDEX "identidades_provedor_provedorSub_key" ON "hub"."identidades"("provedor", "provedorSub");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "vinculos_usuarioId_idx" ON "hub"."vinculos"("usuarioId");
+CREATE UNIQUE INDEX "papeis_usuarioId_nome_key" ON "hub"."papeis"("usuarioId", "nome");
 
 -- CreateIndex
-CREATE UNIQUE INDEX IF NOT EXISTS "vinculos_tipo_legacyId_key" ON "hub"."vinculos"("tipo", "legacyId");
+CREATE INDEX "vinculos_usuarioId_idx" ON "hub"."vinculos"("usuarioId");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "tentativas_vinculo_usuarioId_criadoEm_idx" ON "hub"."tentativas_vinculo"("usuarioId", "criadoEm");
+CREATE UNIQUE INDEX "vinculos_professorId_key" ON "hub"."vinculos"("professorId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX IF NOT EXISTS "convites_email_key" ON "hub"."convites"("email");
+CREATE UNIQUE INDEX "vinculos_responsavelId_key" ON "hub"."vinculos"("responsavelId");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "convites_email_idx" ON "hub"."convites"("email");
+CREATE INDEX "tentativas_vinculo_usuarioId_criadoEm_idx" ON "hub"."tentativas_vinculo"("usuarioId", "criadoEm");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "eventos_data_publicado_idx" ON "hub"."eventos"("data", "publicado");
+CREATE UNIQUE INDEX "convites_email_key" ON "hub"."convites"("email");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "ocorrencias_status_criadoEm_idx" ON "hub"."ocorrencias"("status", "criadoEm");
+CREATE INDEX "convites_email_idx" ON "hub"."convites"("email");
 
 -- CreateIndex
-CREATE INDEX IF NOT EXISTS "ocorrencias_professorLegacyId_criadoEm_idx" ON "hub"."ocorrencias"("professorLegacyId", "criadoEm");
+CREATE INDEX "eventos_data_publicado_idx" ON "hub"."eventos"("data", "publicado");
+
+-- CreateIndex
+CREATE INDEX "ocorrencias_status_criadoEm_idx" ON "hub"."ocorrencias"("status", "criadoEm");
+
+-- CreateIndex
+CREATE INDEX "ocorrencias_professorId_criadoEm_idx" ON "hub"."ocorrencias"("professorId", "criadoEm");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "unidades_legacyId_key" ON "hub"."unidades"("legacyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "turmas_legacyId_key" ON "hub"."turmas"("legacyId");
+
+-- CreateIndex
+CREATE INDEX "turmas_unidadeId_ativa_idx" ON "hub"."turmas"("unidadeId", "ativa");
+
+-- CreateIndex
+CREATE INDEX "horarios_turma_turmaId_idx" ON "hub"."horarios_turma"("turmaId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "professores_legacyId_key" ON "hub"."professores"("legacyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "professores_email_key" ON "hub"."professores"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "planos_legacyId_key" ON "hub"."planos"("legacyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "responsaveis_legacyId_key" ON "hub"."responsaveis"("legacyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "responsaveis_cpf_key" ON "hub"."responsaveis"("cpf");
+
+-- CreateIndex
+CREATE INDEX "responsaveis_nome_idx" ON "hub"."responsaveis"("nome");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "alunos_legacyId_key" ON "hub"."alunos"("legacyId");
+
+-- CreateIndex
+CREATE INDEX "alunos_nome_idx" ON "hub"."alunos"("nome");
+
+-- CreateIndex
+CREATE INDEX "alunos_responsavelId_idx" ON "hub"."alunos"("responsavelId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "matriculas_legacyId_key" ON "hub"."matriculas"("legacyId");
+
+-- CreateIndex
+CREATE INDEX "matriculas_status_criadoEm_idx" ON "hub"."matriculas"("status", "criadoEm");
+
+-- CreateIndex
+CREATE INDEX "matriculas_turmaId_status_idx" ON "hub"."matriculas"("turmaId", "status");
+
+-- CreateIndex
+CREATE INDEX "matriculas_alunoId_idx" ON "hub"."matriculas"("alunoId");
+
+-- CreateIndex
+CREATE INDEX "presencas_turmaId_data_idx" ON "hub"."presencas"("turmaId", "data");
+
+-- CreateIndex
+CREATE INDEX "presencas_alunoId_data_idx" ON "hub"."presencas"("alunoId", "data");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "presencas_turmaId_alunoId_data_key" ON "hub"."presencas"("turmaId", "alunoId", "data");
 
 -- AddForeignKey
-DO $$ BEGIN
-  ALTER TABLE "hub"."identidades" ADD CONSTRAINT "identidades_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE "hub"."identidades" ADD CONSTRAINT "identidades_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-DO $$ BEGIN
-  ALTER TABLE "hub"."papeis" ADD CONSTRAINT "papeis_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE "hub"."papeis" ADD CONSTRAINT "papeis_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-DO $$ BEGIN
-  ALTER TABLE "hub"."vinculos" ADD CONSTRAINT "vinculos_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE "hub"."vinculos" ADD CONSTRAINT "vinculos_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-DO $$ BEGIN
-  ALTER TABLE "hub"."tentativas_vinculo" ADD CONSTRAINT "tentativas_vinculo_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE "hub"."vinculos" ADD CONSTRAINT "vinculos_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."vinculos" ADD CONSTRAINT "vinculos_responsavelId_fkey" FOREIGN KEY ("responsavelId") REFERENCES "hub"."responsaveis"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."tentativas_vinculo" ADD CONSTRAINT "tentativas_vinculo_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."ocorrencias" ADD CONSTRAINT "ocorrencias_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."ocorrencias" ADD CONSTRAINT "ocorrencias_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."turmas" ADD CONSTRAINT "turmas_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."horarios_turma" ADD CONSTRAINT "horarios_turma_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."professor_turma" ADD CONSTRAINT "professor_turma_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."professor_turma" ADD CONSTRAINT "professor_turma_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."plano_turma" ADD CONSTRAINT "plano_turma_planoId_fkey" FOREIGN KEY ("planoId") REFERENCES "hub"."planos"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."plano_turma" ADD CONSTRAINT "plano_turma_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."alunos" ADD CONSTRAINT "alunos_responsavelId_fkey" FOREIGN KEY ("responsavelId") REFERENCES "hub"."responsaveis"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."matriculas" ADD CONSTRAINT "matriculas_alunoId_fkey" FOREIGN KEY ("alunoId") REFERENCES "hub"."alunos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."matriculas" ADD CONSTRAINT "matriculas_responsavelId_fkey" FOREIGN KEY ("responsavelId") REFERENCES "hub"."responsaveis"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."matriculas" ADD CONSTRAINT "matriculas_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."matriculas" ADD CONSTRAINT "matriculas_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."matriculas" ADD CONSTRAINT "matriculas_planoId_fkey" FOREIGN KEY ("planoId") REFERENCES "hub"."planos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_turmaId_fkey" FOREIGN KEY ("turmaId") REFERENCES "hub"."turmas"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_alunoId_fkey" FOREIGN KEY ("alunoId") REFERENCES "hub"."alunos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

@@ -1,8 +1,11 @@
 # Subir o SE7 Hub no Render
 
-Passo a passo do primeiro deploy. O banco já precisa estar preparado — se ainda
-não estiver, rode `prisma/instalar-no-supabase.sql` no SQL Editor do Supabase
-antes (ver README).
+Passo a passo do primeiro deploy.
+
+**Antes de tudo, o banco.** Rode `prisma/instalar-no-supabase.sql` no SQL Editor
+do Supabase — ele cria o schema `hub` com as 20 tabelas e não toca em nada do
+se7-inadimplencia. O cabeçalho do arquivo explica o que fazer se você já rodou
+a versão anterior, que criava 9.
 
 ## 1. Criar o serviço
 
@@ -35,10 +38,15 @@ Settings → Database → Connection string, porta **5432** (nunca a 6543).
 
 | Variável | Valor |
 |---|---|
-| `GOOGLE_CLIENT_ID` | do projeto no Google Cloud (passo 3) |
 | `ADMIN_EMAILS` | seu e-mail — é quem vira ADMIN no primeiro login |
+| `SEED_ADMIN_SENHA` | uma senha forte. Sem Google configurado, é a única porta de entrada |
 | `TZ` | `America/Fortaleza` (já vem no `render.yaml`) |
 | `JWT_SECRET` | o Render gera sozinho (`generateValue: true`) |
+| `GOOGLE_CLIENT_ID` | do projeto no Google Cloud (passo 3) — opcional |
+
+`GOOGLE_CLIENT_ID` deixou de ser obrigatória: com `SEED_ADMIN_SENHA` definida,
+a tela de entrada mostra o formulário de e-mail e senha e o sistema sobe sem o
+Google. Dá para deixar o Google para depois, quando o domínio estiver decidido.
 
 ### Opcionais — o app sobe sem elas
 
@@ -48,8 +56,29 @@ Cada uma destrava um pedaço; sem elas as telas correspondentes dizem
 | Variável | Destrava |
 |---|---|
 | `ASAAS_API_KEY` | faturas no portal do responsável |
-| `LEGACY_MYSQL_HOST` `_USER` `_PASSWORD` `_DATABASE` | alunos, turmas, frequência, cadastro |
-| `LEGACY_API_URL` | envio da chamada pelo professor |
+| `LEGACY_MYSQL_HOST` `_USER` `_PASSWORD` `_DATABASE` | só a importação única dos alunos do Laravel |
+
+As variáveis `LEGACY_MYSQL_*` **não** são mais necessárias para o sistema
+funcionar: alunos, turmas e matrículas moram no Postgres do Hub. Elas servem
+apenas ao dia da importação, e podem ficar vazias até lá.
+
+## 3. Os dados da escola, uma vez só
+
+Com o serviço no ar, as unidades, turmas e planos entram por dois comandos.
+Eles não rodam a cada deploy — são uma vez, e repetir não duplica (cada linha
+guarda o id que tem no sistema atual):
+
+```bash
+npm run importar:turmas   # 6 unidades e 46 turmas, com horários
+npm run importar:planos   # 43 planos, cada um ligado às suas turmas
+```
+
+Rodando localmente, com `DATABASE_URL` apontando para o Supabase, ou pelo Shell
+do Render. A saída lista o que foi ligado e avisa se alguma turma ficou sem
+plano — turma sem plano não aceita matrícula.
+
+Alunos, responsáveis e matrículas ainda não têm importador: dependem dos dados
+do MySQL do Laravel (ver `docs/acesso-mysql.md`).
 
 ## 3. Google Cloud, para o login
 
@@ -76,7 +105,7 @@ Depois do deploy, abra `https://se7-hub.onrender.com/health`:
 
 ```json
 {"ok":true,"banco":true,"cronogramaCompartilhado":true,
- "google":true,"legado":false,"lancamentoFrequencia":false}
+ "google":false,"importacaoLegadoPronta":false}
 ```
 
 Como ler cada campo:
@@ -85,16 +114,16 @@ Como ler cada campo:
 |---|---|
 | `banco` | A `DATABASE_URL` está errada ou o Postgres não respondeu |
 | `cronogramaCompartilhado` | Conectou, mas **num banco sem `cronograma_semanas`** — provavelmente projeto errado, ou o `instalar-no-supabase.sql` não rodou |
-| `google` | Falta `GOOGLE_CLIENT_ID` — **ninguém consegue entrar, nem o ADMIN** |
-| `legado` | Sem as variáveis `LEGACY_MYSQL_*`: alunos, faturas, chamada e cadastro ficam indisponíveis |
-| `lancamentoFrequencia` | Sem `LEGACY_API_URL`: o professor vê a chamada mas não consegue enviar |
+| `google` | Falta `GOOGLE_CLIENT_ID`. Com `SEED_ADMIN_SENHA` definida, dá para entrar por e-mail e senha assim mesmo |
+| `importacaoLegadoPronta` | Sem as variáveis `LEGACY_MYSQL_*`. Não impede nada: só a importação dos alunos precisa delas |
 
-Os dois últimos em `false` são o esperado no primeiro deploy. Os três primeiros
-precisam estar `true` para o sistema servir para alguma coisa.
+Os dois últimos em `false` são o esperado, e o sistema funciona assim. Os dois
+primeiros precisam estar `true`.
 
-Então entre em `/secretaria.html` com a conta de `ADMIN_EMAILS`. Você cai como
-ADMIN e já consegue cadastrar cronograma e eventos — inclusive vendo as semanas
-que a secretaria criou pelo painel antigo, porque é a mesma tabela.
+Então entre em `/secretaria.html` com a conta de `ADMIN_EMAILS` e a senha de
+`SEED_ADMIN_SENHA`. Você cai como ADMIN, com o cadastro da escola já no lugar
+se os dois comandos de importação tiverem rodado — e vendo as semanas de
+cronograma que a secretaria criou pelo painel antigo, porque é a mesma tabela.
 
 ## 5. Primeiros acessos das outras pessoas
 
