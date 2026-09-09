@@ -4,7 +4,7 @@ import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../src/lib/prisma.js";
 
 /**
- * A regra de segurança da pré-matrícula pública.
+ * A regra de segurança da matrícula feita pelo site.
  *
  * O endpoint equivalente do sistema atual (POST /api/enrollment, aberto na
  * internet) procura o responsável pelo CPF e, achando, sobrescreve nome,
@@ -16,7 +16,11 @@ import { prisma } from "../src/lib/prisma.js";
  */
 
 const MARCA = "ZZ-teste-premat";
-const CPF = "39053344705";
+// CPF exclusivo deste arquivo. Os arquivos de teste rodam em paralelo, e
+// enquanto ele era o mesmo do matricula.test.ts os dois criavam e apagavam o
+// mesmo responsável — o teste da ocupação falhava de vez em quando, sem que
+// nada no código estivesse errado.
+const CPF = "70000000078";
 
 async function limpar() {
   const resp = await prisma.responsavel.findUnique({ where: { cpf: CPF } });
@@ -32,7 +36,7 @@ async function limpar() {
   await prisma.unidade.deleteMany({ where: { nome: { contains: MARCA } } });
 }
 
-describe("pré-matrícula pelo site", () => {
+describe("matrícula pelo site", () => {
   before(limpar);
   after(async () => {
     await limpar();
@@ -59,7 +63,7 @@ describe("pré-matrícula pelo site", () => {
     assert.equal(depois.telefone, "83 99999-1111", "o telefone não pode mudar pelo site");
   });
 
-  it("a pré-matrícula nasce CRIADA, esperando a secretaria", async () => {
+  it("a matrícula do site nasce CRIADA, esperando o administrativo", async () => {
     const unidade = await prisma.unidade.create({ data: { nome: `${MARCA} unidade` } });
     const plano = await prisma.plano.create({
       data: { nome: `${MARCA} plano`, valor: 100, parcelas: 6 },
@@ -80,7 +84,7 @@ describe("pré-matrícula pelo site", () => {
         unidadeId: unidade.id,
         planoId: plano.id,
         status: StatusMatricula.CRIADA,
-        observacao: "Pré-matrícula feita pelo site.",
+        observacao: "Matrícula feita pelo site.",
       },
     });
 

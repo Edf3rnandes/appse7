@@ -1,0 +1,125 @@
+From 90af84871962fe42854ac51cc88cefae2dc468bd Mon Sep 17 00:00:00 2001
+From: Ed Fernandes <x@x>
+Date: Wed, 9 Sep 2026 16:41:56 +0000
+Subject: [PATCH] Corrige a sobrescrita do responsavel na matricula publica
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A rota POST /api/enrollment e aberta na internet: nao ha login entre o
+formulario do site e o banco. Ela procurava o responsavel pelo CPF e, se
+encontrasse, substituia nome, e-mail e telefone pelo que viesse no corpo da
+requisicao.
+
+O efeito: quem souber o CPF de um responsavel preenche o site com aquele CPF
+e o proprio e-mail, e passa a receber as cobrancas daquela familia — o
+e-mail do Customer e o que o Asaas usa.
+
+Agora um cadastro existente nunca e alterado por esta rota. O que veio
+diferente e anotado na descricao da matricula, para a secretaria conferir com
+a familia e corrigir pelo painel, que e autenticado.
+
+Junto, a primeira linha do controller deixou de gravar o corpo inteiro no
+log: ela punha CPF, e-mail e telefone em texto claro, em nivel critical.
+Ficou um Log::info com turma, unidade e se e plano familia.
+
+Nao muda o fluxo de quem se matricula: cadastro novo continua sendo criado
+igual, e a resposta e a mesma.
+---
+ .../Controllers/Api/EnrollmentController.php  | 64 ++++++++++++++++---
+ 1 file changed, 56 insertions(+), 8 deletions(-)
+
+diff --git a/app/Http/Controllers/Api/EnrollmentController.php b/app/Http/Controllers/Api/EnrollmentController.php
+index f106def..7644440 100644
+--- a/app/Http/Controllers/Api/EnrollmentController.php
++++ b/app/Http/Controllers/Api/EnrollmentController.php
+@@ -20,7 +20,14 @@ class EnrollmentController extends Controller
+     public function store(Request $request)
+     {
+ 
+-        Log::critical('PAYLOAD_MATRICULA ==> ' . json_encode($request->all()));
++        // Sem o corpo da requisicao no log: ele traz CPF, e-mail e telefone em
++        // texto claro, e ficava gravado em nivel critical. O que interessa para
++        // depurar e saber que a matricula entrou e por qual turma.
++        Log::info('MATRICULA_RECEBIDA', [
++            'course_id' => $request->course_id,
++            'unit_id' => $request->unit_id,
++            'familia' => $request->isFamilia == 'true',
++        ]);
+ 
+         $isMenor = $request->isMenor == 'true';
+         $isFamiliar = $request->isFamilia == 'true';
+@@ -40,15 +47,53 @@ public function store(Request $request)
+ 
+             #check if customer exists
+             $customerExist = Customer::where('cpf', $cpf)->first();
+-            $customer = $customerExist ?: new Customer();
+ 
+-            #create a customer
+-            $customer->name = $isMenor ? $request->resp_name : $request->name;
+-            $customer->email = $isMenor ? $request->resp_email : $request->email;
+-            $customer->phone = $isMenor ? $request->resp_phone : $request->phone;
++            if ($customerExist) {
++                // NAO sobrescreve o cadastro que ja existe.
++                //
++                // Esta rota e publica: nao ha login nenhum entre a internet e
++                // aqui. Como o responsavel era procurado pelo CPF e tinha nome,
++                // e-mail e telefone substituidos pelo que viesse no formulario,
++                // bastava conhecer o CPF de alguem para trocar o e-mail dessa
++                // pessoa — e o e-mail e para onde vai a cobranca do Asaas.
++                //
++                // Agora o cadastro segue como esta. O que veio diferente e
++                // anotado na matricula, para a secretaria conferir com a
++                // familia e corrigir pelo painel, que e autenticado.
++                $customer = $customerExist;
++
++                $informado = [
++                    'Nome' => $isMenor ? $request->resp_name : $request->name,
++                    'E-mail' => $isMenor ? $request->resp_email : $request->email,
++                    'Telefone' => $isMenor ? $request->resp_phone : $request->phone,
++                ];
++                $atual = [
++                    'Nome' => $customer->name,
++                    'E-mail' => $customer->email,
++                    'Telefone' => $customer->phone,
++                ];
++
++                $divergencias = [];
++                foreach ($informado as $rotulo => $valor) {
++                    $novo = trim((string) $valor);
++                    $velho = trim((string) $atual[$rotulo]);
++                    if ($novo !== '' && $velho !== '' && mb_strtolower($novo) !== mb_strtolower($velho)) {
++                        $divergencias[] = "{$rotulo} informado no site: \"{$novo}\" (cadastro: \"{$velho}\")";
++                    }
++                }
+ 
+-            $customer->cpf = $cpf;
+-            $customer->save();
++                $avisoDivergencia = $divergencias
++                    ? 'Responsavel ja cadastrado; dados do site NAO aplicados. ' . implode('. ', $divergencias) . '.'
++                    : '';
++            } else {
++                $customer = new Customer();
++                $customer->name = $isMenor ? $request->resp_name : $request->name;
++                $customer->email = $isMenor ? $request->resp_email : $request->email;
++                $customer->phone = $isMenor ? $request->resp_phone : $request->phone;
++                $customer->cpf = $cpf;
++                $customer->save();
++                $avisoDivergencia = '';
++            }
+ 
+             if ($customer->asaas_customer == '') {
+                 $customerResponse = CustomerService::createCustomer($customer);
+@@ -67,6 +112,9 @@ public function store(Request $request)
+             $enrollment->category = 'parent';
+             $enrollment->customer_id = $customer->id;
+             $enrollment->status = Enrollment::STATUS_PAYMENT_PENDDING;
++            if ($avisoDivergencia !== '') {
++                $enrollment->description = $avisoDivergencia;
++            }
+             $enrollment->save();
+         } catch (Exception $e) {
+             Log::critical('ERRO_MATRICULA_PRINCIPAL' . json_encode($e->getMessage()));
+-- 
+2.43.0
+

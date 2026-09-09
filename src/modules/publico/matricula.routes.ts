@@ -8,7 +8,11 @@ import { mesesAFrente } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 
 /**
- * Pré-matrícula pública — o que a família preenche no site.
+ * Matrícula pelo site — o que a família preenche.
+ *
+ * Não é "pré-matrícula": a matrícula é esta, e os boletos do plano são
+ * lançados depois. O que falta até ela valer é a confirmação do
+ * administrativo, que acontece no painel.
  *
  * Equivale ao POST /api/enrollment do sistema atual, que o site
  * se7voleidepraia.com.br chama. As diferenças não são de gosto; cada uma
@@ -30,9 +34,9 @@ import { tratadorDeErro } from "../../lib/erros.js";
  *      (Log::critical('PAYLOAD_MATRICULA ...')), com CPF, e-mail e telefone
  *      em texto claro. Aqui nada de dado pessoal entra em log.
  *
- * O pagamento não acontece aqui. Sem o Asaas, a pré-matrícula fica CRIADA e
- * aparece na tela da secretaria para ser confirmada — que é o mesmo lugar
- * onde ela já acompanha as outras.
+ * O pagamento não acontece aqui: o boleto do plano é lançado depois. A
+ * matrícula nasce CRIADA e aparece no painel para o administrativo confirmar,
+ * no mesmo lugar onde as outras já são acompanhadas.
  */
 
 const alunoSchema = z.object({
@@ -44,7 +48,7 @@ const alunoSchema = z.object({
   planoId: z.string().uuid("Escolha o plano."),
 });
 
-const preMatriculaSchema = z.object({
+const matriculaDoSiteSchema = z.object({
   aluno: alunoSchema,
   // Irmãos matriculados no mesmo pedido — o "plano família" do site.
   irmaos: z.array(alunoSchema).max(5, "Fale com a secretaria para mais de seis alunos.").default([]),
@@ -132,8 +136,8 @@ export async function publicoRoutes(app: FastifyInstance) {
       .filter((u) => u.turmas.length > 0);
   });
 
-  app.post("/publico/pre-matricula", async (request, reply) => {
-    const corpo = preMatriculaSchema.parse(request.body);
+  app.post("/publico/matricula", async (request, reply) => {
+    const corpo = matriculaDoSiteSchema.parse(request.body);
 
     const nomeDoResponsavel = corpo.responsavelEhOAluno
       ? corpo.aluno.nome
@@ -233,7 +237,7 @@ export async function publicoRoutes(app: FastifyInstance) {
               principal: indice === 0,
               expiraEm: mesesAFrente(plano.parcelas),
               observacao: [
-                "Pré-matrícula feita pelo site.",
+                "Matrícula feita pelo site.",
                 ...(existente ? ["Responsável já cadastrado; os dados do site NÃO foram aplicados."] : []),
                 ...divergencias,
               ].join(" "),
@@ -254,11 +258,11 @@ export async function publicoRoutes(app: FastifyInstance) {
     // Nada de dado pessoal no log: só o suficiente para saber que entrou.
     request.log.info(
       { matriculas: resultado.length, unidade: resultado[0].unidade.nome },
-      "pré-matrícula recebida pelo site",
+      "matrícula recebida pelo site",
     );
 
     return reply.code(201).send({
-      mensagem: "Pré-matrícula recebida! A secretaria vai confirmar e falar com você.",
+      mensagem: "Matrícula registrada!",
       // O grupo de WhatsApp da turma, quando ela tem um. É o campo `link` da
       // turma, o mesmo que o sistema atual devolve como whatsapp_link.
       grupos: resultado

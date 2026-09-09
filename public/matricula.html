@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>Pré-matrícula · SE7 Vôlei de Praia</title>
+  <title>Matrícula · SE7 Vôlei de Praia</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
 </head>
@@ -22,11 +22,11 @@
 import { api, ErroApi, fmt, escapar } from "/app.js";
 
 /**
- * Pré-matrícula pelo site — a página que a família preenche.
+ * Matrícula pelo site — a página que a família preenche.
  *
- * Ela é pública e não pede login: quem chega aqui ainda não tem conta. O que
- * ela cria é uma matrícula CRIADA, que aparece na tela da secretaria para
- * confirmação. Pagamento não acontece aqui.
+ * Ela é pública e não pede login: quem chega aqui ainda não tem conta. A
+ * matrícula nasce registrada e aguardando a confirmação do administrativo;
+ * os boletos do plano são lançados depois.
  *
  * A ordem das perguntas é a da conversa no balcão: primeiro onde e quando a
  * pessoa quer treinar, depois quem ela é. Perguntar CPF antes de mostrar
@@ -132,10 +132,10 @@ function pintar() {
     (estado.responsavelEhOAluno || estado.resp.nome.trim().length > 2);
 
   el("tela").innerHTML = `
-    <h1 style="font-size:24px;margin:0 0 6px">Pré-matrícula</h1>
+    <h1 style="font-size:24px;margin:0 0 6px">Matrícula</h1>
     <p class="meta" style="margin:0 0 20px">
-      Escolha a turma e deixe seus dados. A secretaria confirma e fala com você
-      para combinar o pagamento.
+      Escolha a turma e preencha seus dados. Os boletos do plano são lançados
+      depois da confirmação.
     </p>
 
     <div class="cartao" style="margin-bottom:14px">
@@ -193,7 +193,7 @@ function pintar() {
 
       <button class="botao" type="button" id="btnEnviar" ${podeEnviar && !estado.enviando ? "" : "disabled"}
               style="width:100%">
-        ${estado.enviando ? "Enviando…" : "Enviar pré-matrícula"}
+        ${estado.enviando ? "Enviando…" : "Fazer matrícula"}
       </button>
       <p class="meta" style="text-align:center;margin-top:12px">
         Seus dados vão só para a secretaria da SE7.
@@ -209,10 +209,13 @@ function pintarRecibo() {
       <div style="font-size:40px;line-height:1">🏐</div>
       <h1 style="font-size:22px;margin:10px 0">${escapar(r.mensagem)}</h1>
       <p class="meta">Guarde esta tela ou tire um print.</p>
+      <p class="meta" style="margin-top:6px">
+        Os boletos do plano são lançados depois da confirmação.
+      </p>
     </div>
 
     <div class="cartao" style="margin-top:14px">
-      <div class="rotulo" style="margin-bottom:8px">O que foi pedido</div>
+      <div class="rotulo" style="margin-bottom:8px">O que foi matriculado</div>
       ${r.matriculas.map((m) => `
         <div class="registro">
           <div class="titulo">${escapar(m.aluno)}</div>
@@ -302,7 +305,7 @@ async function enviar() {
   const [aluno, ...irmaos] = estado.alunos;
 
   try {
-    estado.recibo = await api("/publico/pre-matricula", {
+    estado.recibo = await api("/publico/matricula", {
       method: "POST",
       body: JSON.stringify({
         aluno,
