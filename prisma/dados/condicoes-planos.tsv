@@ -1,0 +1,10 @@
+# Condições contratuais dos planos, como aparecem no site.
+# Ed Fernandes, 09/09/2026.
+#
+# Uma linha por família de plano. O importador aplica pelo começo do nome:
+# "Semestral (Bessa T/Q)" recebe a linha "Semestral".
+#
+# familia	desconto	duracaoEsperada	condicoes
+Mensal	10	12	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 10% até o vencimento; DURAÇÃO DO PLANO: 12 meses; CANCELAMENTO: sem multa, mediante aviso prévio.
+Semestral	20	6	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 20% até o vencimento; DURAÇÃO DO PLANO: 6 meses; CANCELAMENTO: 10% multa por quebra de contrato.
+Família	20	12	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 20% até o vencimento; DURAÇÃO DO PLANO: 12 meses; CANCELAMENTO: sem multa, mediante aviso prévio.

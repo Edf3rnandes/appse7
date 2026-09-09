@@ -36,7 +36,7 @@ e-mail e senha; sem MySQL, as telas que dependem do sistema antigo respondem
 npx prisma db push        # cria o schema hub
 npm run seed              # admin de ADMIN_EMAILS, com senha
 npm run importar:turmas   # as 6 unidades e as 46 turmas de verdade
-npm run importar:planos   # os 43 planos, já ligados às turmas de cada um
+npm run importar:planos   # os 43 planos, com as condições, ligados às turmas
 npm run seed:escola       # professores e famílias de demonstração
 ```
 
@@ -45,7 +45,10 @@ A ordem importa: `importar:planos` precisa das turmas para ligar cada plano
 faltar o passo anterior. `importar:turmas` lê `prisma/dados/turmas.tsv`, que é a
 exportação do painel do sistema atual, e é repetível — a primeira coluna é o
 id de lá, guardado em `legacyId`, então rodar de novo atualiza em vez de
-duplicar.
+duplicar. `importar:planos` lê `planos.tsv` do mesmo jeito e, além disso,
+`condicoes-planos.tsv`: as condições contratuais que a família lê no site,
+por família de plano. Elas ficam num arquivo separado porque são redação da
+escola, não exportação — e mudam por decisão comercial, não por migração.
 
 O cronograma mora numa tabela do **outro** sistema (`se7-inadimplencia`), que
 não é modelo do Prisma daqui — ver o comentário em

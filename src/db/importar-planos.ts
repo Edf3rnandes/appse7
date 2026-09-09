@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DiaDaSemana } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { semAcento } from "../lib/texto.js";
 
 /**
  * Importa os planos e liga cada um às turmas a que ele se aplica.
@@ -29,6 +30,7 @@ import { prisma } from "../lib/prisma.js";
  */
 
 const ARQUIVO = "prisma/dados/planos.tsv";
+const ARQUIVO_CONDICOES = "prisma/dados/condicoes-planos.tsv";
 
 const UNIDADES = ["Alagoa Grande", "Altiplano", "Areia", "Bancários", "Bessa", "Cabo Branco"];
 
@@ -51,6 +53,47 @@ interface LinhaPlano {
   nome: string;
   valor: number;
   parcelas: number;
+}
+
+/**
+ * As condições contratuais, por família de plano.
+ *
+ * É o texto que a família lê no site antes de escolher: vencimento, formas de
+ * pagamento, desconto, duração e multa de cancelamento. Vem de um arquivo
+ * separado porque é redação da escola, não dado exportado do sistema — e
+ * porque muda por decisão comercial, não por migração.
+ *
+ * `duracaoEsperada` não é usada para gravar nada: serve para conferir que o
+ * texto e o número de parcelas contam a mesma história. Um plano de 6
+ * parcelas com "DURAÇÃO DO PLANO: 12 meses" no texto é um contrato que se
+ * contradiz, e é o tipo de erro que só aparece quando alguém reclama.
+ */
+interface Condicao {
+  familia: string;
+  desconto: number;
+  duracaoEsperada: number;
+  condicoes: string;
+}
+
+function lerCondicoes(): Condicao[] {
+  return readFileSync(ARQUIVO_CONDICOES, "utf8")
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => {
+      const [familia, desconto, duracao, condicoes] = l.split("\t");
+      return {
+        familia: familia.trim(),
+        desconto: Number(desconto),
+        duracaoEsperada: Number(duracao),
+        condicoes: condicoes.trim(),
+      };
+    });
+}
+
+/** Acentos e caixa fora do caminho: "Família" casa com "familia". */
+function comecaCom(nome: string, familia: string) {
+  return semAcento(nome).startsWith(semAcento(familia));
 }
 
 function familiaDoNome(nome: string): Familia {
@@ -98,6 +141,7 @@ function lerArquivo(): LinhaPlano[] {
 
 async function main() {
   const linhas = lerArquivo();
+  const condicoes = lerCondicoes();
 
   const turmas = await prisma.turma.findMany({
     include: { unidade: true, horarios: true },
@@ -120,8 +164,31 @@ async function main() {
   const semTurma: string[] = [];
   const ligacoes: string[] = [];
 
+  const semCondicao: string[] = [];
+  const contradicoes: string[] = [];
+
   for (const l of linhas) {
-    const dados = { nome: l.nome, valor: l.valor, parcelas: l.parcelas };
+    const condicao = condicoes.find((c) => comecaCom(l.nome, c.familia));
+
+    if (!condicao) {
+      semCondicao.push(`#${l.legacyId} ${l.nome}`);
+    } else if (condicao.duracaoEsperada !== l.parcelas) {
+      // O texto diz uma duração e o cadastro diz outra. Gravar assim seria
+      // publicar um contrato que se contradiz.
+      contradicoes.push(
+        `#${l.legacyId} ${l.nome}: cadastro tem ${l.parcelas} parcelas, ` +
+          `mas o texto diz ${condicao.duracaoEsperada} meses`,
+      );
+    }
+
+    const dados = {
+      nome: l.nome,
+      valor: l.valor,
+      parcelas: l.parcelas,
+      ...(condicao && condicao.duracaoEsperada === l.parcelas
+        ? { descricao: condicao.condicoes, descontoPercentual: condicao.desconto }
+        : {}),
+    };
 
     let plano = await prisma.plano.findUnique({ where: { legacyId: l.legacyId } });
     if (!plano) {
@@ -164,7 +231,20 @@ async function main() {
     ligacoes.push(`  ${l.nome} → ${casam.map((p) => p.turma.nome).join(", ")}`);
   }
 
-  console.log(`planos: ${criados} criados, ${atualizados} atualizados\n`);
+  console.log(`planos: ${criados} criados, ${atualizados} atualizados`);
+  console.log(`condições aplicadas a ${linhas.length - semCondicao.length - contradicoes.length} planos\n`);
+
+  if (contradicoes.length) {
+    console.log("CONTRADIÇÃO entre o texto e o cadastro (condições NÃO aplicadas):");
+    for (const c of contradicoes) console.log(`  ${c}`);
+    console.log("");
+  }
+
+  if (semCondicao.length) {
+    console.log("Planos sem texto de condições (o site mostra só valor e duração):");
+    for (const p of semCondicao) console.log(`  ${p}`);
+    console.log("");
+  }
   console.log("Ligações plano → turmas:");
   console.log(ligacoes.join("\n"));
 

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DiaDaSemana } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { semAcento } from "../lib/texto.js";
 
 /**
  * Importa unidades, turmas e horários do sistema atual.
@@ -46,9 +47,6 @@ interface Bloco {
   fim: string;
 }
 
-function semAcento(texto: string) {
-  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
 
 /**
  * "Seg/Qua 18:30 às 20:00 e Sex 18:00 às 21:00" -> dois blocos.
