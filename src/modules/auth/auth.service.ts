@@ -22,6 +22,49 @@ export class LimiteTentativasError extends Error {}
 //     professor quando o convite trouxer legacyId
 //   - qualquer outra conta   -> RESPONSAVEL, ainda SEM vinculo. Autenticado,
 //     mas sem enxergar dado de aluno nenhum ate informar o CPF.
+/**
+ * Aplica um convite pendente à conta que acabou de entrar.
+ *
+ * Precisa rodar em TODO login, não só no primeiro: um convite emitido para
+ * quem já tem conta — o caso mais comum, a secretaria que também quer a área
+ * do professor — não fazia nada, porque a checagem só existia no caminho de
+ * criação. A pessoa via o convite "aguardando" para sempre.
+ *
+ * Idempotente: sem convite pendente, não faz nada.
+ */
+async function aplicarConvitePendente(usuarioId: string, email: string) {
+  const convite = await prisma.convite.findFirst({
+    where: { email, usadoEm: null, expiraEm: { gt: new Date() } },
+  });
+  if (!convite) return;
+
+  if (convite.papel === PapelNome.PROFESSOR) {
+    if (convite.legacyId == null) return;
+
+    const jaVinculado = await prisma.vinculo.findUnique({
+      where: { tipo_legacyId: { tipo: TipoVinculo.PROFESSOR, legacyId: convite.legacyId } },
+    });
+
+    // Aquele professor já pertence a outra conta: não roubamos o vínculo e
+    // deixamos o convite pendente, para a secretaria ver que algo não fechou.
+    if (jaVinculado && jaVinculado.usuarioId !== usuarioId) return;
+
+    if (!jaVinculado) {
+      await prisma.vinculo.create({
+        data: { usuarioId, tipo: TipoVinculo.PROFESSOR, legacyId: convite.legacyId },
+      });
+    }
+  }
+
+  await prisma.papel.upsert({
+    where: { usuarioId_nome: { usuarioId, nome: convite.papel } },
+    create: { usuarioId, nome: convite.papel },
+    update: {},
+  });
+
+  await prisma.convite.update({ where: { id: convite.id }, data: { usadoEm: new Date() } });
+}
+
 export async function entrarComGoogle(perfil: PerfilGoogle) {
   const existente = await prisma.identidade.findUnique({
     where: { provedor_provedorSub: { provedor: Provedor.GOOGLE, provedorSub: perfil.sub } },
@@ -30,12 +73,19 @@ export async function entrarComGoogle(perfil: PerfilGoogle) {
 
   if (existente) {
     if (!existente.usuario.ativo) throw new ContaInativaError("Conta desativada.");
-    const usuario = await prisma.usuario.update({
+
+    await prisma.usuario.update({
       where: { id: existente.usuarioId },
       data: { nome: perfil.nome, avatarUrl: perfil.avatarUrl, ultimoLoginEm: new Date() },
+    });
+    await aplicarConvitePendente(existente.usuarioId, perfil.email);
+
+    // Relido depois do convite: o papel e o vínculo recém-criados precisam
+    // entrar no token desta mesma sessão.
+    return prisma.usuario.findUniqueOrThrow({
+      where: { id: existente.usuarioId },
       include: { papeis: true, vinculos: true },
     });
-    return usuario;
   }
 
   // Conta Google nova. Pode, ainda assim, ser um email que ja existe no Hub
@@ -49,12 +99,18 @@ export async function entrarComGoogle(perfil: PerfilGoogle) {
 
   if (porEmail) {
     if (!porEmail.ativo) throw new ContaInativaError("Conta desativada.");
+
     await prisma.identidade.create({
       data: { usuarioId: porEmail.id, provedor: Provedor.GOOGLE, provedorSub: perfil.sub },
     });
-    return prisma.usuario.update({
+    await prisma.usuario.update({
       where: { id: porEmail.id },
       data: { avatarUrl: perfil.avatarUrl, ultimoLoginEm: new Date() },
+    });
+    await aplicarConvitePendente(porEmail.id, perfil.email);
+
+    return prisma.usuario.findUniqueOrThrow({
+      where: { id: porEmail.id },
       include: { papeis: true, vinculos: true },
     });
   }

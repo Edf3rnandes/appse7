@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sistema unificado do SE7 Volei de Praia — acesso unico (Google + CPF) sobre a base do sistema Laravel existente.",
+  "description": "Sistema unificado do SE7 Volei de Praia \u2014 acesso unico (Google + CPF) sobre a base do sistema Laravel existente.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "seed": "tsx src/db/seed.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

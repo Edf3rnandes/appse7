@@ -239,6 +239,22 @@ npm run dev
 
 `npm run typecheck` roda o TypeScript em modo estrito sem emitir nada.
 
+`npm test` roda os testes (precisa de um Postgres com o schema do Hub — pode ser um banco
+descartável, criado com `prisma/instalar-no-supabase.sql`):
+
+```bash
+DATABASE_URL="postgresql://..." JWT_SECRET="..." npm test
+```
+
+## Convites
+
+Um convite é aplicado **em todo login**, não só no primeiro. Isso importa porque o caso mais
+comum é justamente convidar alguém que já tem conta — a secretaria que também quer usar a área do
+professor. Quem já entrou antes só precisa sair e entrar de novo para o convite valer.
+
+Se o professor indicado já pertencer a outra conta, o vínculo não é transferido e o convite fica
+pendente, para a secretaria enxergar que algo não fechou.
+
 ## O que ainda não está aqui
 
 Esta é a fundação: acesso, vínculo e leitura. Ainda não foram feitos:
