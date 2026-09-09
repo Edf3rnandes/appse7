@@ -23,10 +23,14 @@ export class ErroApi extends Error {
 }
 
 export async function api(caminho, opcoes = {}) {
+  // Content-Type só quando existe corpo: o Fastify recusa com
+  // "Body cannot be empty when content-type is set to 'application/json'"
+  // uma requisição que declara JSON e não manda nada. Era o que quebrava
+  // todos os botões de apagar — cronograma, eventos e convites.
   const resposta = await fetch(caminho, {
     ...opcoes,
     headers: {
-      "Content-Type": "application/json",
+      ...(opcoes.body === undefined ? {} : { "Content-Type": "application/json" }),
       ...(Sessao.token ? { Authorization: `Bearer ${Sessao.token}` } : {}),
       ...(opcoes.headers || {}),
     },

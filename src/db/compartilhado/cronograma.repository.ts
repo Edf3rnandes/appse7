@@ -192,5 +192,17 @@ export async function salvarSemana(
 }
 
 export async function apagarSemana(id: string): Promise<void> {
-  await consultar(Prisma.sql`DELETE FROM public.cronograma_semanas WHERE id = ${id}`);
+  // $executeRaw, e não $queryRaw: o primeiro é para comandos que não devolvem
+  // linhas. Com $queryRaw o DELETE estourava erro e a semana continuava lá.
+  try {
+    await prisma.$executeRaw`DELETE FROM public.cronograma_semanas WHERE id = ${id}`;
+  } catch (erro) {
+    const mensagem = erro instanceof Error ? erro.message : "";
+    if (/relation .* does not exist|column .* does not exist/i.test(mensagem)) {
+      throw new CronogramaIndisponivelError(
+        "rode prisma/compartilhado.sql no banco do se7-inadimplencia",
+      );
+    }
+    throw erro;
+  }
 }

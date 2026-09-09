@@ -13,7 +13,7 @@ import {
   LegadoApiIndisponivelError,
   lancarFrequencia,
 } from "../../services/legado/frequencia.service.js";
-import { segundaDaSemana, primeiroDiaDoMes, ultimoDiaDoMes, somarDias } from "../../lib/datas.js";
+import { hoje, primeiroDiaDoMes, segundaDaSemana, somarDias, ultimoDiaDoMes } from "../../lib/datas.js";
 import {
   CronogramaIndisponivelError,
   listarPublicadasNoIntervalo,
@@ -125,7 +125,7 @@ export async function professorRoutes(app: FastifyInstance) {
   // O link do Canva fica de fora de propósito: é o documento editável da
   // equipe, uso interno da secretaria.
   app.get("/professor/semana", { preHandler: [app.exigirProfessor] }, async () => {
-    const estaSemana = segundaDaSemana(new Date());
+    const estaSemana = segundaDaSemana(hoje());
     const proximaSemana = somarDias(estaSemana, 7);
 
     const semanas = await obterPublicadasComArte([estaSemana, proximaSemana]);
@@ -158,11 +158,12 @@ export async function professorRoutes(app: FastifyInstance) {
   // mês inteiro de uma vez.
   app.get("/professor/agenda", { preHandler: [app.exigirProfessor] }, async (request) => {
     const { mes, ano } = mesQuery.parse(request.query);
-    const hoje = new Date();
-    const referencia = new Date(ano ?? hoje.getFullYear(), (mes ?? hoje.getMonth() + 1) - 1, 1);
+    const referencia = hoje();
+    const anoAlvo = ano ?? referencia.getUTCFullYear();
+    const mesAlvo = mes ?? referencia.getUTCMonth() + 1;
 
-    const inicio = primeiroDiaDoMes(referencia);
-    const fim = ultimoDiaDoMes(referencia);
+    const inicio = primeiroDiaDoMes(anoAlvo, mesAlvo);
+    const fim = ultimoDiaDoMes(anoAlvo, mesAlvo);
 
     const [eventos, semanas] = await Promise.all([
       prisma.evento.findMany({
@@ -177,8 +178,8 @@ export async function professorRoutes(app: FastifyInstance) {
     ]);
 
     return {
-      mes: referencia.getMonth() + 1,
-      ano: referencia.getFullYear(),
+      mes: mesAlvo,
+      ano: anoAlvo,
       eventos,
       semanas: semanas.map((s) => ({
         id: s.id,
