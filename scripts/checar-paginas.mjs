@@ -10,7 +10,7 @@ import { join } from "node:path";
  * verifica esse código antes do navegador. E o modo como ele falha é o pior
  * possível: um erro de sintaxe faz o navegador recusar o módulo INTEIRO, a
  * página fica em branco, e o log do servidor mostra 200 em tudo. Foi assim que
- * um `let unidades` declarado duas vezes derrubou a tela da secretaria sem
+ * um `let unidades` declarado duas vezes derrubou a tela do administrativo sem
  * deixar rastro no servidor.
  *
  * `node --check` faz o mesmo que o navegador faz ao carregar o módulo, e custa

@@ -40,7 +40,7 @@ export async function verificarIdToken(idToken: string): Promise<PerfilGoogle> {
   }
 
   // Conta Google sem email verificado nao entra: e o unico dado que liga a
-  // pessoa ao convite da secretaria.
+  // pessoa ao convite do administrativo.
   if (payload.email_verified === false) {
     throw new TokenGoogleInvalidoError("A conta Google precisa ter o email verificado.");
   }

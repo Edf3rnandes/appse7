@@ -132,7 +132,7 @@ export async function portalRoutes(app: FastifyInstance) {
   /**
    * O responsável manda a foto do próprio filho.
    *
-   * É o que resolve as fotos de verdade. A secretaria não tem foto de 570
+   * É o que resolve as fotos de verdade. O administrativo não tem foto de 570
    * alunos e não vai fotografar um por um na quadra; o pai tem dezenas no
    * celular e leva quinze segundos para escolher uma. Espalhar o trabalho por
    * quem já tem o material é a diferença entre a chamada com rosto existir e
@@ -247,13 +247,13 @@ export async function portalRoutes(app: FastifyInstance) {
   /**
    * O responsável corrige o próprio endereço.
    *
-   * Existe pelo mesmo motivo da foto: a secretaria não vai digitar o endereço
+   * Existe pelo mesmo motivo da foto: o administrativo não vai digitar o endereço
    * de 570 famílias, e a base que vem do Laravel tem essas colunas quase todas
    * vazias — nenhuma tela de lá as preenchia. Quem sabe o endereço é quem mora
    * nele, e para ele é um formulário de trinta segundos.
    *
    * Mexe SÓ no endereço. Nome, CPF, e-mail e telefone são o que identifica a
-   * pessoa e para onde vai a cobrança; mudar isso é decisão da secretaria, não
+   * pessoa e para onde vai a cobrança; mudar isso é decisão do administrativo, não
    * de quem está logado.
    */
   app.put("/portal/endereco", { preHandler: [app.exigirResponsavel] }, async (request) => {
@@ -288,7 +288,7 @@ export async function portalRoutes(app: FastifyInstance) {
   // sistema antigo ela era texto e ninguém conseguia somar.
   app.get(
     "/escola/ocupacao",
-    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] },
     async () => {
       const unidades = await prisma.unidade.findMany({
         where: { ativa: true },

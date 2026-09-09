@@ -127,14 +127,14 @@ Como ler cada campo:
 Os dois últimos em `false` são o esperado, e o sistema funciona assim. Os dois
 primeiros precisam estar `true`.
 
-Então entre em `/secretaria.html` com a conta de `ADMIN_EMAILS` e a senha de
+Então entre em `/administrativo.html` com a conta de `ADMIN_EMAILS` e a senha de
 `SEED_ADMIN_SENHA`. Você cai como ADMIN, com o cadastro da escola já no lugar
 se os dois comandos de importação tiverem rodado — e vendo as semanas de
-cronograma que a secretaria criou pelo painel antigo, porque é a mesma tabela.
+cronograma que o administrativo criou pelo painel antigo, porque é a mesma tabela.
 
 ## 5. Primeiros acessos das outras pessoas
 
-- **Professor**: em `/secretaria.html`, emita um convite (`POST /auth/convites`)
+- **Professor**: em `/administrativo.html`, emita um convite (`POST /auth/convites`)
   com o e-mail dele e o `legacyId` (o `teachers.id` do sistema atual). Aí ele
   entra em `/professor.html` com o Google e já cai vinculado.
 - **Responsável**: entra em `/` com o Google e informa o CPF. Só funciona
@@ -143,5 +143,5 @@ cronograma que a secretaria criou pelo painel antigo, porque é a mesma tabela.
 ## Observação sobre o plano gratuito
 
 O serviço hiberna após um tempo sem acesso e a primeira requisição depois disso
-demora alguns segundos. Para o uso da secretaria isso é aceitável; se incomodar
+demora alguns segundos. Para o uso do administrativo isso é aceitável; se incomodar
 no dia a dia do professor, o plano pago do Render remove a hibernação.

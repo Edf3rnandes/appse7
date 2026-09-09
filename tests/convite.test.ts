@@ -7,7 +7,7 @@ import { entrarComGoogle } from "../src/modules/auth/auth.service.js";
 /**
  * Convite aplicado a quem JÁ TEM CONTA.
  *
- * Este teste existe por causa de um bug real em produção: a secretaria emitiu
+ * Este teste existe por causa de um bug real em produção: o administrativo emitiu
  * um convite de professor para o próprio e-mail, já cadastrado como ADMIN, e
  * ele ficou "aguardando" para sempre — a checagem de convite só rodava no
  * caminho de criação de conta nova.
@@ -68,7 +68,7 @@ describe("convite de professor", () => {
   });
 
   it("é aplicado a uma conta que já existe, no login seguinte", async () => {
-    // conta que já entrou antes, como a da secretaria
+    // conta que já entrou antes, como a do administrativo
     const antes = await entrarComGoogle(perfil(EMAIL, "sub-1"));
     assert.equal(antes.vinculos.length, 0, "não deveria nascer com vínculo");
 
@@ -108,7 +108,7 @@ describe("convite de professor", () => {
 
     assert.equal(depois.vinculos.length, 0, "não deveria ganhar o vínculo alheio");
     const pendente = await prisma.convite.findUniqueOrThrow({ where: { id: convite.id } });
-    assert.equal(pendente.usadoEm, null, "o convite deveria seguir pendente para a secretaria ver");
+    assert.equal(pendente.usadoEm, null, "o convite deveria seguir pendente para o administrativo ver");
   });
 
   it("ignora convite expirado", async () => {
@@ -116,14 +116,14 @@ describe("convite de professor", () => {
     await prisma.convite.create({
       data: {
         email: EMAIL_OUTRO,
-        papel: PapelNome.SECRETARIA,
+        papel: PapelNome.ADMINISTRATIVO,
         expiraEm: new Date(Date.now() - 60 * 1000),
       },
     });
 
     const depois = await entrarComGoogle(perfil(EMAIL_OUTRO, "sub-2"));
     assert.ok(
-      !depois.papeis.some((p) => p.nome === PapelNome.SECRETARIA),
+      !depois.papeis.some((p) => p.nome === PapelNome.ADMINISTRATIVO),
       "convite vencido não pode conceder papel",
     );
   });

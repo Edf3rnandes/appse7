@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>Secretaria · SE7 Vôlei de Praia</title>
+  <title>Administrativo · SE7 Vôlei de Praia</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
 </head>
@@ -12,7 +12,7 @@
 
 <header class="topo">
   <button class="hamburguer oculto" id="btnMenu" type="button" aria-label="Abrir menu" aria-expanded="false">☰</button>
-  <div class="marca"><span class="se7">SE7</span><span class="sub">Secretaria</span></div>
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Administrativo</span></div>
   <div class="espaco"></div>
   <nav class="areas" id="areas" hidden></nav>
   <div class="usuario oculto" id="boxUsuario">
@@ -23,7 +23,7 @@
 </header>
 
 <main class="centro" id="telaLogin" hidden>
-  <h1 style="font-size:26px">Secretaria</h1>
+  <h1 style="font-size:26px">Administrativo</h1>
   <p style="color:var(--ink-2);margin:14px 0 28px">
     Programação de treino e agenda de eventos — é daqui que sai o que o professor vê no app.
   </p>
@@ -32,10 +32,10 @@
 </main>
 
 <main class="centro" id="telaSemPermissao" hidden>
-  <h1 style="font-size:22px">Conta sem acesso à secretaria</h1>
+  <h1 style="font-size:22px">Conta sem acesso ao administrativo</h1>
   <p style="color:var(--ink-2);margin:14px 0 24px">
     Você entrou como <strong id="emailSemPermissao"></strong>, mas essa conta não tem perfil de
-    secretaria nem de administrador.
+    administrativo nem de administrador.
   </p>
   <button class="botao fantasma" type="button" id="btnTrocar">Entrar com outra conta</button>
 </main>
@@ -174,8 +174,8 @@ function concluirLogin(r) {
 async function decidirTela() {
   try {
     const eu = await api("/auth/eu");
-    pintarNavegacao(el("areas"), eu, "secretaria");
-    const podeEntrar = eu.papeis.includes("ADMIN") || eu.papeis.includes("SECRETARIA");
+    pintarNavegacao(el("areas"), eu, "administrativo");
+    const podeEntrar = eu.papeis.includes("ADMIN") || eu.papeis.includes("ADMINISTRATIVO");
     if (!podeEntrar) {
       el("emailSemPermissao").textContent = eu.email || "";
       return mostrar("semPermissao");
@@ -817,7 +817,7 @@ function cartaoNovaMatricula() {
  *
  * São 46 numa lista só, e num celular isso é rolagem cega. O <optgroup> por
  * unidade transforma a escolha em duas decisões pequenas — onde, e qual — que
- * é como a secretaria pensa: a família já chega dizendo a unidade.
+ * é como o administrativo pensa: a família já chega dizendo a unidade.
  */
 function opcoesDeTurma(selecionada) {
   const porUnidade = new Map();
@@ -1544,7 +1544,7 @@ async function carregarRelOcupacao() {
 // As duas telas de Administrativo do sistema atual. Lá elas listam aluno,
 // data, professor e turma — e nada mais, porque a falta não era registrada:
 // só existiam linhas de presença. Não dava para distinguir "faltou" de "a
-// chamada nunca foi feita", que é justamente o que a secretaria precisa saber
+// chamada nunca foi feita", que é justamente o que o administrativo precisa saber
 // antes de ligar para um responsável. Aqui a falta é uma linha, então o
 // percentual quer dizer alguma coisa.
 
@@ -2361,7 +2361,7 @@ function pintarTurmas() {
       const t = turmasEstado.itens.find((x) => x.id === b.dataset.editarTurma);
       turmasEstado.editando = t;
       // Os horários vêm um por dia; a tela agrupa os que têm o mesmo par de
-      // horas, que é como a secretaria pensa: "ter/qui, 18h às 18h50".
+      // horas, que é como o administrativo pensa: "ter/qui, 18h às 18h50".
       turmasEstado.horarios = agruparHorarios(t.horarios);
       turmasEstado.rascunho = rascunhoDaTurma(t);
       turmasEstado.marcados = {
@@ -3636,7 +3636,7 @@ let professores = [];
 let souAdmin = false;
 
 const PAPEIS = {
-  ADMIN: "Administrador", SECRETARIA: "Secretaria",
+  ADMIN: "Administrador", ADMINISTRATIVO: "Administrativo",
   PROFESSOR: "Professor", RESPONSAVEL: "Responsável",
 };
 
@@ -3666,7 +3666,7 @@ function formConvite() {
     <form class="cartao" id="formConvite" style="margin-bottom:22px">
       <h2 style="font-size:18px;margin-bottom:4px">Convidar para o sistema</h2>
       <p class="meta" style="margin:0 0 16px">
-        Professor, secretaria e administrador entram por convite: a tabela de professores do
+        Professor, administrativo e administrador entram por convite: a tabela de professores do
         sistema atual não tem CPF nem e-mail, então não há como a pessoa provar quem é sozinha.
         Depois de convidada, ela entra com o Google e já cai vinculada.
       </p>
@@ -3680,7 +3680,7 @@ function formConvite() {
           <label class="rotulo" for="convitePapel">Perfil</label>
           <select id="convitePapel">
             <option value="PROFESSOR">Professor</option>
-            <option value="SECRETARIA">Secretaria</option>
+            <option value="ADMINISTRATIVO">Administrativo</option>
             <option value="ADMIN">Administrador</option>
           </select>
         </div>
@@ -3713,11 +3713,11 @@ function formConvite() {
     </form>`;
 }
 
-// A mensagem é escrita como a secretaria escreveria: diz onde entrar, com
+// A mensagem é escrita como o administrativo escreveria: diz onde entrar, com
 // qual conta, e nada de jargão. O e-mail aparece porque é ele que decide se o
 // convite pega — entrar com outra conta Google não funciona.
 function mensagemConvite(c) {
-  const area = c.papel === "PROFESSOR" ? "professor.html" : "secretaria.html";
+  const area = c.papel === "PROFESSOR" ? "professor.html" : "administrativo.html";
   return [
     "Oi! Seu acesso ao sistema do SE7 está liberado.",
     "",

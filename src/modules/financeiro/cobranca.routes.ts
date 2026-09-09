@@ -53,7 +53,7 @@ function proximoVencimento(dia: number): string {
 }
 
 export async function cobrancaRoutes(app: FastifyInstance) {
-  const equipe = { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] };
+  const equipe = { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] };
 
   app.setErrorHandler(
     tratadorDeErro((erro) => {
@@ -170,7 +170,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
         asaasPagamento: cobranca.id,
         linkPagamento: cobranca.invoiceUrl,
         // Emitida a cobrança, a matrícula deixa de ser "criada" e passa a
-        // esperar o pagamento — que é o que a secretaria vê na tela.
+        // esperar o pagamento — que é o que o administrativo vê na tela.
         ...(matricula.status === StatusMatricula.CRIADA
           ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
           : {}),

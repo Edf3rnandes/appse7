@@ -16,7 +16,7 @@ import { prisma } from "../../lib/prisma.js";
  *   3. As colunas são as que já existem lá, com uma exceção documentada:
  *      `observacoes`, que o Hub acrescenta (ver prisma/compartilhado.sql).
  *
- * Assim o cronograma tem uma fonte da verdade só: a secretaria preenche pelo
+ * Assim o cronograma tem uma fonte da verdade só: o administrativo preenche pelo
  * Hub ou pelo painel antigo, e os dois leem a mesma linha.
  */
 

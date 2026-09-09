@@ -27,7 +27,7 @@ export class CredencialInvalidaError extends Error {}
  * Aplica um convite pendente à conta que acabou de entrar.
  *
  * Precisa rodar em TODO login, não só no primeiro: um convite emitido para
- * quem já tem conta — o caso mais comum, a secretaria que também quer a área
+ * quem já tem conta — o caso mais comum, o administrativo que também quer a área
  * do professor — não fazia nada, porque a checagem só existia no caminho de
  * criação. A pessoa via o convite "aguardando" para sempre.
  *
@@ -47,7 +47,7 @@ async function aplicarConvitePendente(usuarioId: string, email: string) {
     });
 
     // Aquele professor já pertence a outra conta: não roubamos o vínculo e
-    // deixamos o convite pendente, para a secretaria ver que algo não fechou.
+    // deixamos o convite pendente, para o administrativo ver que algo não fechou.
     if (jaVinculado && jaVinculado.usuarioId !== usuarioId) return;
 
     if (!jaVinculado) {
@@ -227,7 +227,7 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
   });
   if (tentativas >= env.VINCULO_MAX_TENTATIVAS_HORA) {
     throw new LimiteTentativasError(
-      "Muitas tentativas com CPF diferente. Tente novamente em uma hora ou fale com a secretaria.",
+      "Muitas tentativas com CPF diferente. Tente novamente em uma hora ou fale com o administrativo.",
     );
   }
 
@@ -244,7 +244,7 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
   if (!responsavel) {
     await registrar(false);
     throw new CpfNaoEncontradoError(
-      "Nao encontramos esse CPF no cadastro. Confira o numero ou fale com a secretaria.",
+      "Nao encontramos esse CPF no cadastro. Confira o numero ou fale com o administrativo.",
     );
   }
 
@@ -257,7 +257,7 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
     // de outra pessoa" ja seria vazamento.
     await registrar(false);
     throw new CpfJaVinculadoError(
-      "Esse CPF ja esta vinculado a outra conta. Fale com a secretaria para transferir o acesso.",
+      "Esse CPF ja esta vinculado a outra conta. Fale com o administrativo para transferir o acesso.",
     );
   }
 

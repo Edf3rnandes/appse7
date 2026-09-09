@@ -8,7 +8,7 @@ import { entrarComGoogle, montarToken, vincularPorCpf } from "../src/modules/aut
  * Vínculo de responsável que ficou sem destino.
  *
  * A chave estrangeira `vinculos.responsavelId` é ON DELETE SET NULL. Quando a
- * secretaria apaga um responsável do cadastro — e refaz o cadastro dele depois,
+ * administrativo apaga um responsável do cadastro — e refaz o cadastro dele depois,
  * que é o caso comum de um CPF digitado errado — a conta dele fica com um
  * vínculo do tipo RESPONSAVEL apontando para lugar nenhum. O portal abre, o
  * login funciona, e a lista de filhos vem vazia sem explicar por quê.
@@ -49,7 +49,7 @@ describe("vínculo de responsável sem destino", () => {
 
     await vincularPorCpf(usuario.id, CPF, "127.0.0.1");
 
-    // A secretaria apaga o cadastro: o ON DELETE SET NULL solta o vínculo.
+    // O administrativo apaga o cadastro: o ON DELETE SET NULL solta o vínculo.
     await prisma.responsavel.delete({ where: { id: responsavel.id } });
     const solto = await prisma.vinculo.findFirst({ where: { usuarioId: usuario.id } });
     assert.equal(solto?.responsavelId, null, "o vínculo deveria ter ficado sem destino");

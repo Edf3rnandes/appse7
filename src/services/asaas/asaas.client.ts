@@ -108,7 +108,7 @@ async function post<T>(caminho: string, corpo: unknown): Promise<T> {
 
     if (!resposta.ok) {
       // O Asaas explica a recusa em `errors[].description` — "CPF inválido",
-      // "cliente já existe". Repassar isso é a diferença entre a secretaria
+      // "cliente já existe". Repassar isso é a diferença entre o administrativo
       // resolver sozinha e abrir um chamado.
       const motivo = dados.errors?.[0]?.description;
       throw new AsaasIndisponivelError(

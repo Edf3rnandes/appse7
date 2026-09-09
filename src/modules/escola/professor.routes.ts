@@ -190,7 +190,7 @@ export async function professorRoutes(app: FastifyInstance) {
     });
   });
 
-  // O professor avisa; a secretaria resolve. O nome dele e o da turma são
+  // O professor avisa; o administrativo resolve. O nome dele e o da turma são
   // gravados junto do id: sem a ponte com o MySQL ligada, o aviso ainda
   // precisa ser legível de ponta a ponta.
   app.post("/professor/ocorrencias", { preHandler: [app.exigirProfessor] }, async (request, reply) => {
@@ -219,7 +219,7 @@ export async function professorRoutes(app: FastifyInstance) {
     return reply.code(201).send(ocorrencia);
   });
 
-  // O professor acompanha o que avisou e o que a secretaria respondeu — sem
+  // O professor acompanha o que avisou e o que o administrativo respondeu — sem
   // isso ele avisa no escuro e volta para o WhatsApp para saber se deu certo.
   app.get("/professor/ocorrencias", { preHandler: [app.exigirProfessor] }, async (request) =>
     prisma.ocorrencia.findMany({
@@ -234,7 +234,7 @@ export async function professorRoutes(app: FastifyInstance) {
   // imagem que ele repassa para o grupo.
   //
   // O link do Canva fica de fora de propósito: é o documento editável da
-  // equipe, uso interno da secretaria.
+  // equipe, uso interno do administrativo.
   app.get("/professor/semana", { preHandler: [app.exigirProfessor] }, async () => {
     const estaSemana = segundaDaSemana(hoje());
     const proximaSemana = somarDias(estaSemana, 7);

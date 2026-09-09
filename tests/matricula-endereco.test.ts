@@ -16,7 +16,7 @@ import { prisma } from "../src/lib/prisma.js";
  *      quando o endereço dele está vazio. Preencher campo vazio parece
  *      inofensivo, mas o caminho é o mesmo de quem só descobriu o CPF de
  *      alguém, e é no endereço que o boleto impresso chega. Vira recado para a
- *      secretaria.
+ *      administrativo.
  *
  * Sobe a rota de verdade num Fastify próprio e usa `inject`, sem rede.
  *
@@ -196,7 +196,7 @@ describe("endereço na matrícula pelo site", () => {
     assert.match(
       matricula.observacao ?? "",
       /Avenida Cabo Branco/,
-      "o endereço informado precisa chegar à secretaria como recado",
+      "o endereço informado precisa chegar ao administrativo como recado",
     );
     assert.match(matricula.observacao ?? "", /sem endereço/i);
     await app.close();

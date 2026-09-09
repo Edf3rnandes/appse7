@@ -223,7 +223,7 @@ async function carregarAlunos() {
 
     if (!alunos.length) {
       painel.innerHTML = `<div class="vazio">Nenhum aluno vinculado a este CPF.<br>
-        Se isso não parece certo, fale com a secretaria.</div>`;
+        Se isso não parece certo, fale com o administrativo.</div>`;
       return;
     }
 
@@ -457,7 +457,7 @@ function pintarCadastro() {
   const c = cadastro.perfil;
 
   if (!c?.encontrado) {
-    painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com a secretaria.</div>`;
+    painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com o administrativo.</div>`;
     return;
   }
 
@@ -479,7 +479,7 @@ function pintarCadastro() {
           </div>`).join("")}
     </div>
     <p class="meta" style="margin-top:10px">
-      Nome, CPF, e-mail e telefone só a secretaria altera — é por eles que a cobrança
+      Nome, CPF, e-mail e telefone só o administrativo altera — é por eles que a cobrança
       encontra você.
     </p>
 

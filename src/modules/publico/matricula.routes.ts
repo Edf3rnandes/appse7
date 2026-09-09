@@ -29,13 +29,13 @@ import {
  *      nenhuma. Quem souber o CPF de alguém troca o e-mail dessa pessoa, e o
  *      e-mail é para onde vai a cobrança. Aqui um cadastro existente nunca é
  *      alterado por esta rota: os dados divergentes vão para a observação da
- *      matrícula, e a secretaria decide.
+ *      matrícula, e o administrativo decide.
  *   2. Lá, o aluno e o responsável são gravados ANTES da cobrança. Se o
  *      pagamento falha, a resposta é erro mas as linhas ficam no banco. Aqui
  *      tudo acontece numa transação.
  *   3. Lá, a matrícula principal nasce PAYMENT_PENDDING e as dos irmãos
  *      nascem CREATED — o mesmo pedido em dois estados. Aqui todas nascem
- *      CRIADA, aguardando a secretaria.
+ *      CRIADA, aguardando o administrativo.
  *   4. Lá, a primeira linha do controller grava o corpo inteiro no log
  *      (Log::critical('PAYLOAD_MATRICULA ...')), com CPF, e-mail e telefone
  *      em texto claro. Aqui nada de dado pessoal entra em log.
@@ -81,7 +81,7 @@ const enderecoSchema = z.object({
 const matriculaDoSiteSchema = z.object({
   aluno: alunoSchema,
   // Irmãos matriculados no mesmo pedido — o "plano família" do site.
-  irmaos: z.array(alunoSchema).max(5, "Fale com a secretaria para mais de seis alunos.").default([]),
+  irmaos: z.array(alunoSchema).max(5, "Fale com o administrativo para mais de seis alunos.").default([]),
 
   // O aluno adulto é o próprio responsável. No sistema atual isso é o
   // `isMenor`, e decide de qual conjunto de campos o CPF é lido.
@@ -211,7 +211,7 @@ export async function publicoRoutes(app: FastifyInstance) {
             };
           })
           // Turma cheia ou sem plano não entra: oferecer no site o que não dá
-          // para contratar gera uma conversa de decepção com a secretaria.
+          // para contratar gera uma conversa de decepção com o administrativo.
           .filter((t) => t.planos.length > 0 && (t.vagas === null || t.vagas > 0)),
       }))
       .filter((u) => u.turmas.length > 0);
@@ -275,7 +275,7 @@ export async function publicoRoutes(app: FastifyInstance) {
     const existente = await prisma.responsavel.findUnique({ where: { cpf: corpo.responsavel.cpf } });
 
     // Divergência entre o que foi digitado e o que já está no cadastro. NÃO
-    // sobrescrevemos: vira recado para a secretaria conferir com a família.
+    // sobrescrevemos: vira recado para o administrativo conferir com a família.
     const divergencias: string[] = [];
     if (existente) {
       const comparar = (rotulo: string, novo: string | null | undefined, atual: string | null) => {
@@ -293,7 +293,7 @@ export async function publicoRoutes(app: FastifyInstance) {
       // é alterado por esta rota. Vale inclusive quando o cadastro veio do
       // Laravel sem endereço nenhum — preencher um campo vazio parece
       // inofensivo, mas é o mesmo caminho de quem só sabe o CPF de alguém, e é
-      // no endereço que o boleto impresso chega. A secretaria aplica.
+      // no endereço que o boleto impresso chega. O administrativo aplica.
       const enderecoAtual = [
         existente.cep, existente.logradouro, existente.numero,
         existente.bairro, existente.cidade, existente.estado,

@@ -97,7 +97,7 @@ model Identidade {
 
 enum PapelNome {
   ADMIN
-  SECRETARIA
+  ADMINISTRATIVO
   PROFESSOR
   RESPONSAVEL
 
@@ -171,7 +171,7 @@ model TentativaVinculo {
   @@schema("hub")
 }
 
-// Professor, secretaria e admin nao entram sozinhos: o acesso e por convite.
+// Professor, administrativo e admin nao entram sozinhos: o acesso e por convite.
 // Isso e uma consequencia do schema do Laravel, nao uma escolha de produto — a
 // tabela `teachers` nao tem CPF nem email, entao nao ha como o proprio
 // professor provar quem e no primeiro acesso.
@@ -243,7 +243,7 @@ model Configuracao {
 }
 
 // ---------------------------------------------------------------------------
-// Ocorrências — o professor avisa, a secretaria resolve.
+// Ocorrências — o professor avisa, o administrativo resolve.
 //
 // Junta numa caixa de entrada só o que hoje se perde no WhatsApp: aluno na
 // turma errada, aluno que deveria estar na lista e não está, e o registro do
@@ -253,7 +253,7 @@ model Configuracao {
 //
 // Turma e aluno ficam como texto além do id: quando a ponte com o MySQL
 // estiver desligada, o professor ainda precisa conseguir avisar, e a
-// secretaria precisa entender o aviso sem consultar outro sistema.
+// administrativo precisa entender o aviso sem consultar outro sistema.
 // ---------------------------------------------------------------------------
 
 enum TipoOcorrencia {
@@ -291,7 +291,7 @@ model Ocorrencia {
 
   descricao String
 
-  // A resposta da secretaria fecha o ciclo: o professor vê o que foi feito.
+  // A resposta do administrativo fecha o ciclo: o professor vê o que foi feito.
   resposta       String?
   resolvidoPorId String?
   resolvidoEm    DateTime?
@@ -600,7 +600,7 @@ model Matricula {
   //
   // Não impedimos duas principais no mesmo responsável: uma família com
   // filhos em unidades diferentes pode ter dois planos família de verdade. A
-  // tela mostra quais são, e a secretaria decide.
+  // tela mostra quais são, e o administrativo decide.
   principal Boolean @default(true)
 
   // Cobrança. `asaasPayload` guarda a resposta crua da criação, que é o que

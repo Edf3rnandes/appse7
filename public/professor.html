@@ -24,7 +24,7 @@
 <main class="centro" id="telaLogin" hidden>
   <h1 style="font-size:26px">Área do professor</h1>
   <p style="color:var(--ink-2);margin:14px 0 28px">
-    Entre com a conta Google que a secretaria cadastrou para você.
+    Entre com a conta Google que o administrativo cadastrou para você.
   </p>
   <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
   <div class="aviso erro oculto" id="erroLogin" style="margin-top:22px;text-align:left"></div>
@@ -112,14 +112,14 @@ async function decidirTela() {
 
     if (eu.professorId == null) {
       el("emailSemVinculo").textContent = eu.email || "";
-      const equipe = eu.papeis.includes("ADMIN") || eu.papeis.includes("SECRETARIA");
+      const equipe = eu.papeis.includes("ADMIN") || eu.papeis.includes("ADMINISTRATIVO");
       // Quem é da equipe não tem a quem pedir convite: é ele quem emite.
       const saida = el("saidaSemVinculo");
       if (saida) saida.innerHTML = equipe
-        ? `<a class="botao" href="/secretaria.html" style="text-decoration:none">Ir para a Secretaria</a>
+        ? `<a class="botao" href="/administrativo.html" style="text-decoration:none">Ir para a Administrativo</a>
            <p class="meta" style="max-width:34ch">Sua conta é da equipe. Para também usar a área do
            professor, emita um convite de professor para este mesmo e-mail na aba Acessos.</p>`
-        : `<p class="meta" style="max-width:34ch">Peça à secretaria um convite para este e-mail.</p>`;
+        : `<p class="meta" style="max-width:34ch">Peça ao administrativo um convite para este e-mail.</p>`;
       return mostrar("semVinculo");
     }
     mostrar("app");
@@ -582,10 +582,10 @@ function formAviso() {
   const turmas = chamada.turmas || [];
   return `
     <form class="cartao" id="formAviso" style="margin-bottom:22px">
-      <h2 style="font-size:18px;margin-bottom:4px">Avisar a secretaria</h2>
+      <h2 style="font-size:18px;margin-bottom:4px">Avisar o administrativo</h2>
       <p class="meta" style="margin:0 0 16px">
         Aluno na turma errada, aluno que devia estar na lista e não está, ou o que aconteceu
-        no treino. A secretaria recebe, resolve e responde por aqui.
+        no treino. O administrativo recebe, resolve e responde por aqui.
       </p>
 
       <div class="form-grade">
@@ -609,7 +609,7 @@ function formAviso() {
         <div class="campo largo">
           <label class="rotulo" for="avisoDescricao">O que aconteceu</label>
           <textarea id="avisoDescricao" rows="3" maxlength="2000"
-            placeholder="Escreva como você contaria para a secretaria"></textarea>
+            placeholder="Escreva como você contaria para o administrativo"></textarea>
         </div>
       </div>
 
@@ -639,7 +639,7 @@ function listaAvisos(avisos) {
           <div class="bloco-texto" style="margin-top:6px">${escapar(o.descricao)}</div>
           ${o.resposta
             ? `<div class="aviso info" style="margin-top:8px">
-                 <strong>Secretaria:</strong> ${escapar(o.resposta)}
+                 <strong>Administrativo:</strong> ${escapar(o.resposta)}
                </div>`
             : ""}
         </div>
@@ -682,7 +682,7 @@ function ligarFormAviso() {
       await carregarAvisos();
       const novo = el("recadoAviso");
       novo.className = "aviso info";
-      novo.textContent = "Aviso enviado. A secretaria responde por aqui mesmo.";
+      novo.textContent = "Aviso enviado. O administrativo responde por aqui mesmo.";
     } catch (e) {
       recado.className = "aviso erro";
       recado.textContent = e.message;

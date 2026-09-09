@@ -46,7 +46,7 @@ const cronogramaSchema = z.object({
 
 const eventoSchema = z.object({
   // required_error além do min(): campo ausente devolveria o "Required" cru do
-  // Zod, e é essa mensagem que a secretaria lê na tela.
+  // Zod, e é essa mensagem que o administrativo lê na tela.
   titulo: z
     .string({ required_error: "Título é obrigatório." })
     .min(1, "Título é obrigatório.")
@@ -82,12 +82,12 @@ const CHAVE_EMISSAO = "asaas.emissaoAtiva";
 const CHAVE_VENCIMENTO = "cobranca.diaVencimento";
 
 const configSchema = z.object({
-  // String vazia apaga o link — é como a secretaria "remove" o documento.
+  // String vazia apaga o link — é como o administrativo "remove" o documento.
   linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]).optional(),
   // Taxa de matrícula: um valor da escola, cobrado uma vez, separado da
   // mensalidade do plano. No sistema atual ele mora no arquivo de
   // configuração (plan_enrollment_base_amount), então mudar de R$ 25 para
-  // R$ 30 exige um deploy. Aqui a secretaria muda pela tela.
+  // R$ 30 exige um deploy. Aqui o administrativo muda pela tela.
   taxaMatricula: z.number().min(0).max(10000).optional(),
   linkTermos: z.union([z.string().url("Link dos termos inválido.").max(500), z.literal("")]).optional(),
   diaVencimento: z.number().int().min(1).max(28).optional(),
@@ -95,11 +95,11 @@ const configSchema = z.object({
 
 /**
  * Quem alimenta o que o professor lê: cronograma das semanas e eventos do mês.
- * Só secretaria e admin escrevem — o professor tem só as rotas de leitura em
+ * Só administrativo e admin escrevem — o professor tem só as rotas de leitura em
  * /professor/*.
  */
 export async function conteudoRoutes(app: FastifyInstance) {
-  const somenteEquipe = { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] };
+  const somenteEquipe = { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] };
 
   app.setErrorHandler(
     tratadorDeErro((erro) =>
@@ -113,7 +113,7 @@ export async function conteudoRoutes(app: FastifyInstance) {
 
   // ------------------------------------------------------- painel
   //
-  // A primeira tela de quem abre o sistema. Antes dela a secretaria caía num
+  // A primeira tela de quem abre o sistema. Antes dela o administrativo caía num
   // formulário em branco de cronograma: tudo que o sistema sabe existia, mas
   // só para quem soubesse em qual aba clicar.
   //

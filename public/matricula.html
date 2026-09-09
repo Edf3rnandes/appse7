@@ -615,7 +615,7 @@ async function enviar() {
   } catch (e) {
     estado.erro =
       e instanceof ErroApi && e.status === 429
-        ? "Muitos envios deste aparelho. Tente de novo daqui a pouco ou fale com a secretaria."
+        ? "Muitos envios deste aparelho. Tente de novo daqui a pouco ou fale com o administrativo."
         : e.message;
   } finally {
     estado.enviando = false;

@@ -6,7 +6,7 @@ partido em dois sistemas:
 | Sistema | Stack | Papel hoje | Papel no Hub |
 |---|---|---|---|
 | **se7volei** (Laravel 10 / MySQL) | PHP 8.1, Blade, Asaas | Alunos, turmas, matrículas, frequência, cobrança | **Fonte de dados durante a transição** — lido em modo somente leitura, nunca escrito |
-| **se7-inadimplencia** (Fastify / Postgres) | Node, Prisma, Supabase | Secretaria: central de demandas, inadimplência, loja, ponto | Módulos migram para cá em seguida |
+| **se7-inadimplencia** (Fastify / Postgres) | Node, Prisma, Supabase | Administrativo: central de demandas, inadimplência, loja, ponto | Módulos migram para cá em seguida |
 | **se7-hub** (este repositório) | Node, Fastify, Prisma, Postgres | — | Acesso único, portal do responsável, app do professor |
 
 O Hub divide o Postgres do Supabase com o se7-inadimplencia (ver abaixo) e lê o MySQL do Laravel
@@ -38,9 +38,9 @@ Google Sign-In  ──▶  POST /auth/google  ──▶  token do Hub (12h)
 **Responsável entra sozinho, pelo CPF.** É o único caminho self-service, porque
 `customers.cpf` existe, é único e é o dado que a família conhece.
 
-**Professor, secretaria e admin entram por convite.** Isso não é escolha de
+**Professor, administrativo e admin entram por convite.** Isso não é escolha de
 produto: a tabela `teachers` do Laravel **não tem CPF nem e-mail**, então não há
-como o professor provar quem é sozinho no primeiro acesso. A secretaria emite o
+como o professor provar quem é sozinho no primeiro acesso. O administrativo emite o
 convite em `POST /auth/convites` informando o `legacyId` (o `teachers.id`), e o
 vínculo já sai pronto quando a pessoa entra com o Google.
 
@@ -71,7 +71,7 @@ pertence, para não confirmar que o aluno existe.
 | `POST` | `/auth/google` | público (troca o id_token do Google pelo token do Hub) |
 | `POST` | `/auth/vincular-cpf` | autenticado |
 | `GET` | `/auth/eu` | autenticado |
-| `POST` `GET` | `/auth/convites` | ADMIN, SECRETARIA |
+| `POST` `GET` | `/auth/convites` | ADMIN, ADMINISTRATIVO |
 | `GET` | `/portal/alunos` | responsável vinculado |
 | `GET` | `/portal/alunos/:id/frequencia` | responsável vinculado (dono do aluno) |
 | `GET` | `/portal/faturas` | responsável vinculado |
@@ -82,11 +82,11 @@ pertence, para não confirmar que o aluno existe.
 | `GET` | `/professor/semana` | professor vinculado |
 | `GET` | `/professor/agenda` | professor vinculado |
 | `POST` `GET` | `/professor/ocorrencias` | professor vinculado |
-| `GET` `PATCH` | `/conteudo/ocorrencias` | ADMIN, SECRETARIA |
-| `GET` `PUT` | `/conteudo/config` | ADMIN, SECRETARIA |
-| `GET` `PUT` `DELETE` | `/conteudo/cronograma` | ADMIN, SECRETARIA |
-| `GET` `POST` `PUT` `DELETE` | `/conteudo/eventos` | ADMIN, SECRETARIA |
-| `GET` | `/escola/ocupacao` | ADMIN, SECRETARIA |
+| `GET` `PATCH` | `/conteudo/ocorrencias` | ADMIN, ADMINISTRATIVO |
+| `GET` `PUT` | `/conteudo/config` | ADMIN, ADMINISTRATIVO |
+| `GET` `PUT` `DELETE` | `/conteudo/cronograma` | ADMIN, ADMINISTRATIVO |
+| `GET` `POST` `PUT` `DELETE` | `/conteudo/eventos` | ADMIN, ADMINISTRATIVO |
+| `GET` | `/escola/ocupacao` | ADMIN, ADMINISTRATIVO |
 
 ## Telas
 
@@ -96,7 +96,7 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 |---|---|
 | `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
 | `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
-| `/secretaria.html` | **Secretaria** — cadastra o cronograma das semanas e os eventos que o professor vê |
+| `/administrativo.html` | **Administrativo** — cadastra o cronograma das semanas e os eventos que o professor vê |
 
 ## Banco compartilhado com o se7-inadimplencia
 
@@ -145,13 +145,13 @@ quem preferir criar as tabelas do Hub com `npx prisma db push`.
 
 ## Cronograma
 
-É **o mesmo cronograma** do se7-inadimplencia, na mesma linha da mesma tabela: a secretaria
+É **o mesmo cronograma** do se7-inadimplencia, na mesma linha da mesma tabela: o administrativo
 preenche pelo Hub ou pelo painel antigo e os dois leem o mesmo conteúdo. `observacoes` é a única
 coluna que o Hub acrescenta, e é aditiva — nasce da visão do professor (maré, quadra, material),
-que o cronograma da secretaria não tinha. O se7-inadimplencia não a consulta e segue funcionando
+que o cronograma do administrativo não tinha. O se7-inadimplencia não a consulta e segue funcionando
 como antes.
 
-A semana é identificada pela **segunda-feira**: a secretaria escolhe qualquer dia e o servidor
+A semana é identificada pela **segunda-feira**: o administrativo escolhe qualquer dia e o servidor
 normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. O ciclo é
 `planejado → pronto → publicado`, e só "publicado" chega ao professor — dá para montar a
 temporada inteira antes de liberar.
@@ -168,7 +168,7 @@ grava declara um `bodyLimit` próprio, já que o padrão de 1 MB do Fastify não
 
 Quem vê o quê:
 
-| | Secretaria | Professor |
+| | Administrativo | Professor |
 |---|---|---|
 | Tema, fundamentos, exercícios, observações | sim | sim |
 | Arte da semana | sim | sim (com botão de copiar o texto) |
@@ -257,24 +257,24 @@ DATABASE_URL="postgresql://..." JWT_SECRET="..." npm test
 ## Convites
 
 Um convite é aplicado **em todo login**, não só no primeiro. Isso importa porque o caso mais
-comum é justamente convidar alguém que já tem conta — a secretaria que também quer usar a área do
+comum é justamente convidar alguém que já tem conta — o administrativo que também quer usar a área do
 professor. Quem já entrou antes só precisa sair e entrar de novo para o convite valer.
 
 Se o professor indicado já pertencer a outra conta, o vínculo não é transferido e o convite fica
-pendente, para a secretaria enxergar que algo não fechou.
+pendente, para o administrativo enxergar que algo não fechou.
 
 ## Avisos do professor
 
 O que hoje se perde no WhatsApp — aluno na turma errada, aluno que devia estar na lista e não
-está, e o que aconteceu no treino — vira uma caixa de entrada única na secretaria, com resposta
+está, e o que aconteceu no treino — vira uma caixa de entrada única no administrativo, com resposta
 que volta para o professor. São o mesmo modelo com tipos diferentes: do ponto de vista de quem
 resolve, todos são "alguém precisa ler, agir e dar baixa".
 
-A aba da secretaria mostra o número de avisos abertos. Sem esse contador ninguém abre a caixa por
+A aba do administrativo mostra o número de avisos abertos. Sem esse contador ninguém abre a caixa por
 hábito e os avisos ficam parados até o professor cobrar por fora.
 
 Turma e aluno são gravados **como texto**, além do id. Com a ponte do MySQL desligada o professor
-ainda precisa conseguir avisar, e a secretaria precisa entender o aviso sem abrir outro sistema —
+ainda precisa conseguir avisar, e o administrativo precisa entender o aviso sem abrir outro sistema —
 por isso um aviso com turma é aceito mesmo quando não dá para conferir a turma: recusá-lo trocaria
 um problema pequeno (contexto incompleto) por um grande (o professor sem como avisar).
 
@@ -287,5 +287,5 @@ Esta é a fundação: acesso, vínculo e leitura. Ainda não foram feitos:
   sem endereço" do se7-inadimplencia, que hoje é importação manual);
 - lançamento de frequência pelo professor (substitui o app atual, que autentica
   com `secret` previsível em query string);
-- migração dos módulos da secretaria vindos do se7-inadimplencia;
+- migração dos módulos do administrativo vindos do se7-inadimplencia;
 - as telas de administração (hoje só portal e área do professor).

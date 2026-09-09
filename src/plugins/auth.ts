@@ -3,7 +3,7 @@ import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { env } from "../config/env.js";
 
-export type PapelNomeToken = "ADMIN" | "SECRETARIA" | "PROFESSOR" | "RESPONSAVEL";
+export type PapelNomeToken = "ADMIN" | "ADMINISTRATIVO" | "PROFESSOR" | "RESPONSAVEL";
 
 export interface TokenHub {
   sub: string;
@@ -94,7 +94,7 @@ export default fp(async function authPlugin(app: FastifyInstance) {
     }
     if (typeof request.user.professorId !== "string") {
       return reply.code(409).send({
-        message: "Conta sem vinculo de professor. Peca um convite a secretaria.",
+        message: "Conta sem vinculo de professor. Peca um convite o administrativo.",
         codigo: "VINCULO_PENDENTE",
       });
     }

@@ -152,12 +152,12 @@ function contem(busca: string | undefined, campos: string[]) {
 }
 
 export async function cadastroRoutes(app: FastifyInstance) {
-  const equipe = { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] };
+  const equipe = { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] };
 
   app.setErrorHandler(
     tratadorDeErro((erro) => {
       if (erro instanceof Prisma.PrismaClientKnownRequestError) {
-        // Violação de unicidade. Sem isto a secretaria lê "Erro interno" ao
+        // Violação de unicidade. Sem isto o administrativo lê "Erro interno" ao
         // cadastrar um CPF que já existe, que é o erro mais comum de todos.
         if (erro.code === "P2002") {
           const alvo = (erro.meta?.target as string[] | undefined)?.join(", ") ?? "";
@@ -458,7 +458,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
    *
    * É a lista de quem precisa renovar, e a razão de existir do campo
    * `expiraEm`. Por padrão traz o que já venceu mais o que vence nos próximos
-   * 30 dias: renovar depois do vencimento é perder aula, e a secretaria
+   * 30 dias: renovar depois do vencimento é perder aula, e o administrativo
    * precisa ligar antes.
    */
   app.get("/escola/relatorios/expiradas", equipe, async (request) => {
@@ -603,7 +603,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
   // que lá a tabela só listava presenças: a falta não era um registro, era a
   // ausência de um. Não dava para dizer se um aluno faltou ou se a chamada
   // daquele dia nunca foi feita — e essa é justamente a pergunta que a
-  // secretaria faz. Aqui a falta é uma linha, então o percentual significa
+  // administrativo faz. Aqui a falta é uma linha, então o percentual significa
   // alguma coisa.
 
   const periodo = z.object({
@@ -648,7 +648,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
       },
     });
 
-    // Agrupado por dia: a secretaria olha "o treino de terça" como uma coisa
+    // Agrupado por dia: o administrativo olha "o treino de terça" como uma coisa
     // só, não como vinte linhas soltas.
     const porDia = new Map<string, typeof registros>();
     for (const r of registros) {

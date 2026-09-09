@@ -38,7 +38,7 @@ const cpfSchema = z.object({
 
 const conviteSchema = z.object({
   email: z.string().email("Email invalido."),
-  papel: z.enum(["ADMIN", "SECRETARIA", "PROFESSOR"]),
+  papel: z.enum(["ADMIN", "ADMINISTRATIVO", "PROFESSOR"]),
   // Qual professor do cadastro essa conta vai representar.
   professorId: z.string().uuid().optional(),
   validadeDias: z.number().int().min(1).max(90).default(14),
@@ -167,11 +167,11 @@ export async function authRoutes(app: FastifyInstance) {
     professorId: request.user.professorId ?? null,
   }));
 
-  // Professor e secretaria entram por convite — ver o comentario em
+  // Professor e administrativo entram por convite — ver o comentario em
   // prisma/schema.prisma (model Convite) para o porque.
   app.post(
     "/auth/convites",
-    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] },
     async (request, reply) => {
       const body = conviteSchema.parse(request.body);
       const email = body.email.toLowerCase();
@@ -248,7 +248,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get(
     "/auth/convites",
-    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] },
     async () =>
       prisma.convite.findMany({
         orderBy: { criadoEm: "desc" },
@@ -268,7 +268,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Cancelar um convite ainda não usado — e-mail errado, pessoa que desistiu.
   app.delete(
     "/auth/convites/:id",
-    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       await prisma.convite.delete({ where: { id } }).catch(() => null);
@@ -280,7 +280,7 @@ export async function authRoutes(app: FastifyInstance) {
   // no sistema?", que antes só existia consultando o banco na mão.
   app.get(
     "/auth/usuarios",
-    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    { preHandler: [app.exigirPapel("ADMIN", "ADMINISTRATIVO")] },
     async () => {
       const usuarios = await prisma.usuario.findMany({
         orderBy: [{ ativo: "desc" }, { nome: "asc" }],

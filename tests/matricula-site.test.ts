@@ -90,7 +90,7 @@ describe("matrícula pelo site", () => {
 
     // No sistema antigo a principal nasce PAYMENT_PENDDING e as dos irmãos
     // nascem CREATED: o mesmo pedido em dois estados. Aqui todas nascem
-    // iguais, e quem muda isso é a secretaria.
+    // iguais, e quem muda isso é o administrativo.
     assert.equal(matricula.status, StatusMatricula.CRIADA);
     assert.match(matricula.observacao ?? "", /pelo site/);
   });

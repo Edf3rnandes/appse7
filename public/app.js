@@ -264,8 +264,9 @@ export async function prepararImagem(arquivo, ladoMaximo = 1400, qualidade = 0.8
  * Links para as outras áreas a que a pessoa tem acesso.
  *
  * Sem isso cada página é um beco sem saída: um administrador que abre a área
- * do professor por engano lê "peça um convite à secretaria" — sendo ele a
- * secretaria — e não tem como chegar onde queria a não ser digitando a URL.
+ * do professor por engano lê "peça um convite ao administrativo" — sendo ele o
+ * próprio administrativo — e não tem como chegar onde queria a não ser
+ * digitando a URL.
  *
  * `eu` é a resposta de /auth/eu.
  */
@@ -273,8 +274,8 @@ export function areasDisponiveis(eu, atual) {
   const papeis = eu?.papeis || [];
   const areas = [];
 
-  if (papeis.includes("ADMIN") || papeis.includes("SECRETARIA")) {
-    areas.push({ chave: "secretaria", nome: "Secretaria", href: "/secretaria.html" });
+  if (papeis.includes("ADMIN") || papeis.includes("ADMINISTRATIVO")) {
+    areas.push({ chave: "administrativo", nome: "Administrativo", href: "/administrativo.html" });
   }
   if (eu?.professorId != null) {
     areas.push({ chave: "professor", nome: "Professor", href: "/professor.html" });
@@ -300,7 +301,7 @@ export function pintarNavegacao(alvo, eu, atual) {
  *
  * Uma lista responde "o que tem este mês?"; a grade responde "que dia da
  * semana isso cai?" e "tem alguma coisa perto do treino de quarta?" — que é
- * como professor e secretaria realmente pensam a agenda.
+ * como professor e administrativo realmente pensam a agenda.
  *
  * `eventos` precisa de { data, dataFim?, titulo, tipo }. Devolve HTML.
  */

@@ -96,7 +96,7 @@ desenvolvimento — e em produção também, enquanto o Google não estiver
 configurado e a importação dos alunos não acontecer. `banco:false` ou `cronogramaCompartilhado:false` indicam que
 o passo 3 não foi feito.
 
-Entre em <http://localhost:3000/secretaria.html> com o e-mail de
+Entre em <http://localhost:3000/administrativo.html> com o e-mail de
 `ADMIN_EMAILS` e a senha de `SEED_ADMIN_SENHA`.
 
 ## 5. Testes

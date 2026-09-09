@@ -135,7 +135,7 @@ async function main() {
 
     // A turma pode já existir sem legacyId, criada pelo seed de demonstração
     // com o mesmo nome. Adotar em vez de duplicar: duas "BA TQ Adulto 2" na
-    // lista da secretaria seriam pior do que qualquer coisa que a importação
+    // lista do administrativo seriam pior do que qualquer coisa que a importação
     // resolva.
     if (!turma) {
       const homonima = await prisma.turma.findFirst({

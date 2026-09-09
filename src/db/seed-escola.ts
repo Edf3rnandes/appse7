@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
  * Dados de demonstração: planos, professores e algumas famílias.
  *
  * Serve para o sistema ser navegável antes da importação dos alunos: dá para
- * sentar com a secretaria e com os professores, usar as telas de verdade e
+ * sentar com o administrativo e com os professores, usar as telas de verdade e
  * ajustar o que estiver errado, sem esperar a virada.
  *
  * Unidades e turmas NÃO saem daqui — são as de verdade, e vêm de

@@ -357,7 +357,7 @@ export async function obterSecretDoProfessor(id: number): Promise<string | null>
 }
 
 // ---------------------------------------------------------------------------
-// Painel da secretaria
+// Painel do administrativo
 // ---------------------------------------------------------------------------
 
 export interface NumerosDaEscola {
@@ -413,7 +413,7 @@ export interface MatriculaRecente {
   criadaEm: Date | string | null;
 }
 
-// Ultimas matriculas, na mesma leitura do painel antigo: a secretaria abre o
+// Ultimas matriculas, na mesma leitura do painel antigo: o administrativo abre o
 // sistema para ver o que entrou desde ontem, e principalmente o que entrou e
 // ainda nao pagou.
 const SQL_MATRICULAS_RECENTES = `

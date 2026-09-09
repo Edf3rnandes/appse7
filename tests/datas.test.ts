@@ -83,7 +83,7 @@ describe("datas de calendário", () => {
  * A conta de vencimento da matrícula.
  *
  * Não é aritmética inocente: ela decide até quando o aluno pode treinar e
- * quando a secretaria liga para renovar.
+ * quando o administrativo liga para renovar.
  */
 describe("mesesAFrente", () => {
   const em = (ano: number, mes: number, dia: number) => emUtc(ano, mes - 1, dia);
