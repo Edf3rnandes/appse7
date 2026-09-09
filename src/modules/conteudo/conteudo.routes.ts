@@ -3,6 +3,13 @@ import { z } from "zod";
 import { TipoEvento } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { segundaDaSemana } from "../../lib/datas.js";
+import {
+  CronogramaIndisponivelError,
+  apagarSemana,
+  listarSemanas,
+  obterSemanaPorId,
+  salvarSemana,
+} from "../../db/compartilhado/cronograma.repository.js";
 
 const dataIso = z
   .string()
@@ -51,15 +58,6 @@ const eventoSchema = z.object({
 
 const idParams = z.object({ id: z.string().uuid() });
 
-// Sem a arte: a listagem carrega dezenas de semanas e o data URL de cada uma
-// deixaria a resposta na casa dos megabytes. Quem precisa da imagem pede a
-// semana inteira em /conteudo/cronograma/:id.
-const SEM_IMAGEM = {
-  id: true, semana: true, tema: true, fundamentos: true, exerciciosSugeridos: true,
-  observacoes: true, postagensPlanejadas: true, textoDivulgacao: true, linkCanva: true,
-  imagemNome: true, status: true, criadoEm: true, atualizadoEm: true,
-} as const;
-
 /**
  * Quem alimenta o que o professor lê: cronograma das semanas e eventos do mês.
  * Só secretaria e admin escrevem — o professor tem só as rotas de leitura em
@@ -68,22 +66,31 @@ const SEM_IMAGEM = {
 export async function conteudoRoutes(app: FastifyInstance) {
   const somenteEquipe = { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] };
 
+  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
+    // O cronograma vive numa tabela do se7-inadimplencia. Se o Hub estiver
+    // apontando para outro banco, a tela precisa dizer isso, não estourar 500.
+    if (err instanceof CronogramaIndisponivelError) {
+      return reply.code(503).send({ message: err.message });
+    }
+    request.log.error(err);
+    const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
+    return reply.code(statusCode).send({
+      message: statusCode < 500 ? err.message : "Erro interno.",
+    });
+  });
+
   // ------------------------------------------------------- cronograma
   app.get("/conteudo/cronograma", somenteEquipe, async (request) => {
     const { limite } = z.object({ limite: z.coerce.number().int().min(1).max(60).default(20) })
       .parse(request.query);
 
-    return prisma.cronogramaSemana.findMany({
-      orderBy: { semana: "desc" },
-      take: limite,
-      select: SEM_IMAGEM,
-    });
+    return listarSemanas(limite);
   });
 
   // A semana completa, com a arte — é o que a tela de edição carrega.
   app.get("/conteudo/cronograma/:id", somenteEquipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const semana = await prisma.cronogramaSemana.findUnique({ where: { id } });
+    const semana = await obterSemanaPorId(id);
     if (!semana) return reply.code(404).send({ message: "Semana não encontrada." });
     return semana;
   });
@@ -117,20 +124,14 @@ export async function conteudoRoutes(app: FastifyInstance) {
           : { imagemBase64: corpo.imagemBase64, imagemNome: corpo.imagemNome ?? null }),
       };
 
-      const registro = await prisma.cronogramaSemana.upsert({
-        where: { semana },
-        create: { semana, ...dados },
-        update: dados,
-        select: SEM_IMAGEM,
-      });
 
-      return reply.code(200).send(registro);
+      return reply.code(200).send(await salvarSemana(semana, dados));
     },
   );
 
   app.delete("/conteudo/cronograma/:id", somenteEquipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    await prisma.cronogramaSemana.delete({ where: { id } }).catch(() => null);
+    await apagarSemana(id);
     return reply.code(204).send();
   });
 

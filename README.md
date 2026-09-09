@@ -9,6 +9,9 @@ partido em dois sistemas:
 | **se7-inadimplencia** (Fastify / Postgres) | Node, Prisma, Supabase | Secretaria: central de demandas, inadimplência, loja, ponto | Módulos migram para cá em seguida |
 | **se7-hub** (este repositório) | Node, Fastify, Prisma, Postgres | — | Acesso único, portal do responsável, app do professor |
 
+O Hub divide o Postgres do Supabase com o se7-inadimplencia (ver abaixo) e lê o MySQL do Laravel
+em modo somente leitura.
+
 O Hub é um **caminho novo**: sobe ao lado dos outros dois, sem alterar uma linha
 do Laravel nem do se7-inadimplencia. Enquanto ele cresce, os sistemas atuais
 continuam funcionando exatamente como estão.
@@ -92,14 +95,38 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 | `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
 | `/secretaria.html` | **Secretaria** — cadastra o cronograma das semanas e os eventos que o professor vê |
 
+## Banco compartilhado com o se7-inadimplencia
+
+O Hub usa **o mesmo Postgres (Supabase)** do se7-inadimplencia. Isso não é um detalhe de
+hospedagem: é o que faz o cronograma ser *literalmente a mesma tabela*, sem digitar nada duas
+vezes.
+
+Dividir banco entre dois sistemas tem um risco óbvio, e ele está resolvido de forma estrutural:
+
+- as tabelas do Hub ficam no schema **`hub`**; as do se7-inadimplencia continuam em `public`;
+- o `schema.prisma` declara `schemas = ["hub"]`, então **`prisma db push` não enxerga `public`** e
+  não tem como alterar ou apagar nada do outro sistema. A proteção não depende de ninguém lembrar
+  dela;
+- por consequência, `public.cronograma_semanas` **não é um modelo do Prisma** aqui. O acesso é por
+  SQL explícito em `src/db/compartilhado/`, mesmo padrão da ponte com o MySQL: um arquivo só,
+  nenhum outro módulo escreve o nome de uma tabela vizinha.
+
+Preparo do banco, uma vez só, com a `DIRECT_URL` (porta 5432, não o pooler):
+
+```bash
+psql "$DIRECT_URL" -f prisma/compartilhado.sql   # cria o schema hub + a coluna observacoes
+npx prisma db push                               # cria as tabelas do Hub dentro de hub
+```
+
+Ambos os passos são aditivos — nada existente é alterado ou removido.
+
 ## Cronograma
 
-É **o mesmo cronograma** que já existe no se7-inadimplencia, não um segundo. Os nomes de campo
-foram copiados de lá de propósito — `semana`, `tema`, `fundamentos`, `exerciciosSugeridos`,
-`postagensPlanejadas`, `textoDivulgacao`, `linkCanva`, `imagemBase64`, `imagemNome`, `status` —
-para que a fusão da Fase 3 seja uma cópia de linhas e não uma reconciliação de dois modelos
-parecidos. `observacoes` é o único campo novo, e é aditivo: nasce da visão do professor (maré,
-quadra, material), que o cronograma da secretaria não tinha.
+É **o mesmo cronograma** do se7-inadimplencia, na mesma linha da mesma tabela: a secretaria
+preenche pelo Hub ou pelo painel antigo e os dois leem o mesmo conteúdo. `observacoes` é a única
+coluna que o Hub acrescenta, e é aditiva — nasce da visão do professor (maré, quadra, material),
+que o cronograma da secretaria não tinha. O se7-inadimplencia não a consulta e segue funcionando
+como antes.
 
 A semana é identificada pela **segunda-feira**: a secretaria escolhe qualquer dia e o servidor
 normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. O ciclo é

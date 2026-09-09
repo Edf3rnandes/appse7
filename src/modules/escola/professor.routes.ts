@@ -14,6 +14,11 @@ import {
   lancarFrequencia,
 } from "../../services/legado/frequencia.service.js";
 import { segundaDaSemana, primeiroDiaDoMes, ultimoDiaDoMes, somarDias } from "../../lib/datas.js";
+import {
+  CronogramaIndisponivelError,
+  listarPublicadasNoIntervalo,
+  obterPublicadasComArte,
+} from "../../db/compartilhado/cronograma.repository.js";
 
 const turmaParams = z.object({ id: z.coerce.number().int().positive() });
 
@@ -31,7 +36,11 @@ const mesQuery = z.object({
 
 export async function professorRoutes(app: FastifyInstance) {
   app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
-    if (err instanceof LegadoIndisponivelError || err instanceof LegadoApiIndisponivelError) {
+    if (
+      err instanceof LegadoIndisponivelError ||
+      err instanceof LegadoApiIndisponivelError ||
+      err instanceof CronogramaIndisponivelError
+    ) {
       return reply.code(503).send({ message: err.message });
     }
     if (err instanceof FrequenciaRecusadaError) {
@@ -119,17 +128,28 @@ export async function professorRoutes(app: FastifyInstance) {
     const estaSemana = segundaDaSemana(new Date());
     const proximaSemana = somarDias(estaSemana, 7);
 
-    const semanas = await prisma.cronogramaSemana.findMany({
-      where: { status: "publicado", semana: { in: [estaSemana, proximaSemana] } },
-      orderBy: { semana: "asc" },
-      select: {
-        id: true, semana: true, tema: true, fundamentos: true, exerciciosSugeridos: true,
-        observacoes: true, textoDivulgacao: true, imagemBase64: true, imagemNome: true,
-      },
+    const semanas = await obterPublicadasComArte([estaSemana, proximaSemana]);
+
+    // O link do Canva e as postagens planejadas ficam de fora: são material
+    // interno da equipe, e a tabela é compartilhada — o recorte é feito aqui.
+    const paraProfessor = (s: (typeof semanas)[number]) => ({
+      id: s.id,
+      semana: s.semana,
+      tema: s.tema,
+      fundamentos: s.fundamentos,
+      exerciciosSugeridos: s.exerciciosSugeridos,
+      observacoes: s.observacoes,
+      textoDivulgacao: s.textoDivulgacao,
+      imagemBase64: s.imagemBase64,
+      imagemNome: s.imagemNome,
     });
 
-    const achar = (data: Date) =>
-      semanas.find((s) => s.semana.toISOString().slice(0, 10) === data.toISOString().slice(0, 10)) ?? null;
+    const achar = (data: Date) => {
+      const achada = semanas.find(
+        (s) => s.semana.toISOString().slice(0, 10) === data.toISOString().slice(0, 10),
+      );
+      return achada ? paraProfessor(achada) : null;
+    };
 
     return { atual: achar(estaSemana), proxima: achar(proximaSemana) };
   });
@@ -153,22 +173,23 @@ export async function professorRoutes(app: FastifyInstance) {
       // de cada uma deixaria a resposta na casa dos megabytes num celular em
       // rede móvel. `temArte` diz que existe, e a semana inteira vem em
       // /professor/semana.
-      prisma.cronogramaSemana.findMany({
-        where: { status: "publicado", semana: { gte: somarDias(inicio, -6), lte: fim } },
-        orderBy: { semana: "asc" },
-        select: {
-          id: true, semana: true, tema: true, fundamentos: true,
-          exerciciosSugeridos: true, observacoes: true, textoDivulgacao: true,
-          imagemNome: true,
-        },
-      }),
+      listarPublicadasNoIntervalo(somarDias(inicio, -6), fim),
     ]);
 
     return {
       mes: referencia.getMonth() + 1,
       ano: referencia.getFullYear(),
       eventos,
-      semanas: semanas.map(({ imagemNome, ...s }) => ({ ...s, temArte: imagemNome !== null })),
+      semanas: semanas.map((s) => ({
+        id: s.id,
+        semana: s.semana,
+        tema: s.tema,
+        fundamentos: s.fundamentos,
+        exerciciosSugeridos: s.exerciciosSugeridos,
+        observacoes: s.observacoes,
+        textoDivulgacao: s.textoDivulgacao,
+        temArte: s.imagemNome !== null,
+      })),
     };
   });
 }

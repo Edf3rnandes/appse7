@@ -5,13 +5,19 @@
 // registro de alunos/turmas/matriculas, ele e lido em modo somente leitura por
 // src/db/legacy/ — nunca escrito.
 //
-// Todas as tabelas usam o prefixo `hub_`. Isso e proposital: o banco do
-// se7-inadimplencia (Supabase) ja tem uma tabela `usuarios`, e o plano de longo
-// prazo e os dois viverem no mesmo Postgres. O prefixo garante que a fusao nao
-// vai colidir com nada.
+// As tabelas do Hub ficam no schema `hub`, separadas das do se7-inadimplencia,
+// que estao em `public`. E por isso que a tabela `usuarios` daqui nao colide
+// com a de la, mesmo os dois dividindo o banco.
+//
+// O cronograma e a excecao proposital: ele NAO e um modelo do Prisma aqui,
+// porque a tabela pertence ao se7-inadimplencia (`public.cronograma_semanas`).
+// O Hub le e escreve nela por SQL explicito, em src/db/compartilhado/ — mesmo
+// padrao da ponte com o MySQL. Assim ha uma fonte da verdade so, e o schema
+// do Hub nunca tem poder de alterar a tabela do outro sistema.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 // DATABASE_URL = pooler do Supabase (6543), usado pela aplicacao.
@@ -21,6 +27,13 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+
+  // O Hub divide o Postgres do Supabase com o se7-inadimplencia, cujas tabelas
+  // vivem em `public`. Listar apenas "hub" aqui não é organização: é o que
+  // impede `prisma db push` de enxergar as tabelas do outro sistema e tentar
+  // apagá-las por não estarem neste schema. A regra é estrutural, não
+  // disciplinar — não dá para esquecer dela.
+  schemas   = ["hub"]
 }
 
 // ---------------------------------------------------------------------------
@@ -46,12 +59,15 @@ model Usuario {
   vinculos         Vinculo[]
   tentativasVinculo TentativaVinculo[]
 
-  @@map("hub_usuarios")
+  @@map("usuarios")
+  @@schema("hub")
 }
 
 enum Provedor {
   GOOGLE
   SENHA
+
+  @@schema("hub")
 }
 
 // Uma linha por forma de entrar. Google e o caminho normal; SENHA existe so
@@ -68,7 +84,8 @@ model Identidade {
 
   @@unique([provedor, provedorSub])
   @@index([usuarioId])
-  @@map("hub_identidades")
+  @@map("identidades")
+  @@schema("hub")
 }
 
 enum PapelNome {
@@ -76,6 +93,8 @@ enum PapelNome {
   SECRETARIA
   PROFESSOR
   RESPONSAVEL
+
+  @@schema("hub")
 }
 
 model Papel {
@@ -86,12 +105,15 @@ model Papel {
   criadoEm  DateTime  @default(now())
 
   @@unique([usuarioId, nome])
-  @@map("hub_papeis")
+  @@map("papeis")
+  @@schema("hub")
 }
 
 enum TipoVinculo {
   RESPONSAVEL // aponta para customers.id no Laravel
   PROFESSOR   // aponta para teachers.id no Laravel
+
+  @@schema("hub")
 }
 
 // Liga a conta Google a uma linha real do sistema Laravel. Sem vinculo, o
@@ -109,7 +131,8 @@ model Vinculo {
   // reivindicar o mesmo CPF, a segunda e recusada e cai para atendimento.
   @@unique([tipo, legacyId])
   @@index([usuarioId])
-  @@map("hub_vinculos")
+  @@map("vinculos")
+  @@schema("hub")
 }
 
 // O vinculo por CPF e o unico ponto do sistema onde alguem autenticado consulta
@@ -127,7 +150,8 @@ model TentativaVinculo {
   criadoEm  DateTime @default(now())
 
   @@index([usuarioId, criadoEm])
-  @@map("hub_tentativas_vinculo")
+  @@map("tentativas_vinculo")
+  @@schema("hub")
 }
 
 // Professor, secretaria e admin nao entram sozinhos: o acesso e por convite.
@@ -145,54 +169,8 @@ model Convite {
   criadoEm     DateTime   @default(now())
 
   @@index([email])
-  @@map("hub_convites")
-}
-
-// ---------------------------------------------------------------------------
-// Cronograma — a MESMA coisa que o `CronogramaSemana` do se7-inadimplencia.
-//
-// Os nomes de campo aqui são deliberadamente iguais aos de lá (semana, tema,
-// fundamentos, exerciciosSugeridos, postagensPlanejadas, textoDivulgacao,
-// linkCanva, imagemBase64, imagemNome, status). Não é repetição por descuido:
-// é para que a fusão da Fase 3 seja uma cópia de linhas, e não uma
-// reconciliação de dois modelos parecidos. `observacoes` é o único campo novo,
-// e é aditivo — nasce da visão do professor, que o cronograma da secretaria
-// não tinha (maré, quadra, material).
-//
-// A imagem fica como data URL na própria coluna, mesma decisão do sistema de
-// origem: é ~1 arte por semana, não justifica bucket nem CDN. O navegador
-// reduz e recomprime antes de enviar, e a rota que grava declara um bodyLimit
-// próprio — o padrão de 1 MB do Fastify não caberia uma foto de celular.
-// ---------------------------------------------------------------------------
-
-model CronogramaSemana {
-  id                  String   @id @default(uuid())
-  // Segunda-feira da semana. Chave natural: uma linha por semana.
-  semana              DateTime @unique @db.Date
-  tema                String?
-  fundamentos         String?
-  exerciciosSugeridos String?
-  observacoes         String?
-
-  // Divulgação: o que vai para os grupos e para o Instagram.
-  postagensPlanejadas String?
-  textoDivulgacao     String?
-  // Documento editável no Canva. Uso interno da equipe — não vai para o app
-  // do professor.
-  linkCanva           String?
-
-  imagemBase64        String?  // data URL completo (data:image/jpeg;base64,...)
-  imagemNome          String?
-
-  // planejado -> pronto -> publicado. O professor só enxerga "publicado",
-  // então dá para montar a temporada inteira antes de liberar.
-  status              String   @default("planejado")
-
-  criadoEm            DateTime @default(now())
-  atualizadoEm        DateTime @updatedAt
-
-  @@index([semana, status])
-  @@map("hub_cronograma_semanas")
+  @@map("convites")
+  @@schema("hub")
 }
 
 enum TipoEvento {
@@ -203,6 +181,8 @@ enum TipoEvento {
   AVALIACAO
   FERIADO
   OUTRO
+
+  @@schema("hub")
 }
 
 // Eventos do mês: campeonato, festival, aulão, reunião, avaliação, feriado.
@@ -224,5 +204,6 @@ model Evento {
   atualizadoEm    DateTime   @updatedAt
 
   @@index([data, publicado])
-  @@map("hub_eventos")
+  @@map("eventos")
+  @@schema("hub")
 }
