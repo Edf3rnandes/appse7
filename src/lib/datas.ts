@@ -46,3 +46,21 @@ export function primeiroDiaDoMes(ano: number, mes: number): Date {
 export function ultimoDiaDoMes(ano: number, mes: number): Date {
   return emUtc(ano, mes, 0);
 }
+
+/**
+ * Uma data de calendário, N meses à frente.
+ *
+ * É a conta que decide até quando uma matrícula vale: um plano semestral de 6
+ * parcelas vence em 6 meses. O sistema antigo fazia o mesmo com o addMonths do
+ * Carbon, só que na hora de gerar a cobrança — então matrícula sem cobrança
+ * gerada ficava sem vencimento e nunca aparecia como vencida.
+ *
+ * `setUTCMonth` cuida da virada de ano sozinho. O dia 31 num mês de 30 escorrega
+ * para o dia 1 do mês seguinte: é o comportamento do próprio Date, e o mesmo do
+ * Carbon, então a data não muda de significado na migração.
+ */
+export function mesesAFrente(meses: number, apartir: Date = hoje()): Date {
+  const base = emUtc(apartir.getUTCFullYear(), apartir.getUTCMonth(), apartir.getUTCDate());
+  base.setUTCMonth(base.getUTCMonth() + meses);
+  return base;
+}

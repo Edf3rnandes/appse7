@@ -6,7 +6,7 @@
   "description": "Sistema unificado do SE7 Volei de Praia — acesso unico (Google + CPF) sobre a base do sistema Laravel existente.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "build": "npm run checar:paginas && prisma generate && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
@@ -16,7 +16,8 @@
     "test": "tsx --test tests/*.test.ts",
     "seed:escola": "tsx src/db/seed-escola.ts",
     "importar:turmas": "tsx src/db/importar-turmas.ts",
-    "importar:planos": "tsx src/db/importar-planos.ts"
+    "importar:planos": "tsx src/db/importar-planos.ts",
+    "checar:paginas": "node scripts/checar-paginas.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

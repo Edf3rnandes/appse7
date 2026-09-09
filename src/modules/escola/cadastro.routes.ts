@@ -4,6 +4,7 @@ import { DiaDaSemana, Prisma, StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
+import { hoje, mesesAFrente } from "../../lib/datas.js";
 
 /**
  * Cadastro da escola: unidades, turmas, planos, professores, responsáveis,
@@ -429,6 +430,155 @@ export async function cadastroRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
+  // ------------------------------------------------------------ relatórios
+  //
+  // Os quatro de Relatórios que não dependem do Asaas. O quinto — cobranças
+  // vencidas — precisa da conta de cobrança e fica para quando ela entrar.
+
+  /**
+   * Matrículas vencendo ou vencidas.
+   *
+   * É a lista de quem precisa renovar, e a razão de existir do campo
+   * `expiraEm`. Por padrão traz o que já venceu mais o que vence nos próximos
+   * 30 dias: renovar depois do vencimento é perder aula, e a secretaria
+   * precisa ligar antes.
+   */
+  app.get("/escola/relatorios/expiradas", equipe, async (request) => {
+    const { dias, unidadeId } = z
+      .object({
+        dias: z.coerce.number().int().min(0).max(365).default(30),
+        unidadeId: z.string().uuid().optional(),
+      })
+      .parse(request.query);
+
+    const limite = hoje();
+    limite.setUTCDate(limite.getUTCDate() + dias);
+
+    const itens = await prisma.matricula.findMany({
+      where: {
+        arquivadoEm: null,
+        status: { in: [StatusMatricula.CONFIRMADA, StatusMatricula.PAGAMENTO_PENDENTE] },
+        expiraEm: { not: null, lte: limite },
+        ...(unidadeId ? { unidadeId } : {}),
+      },
+      orderBy: { expiraEm: "asc" },
+      include: {
+        aluno: { select: { id: true, nome: true } },
+        responsavel: { select: { nome: true, telefone: true } },
+        turma: { select: { nome: true } },
+        unidade: { select: { nome: true } },
+        plano: { select: { nome: true, valor: true, parcelas: true } },
+      },
+    });
+
+    const agora = hoje();
+    return {
+      itens: itens.map((m) => ({
+        ...m,
+        // Dias até vencer; negativo quer dizer vencida há tantos dias.
+        diasRestantes: Math.round(
+          (new Date(m.expiraEm!).getTime() - agora.getTime()) / (24 * 60 * 60 * 1000),
+        ),
+      })),
+      vencidas: itens.filter((m) => new Date(m.expiraEm!) < agora).length,
+      total: itens.length,
+    };
+  });
+
+  /**
+   * Renova a matrícula: empurra o vencimento pelas parcelas do plano.
+   *
+   * A partir da data que vencer por último — hoje ou o vencimento atual —,
+   * para quem renova adiantado não perder os dias que ainda tinha.
+   */
+  app.post("/escola/matriculas/:id/renovar", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+
+    const matricula = await prisma.matricula.findUnique({
+      where: { id },
+      include: { plano: { select: { parcelas: true } } },
+    });
+    if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
+
+    const agora = hoje();
+    const atual = matricula.expiraEm ? new Date(matricula.expiraEm) : agora;
+    const base = atual > agora ? atual : agora;
+    base.setUTCMonth(base.getUTCMonth() + matricula.plano.parcelas);
+
+    return prisma.matricula.update({
+      where: { id },
+      data: { expiraEm: base, status: StatusMatricula.CONFIRMADA },
+    });
+  });
+
+  /** Alunos por unidade e turma — a lista que se imprime para levar à quadra. */
+  app.get("/escola/relatorios/alunos", equipe, async (request) => {
+    const { unidadeId, turmaId } = z
+      .object({
+        unidadeId: z.string().uuid().optional(),
+        turmaId: z.string().uuid().optional(),
+      })
+      .parse(request.query);
+
+    const itens = await prisma.matricula.findMany({
+      where: {
+        arquivadoEm: null,
+        status: StatusMatricula.CONFIRMADA,
+        ...(unidadeId ? { unidadeId } : {}),
+        ...(turmaId ? { turmaId } : {}),
+      },
+      orderBy: [{ unidade: { nome: "asc" } }, { turma: { nome: "asc" } }, { aluno: { nome: "asc" } }],
+      include: {
+        aluno: { select: { id: true, nome: true, nascimento: true } },
+        responsavel: { select: { nome: true, telefone: true } },
+        turma: { select: { id: true, nome: true } },
+        unidade: { select: { id: true, nome: true } },
+      },
+    });
+
+    return { total: itens.length, itens };
+  });
+
+  /**
+   * Cancelamentos no período, com o que entrou no mesmo recorte.
+   *
+   * O número sozinho não diz nada: 12 cancelamentos são poucos num mês de 60
+   * matrículas e muitos num de 15. Por isso vêm os dois.
+   */
+  app.get("/escola/relatorios/canceladas", equipe, async (request) => {
+    const { de, ate, unidadeId } = z
+      .object({ de: dataOpcional, ate: dataOpcional, unidadeId: z.string().uuid().optional() })
+      .parse(request.query);
+
+    const fim = ate ?? new Date();
+    const inicio = de ?? new Date(fim.getFullYear(), fim.getMonth(), 1);
+    const janela = { gte: inicio, lte: fim };
+    const unidade = unidadeId ? { unidadeId } : {};
+
+    const [canceladas, confirmadas] = await Promise.all([
+      prisma.matricula.findMany({
+        where: { ...unidade, status: StatusMatricula.CANCELADA, canceladaEm: janela },
+        orderBy: { canceladaEm: "desc" },
+        include: {
+          aluno: { select: { nome: true } },
+          responsavel: { select: { nome: true, telefone: true } },
+          turma: { select: { nome: true } },
+          unidade: { select: { nome: true } },
+        },
+      }),
+      prisma.matricula.count({
+        where: { ...unidade, status: StatusMatricula.CONFIRMADA, criadoEm: janela },
+      }),
+    ]);
+
+    return {
+      periodo: { de: inicio, ate: fim },
+      canceladas: canceladas.length,
+      confirmadas,
+      itens: canceladas,
+    };
+  });
+
   // ------------------------------------------------------------ frequência
   //
   // As duas telas que o sistema antigo tem em Administrativo. A diferença é
@@ -615,16 +765,18 @@ export async function cadastroRoutes(app: FastifyInstance) {
   app.post("/escola/matriculas", equipe, async (request, reply) => {
     const corpo = matriculaSchema.parse(request.body);
 
-    const [aluno, turma] = await Promise.all([
+    const [aluno, turma, plano] = await Promise.all([
       prisma.aluno.findUnique({ where: { id: corpo.alunoId } }),
       prisma.turma.findUnique({
         where: { id: corpo.turmaId },
         include: { _count: { select: { matriculas: { where: { status: StatusMatricula.CONFIRMADA, arquivadoEm: null } } } } },
       }),
+      prisma.plano.findUnique({ where: { id: corpo.planoId } }),
     ]);
 
     if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado." });
     if (!turma) return reply.code(404).send({ message: "Turma não encontrada." });
+    if (!plano) return reply.code(404).send({ message: "Plano não encontrado." });
     if (!aluno.responsavelId) {
       return reply.code(400).send({
         message: "Esse aluno ainda não tem responsável. Ligue um responsável antes de matricular.",
@@ -667,6 +819,12 @@ export async function cadastroRoutes(app: FastifyInstance) {
     const criada = await prisma.matricula.create({
       data: {
         ...corpo,
+        // Sem data informada, a matrícula vale pelo número de parcelas do
+        // plano: um semestral de 6 vence em 6 meses. É a mesma conta que o
+        // sistema antigo fazia (now()->addMonths(installments)), só que lá ela
+        // acontecia ao gerar a cobrança — então uma matrícula sem cobrança
+        // gerada ficava sem vencimento e nunca aparecia como vencida.
+        expiraEm: corpo.expiraEm ?? mesesAFrente(plano.parcelas),
         principal: corpo.principal ?? jaTemPrincipal === 0,
         responsavelId: aluno.responsavelId,
         unidadeId: turma.unidadeId,

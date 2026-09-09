@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { emUtc, hoje, primeiroDiaDoMes, segundaDaSemana, somarDias, ultimoDiaDoMes } from "../src/lib/datas.js";
+import {
+  mesesAFrente, describe, it } from "node:test";
+import {
+  mesesAFrente, emUtc, hoje, primeiroDiaDoMes, segundaDaSemana, somarDias, ultimoDiaDoMes } from "../src/lib/datas.js";
 
 /**
  * Estes testes existem por causa de um bug real: com o servidor em
@@ -74,5 +76,72 @@ describe("datas de calendário", () => {
     assert.equal(d.getUTCMinutes(), 0);
     const agora = new Date();
     assert.equal(d.getUTCDate(), agora.getDate(), "tem de ser o dia do relógio de parede");
+  });
+});
+
+/**
+ * A conta de vencimento da matrícula.
+ *
+ * Não é aritmética inocente: ela decide até quando o aluno pode treinar e
+ * quando a secretaria liga para renovar.
+ */
+describe("mesesAFrente", () => {
+  const em = (ano: number, mes: number, dia: number) => emUtc(ano, mes - 1, dia);
+
+  it("soma os meses do plano", () => {
+    assert.equal(
+      mesesAFrente(6, em(2026, 9, 9)).toISOString().slice(0, 10),
+      "2027-03-09",
+      "um semestral de 6 parcelas vence seis meses depois",
+    );
+    assert.equal(mesesAFrente(1, em(2026, 9, 9)).toISOString().slice(0, 10), "2026-10-09");
+    assert.equal(mesesAFrente(12, em(2026, 9, 9)).toISOString().slice(0, 10), "2027-09-09");
+  });
+
+  it("vira o ano sozinho", () => {
+    assert.equal(mesesAFrente(6, em(2026, 11, 20)).toISOString().slice(0, 10), "2027-05-20");
+  });
+
+  // O dia 31 num mês de 30 escorrega para o dia 1 do seguinte. É o
+  // comportamento do próprio Date e o mesmo do Carbon, que o sistema antigo
+  // usava — a data não muda de significado na migração.
+  it("trata o dia 31 num mês de 30 como o Carbon tratava", () => {
+    assert.equal(mesesAFrente(1, em(2026, 1, 31)).toISOString().slice(0, 10), "2026-03-03");
+    assert.equal(mesesAFrente(1, em(2026, 3, 31)).toISOString().slice(0, 10), "2026-05-01");
+  });
+
+  it("não escorrega de dia por causa do fuso", () => {
+    const original = process.env.TZ;
+    for (const fuso of ["America/Fortaleza", "UTC", "Asia/Tokyo", "Pacific/Kiritimati"]) {
+      process.env.TZ = fuso;
+      assert.equal(
+        mesesAFrente(6, em(2026, 9, 9)).toISOString().slice(0, 10),
+        "2027-03-09",
+        `errou em ${fuso}`,
+      );
+    }
+    process.env.TZ = original;
+  });
+
+  // Renovar adiantado não pode custar os dias que ainda faltavam: a regra é
+  // somar a partir da data que vencer por último.
+  it("renovação adiantada soma a partir do vencimento, não de hoje", () => {
+    const agora = em(2026, 9, 9);
+    const vencimentoFuturo = em(2026, 10, 20);
+    const base = vencimentoFuturo > agora ? vencimentoFuturo : agora;
+
+    assert.equal(
+      mesesAFrente(6, base).toISOString().slice(0, 10),
+      "2027-04-20",
+      "quem renova com 41 dias de sobra deveria mantê-los",
+    );
+  });
+
+  it("renovação atrasada soma a partir de hoje", () => {
+    const agora = em(2026, 9, 9);
+    const vencimentoPassado = em(2026, 8, 28);
+    const base = vencimentoPassado > agora ? vencimentoPassado : agora;
+
+    assert.equal(mesesAFrente(6, base).toISOString().slice(0, 10), "2027-03-09");
   });
 });
