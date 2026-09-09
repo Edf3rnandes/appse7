@@ -1,0 +1,1349 @@
+From c4c594599c06fb7d0142633450b49f7730e3d13e Mon Sep 17 00:00:00 2001
+From: Ed Fernandes <edfernandes.volei@gmail.com>
+Date: Tue, 8 Sep 2026 22:53:41 +0000
+Subject: [PATCH] =?UTF-8?q?Corrige=20as=20falhas=20cr=C3=ADticas=20de=20se?=
+ =?UTF-8?q?guran=C3=A7a=20do=20se7volei?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Correções cirúrgicas, sem refatoração e sem mudança de comportamento para
+quem usa o sistema. Nenhuma funcionalidade foi alterada.
+
+1. Webhook do Asaas sem autenticação
+   A rota /webhook/asaas aceitava qualquer POST da internet: um corpo com
+   {"payment":{"status":"RECEIVED","pixQrCodeId":"..."}} confirmava matrícula
+   sem pagamento. Novo middleware VerifyAsaasWebhook compara o header
+   asaas-access-token com ASAAS_WEBHOOK_TOKEN usando hash_equals, e falha
+   fechado (503) se o token não estiver configurado. O controller passou a
+   validar o payload em vez de estourar 500, e o WebhookService deixou de
+   confirmar matrículas canceladas junto.
+
+2. Senha de professor zerada a cada edição
+   O formulário sempre envia o campo password, então has('password') era
+   sempre verdadeiro e a senha virava md5(null). Como o login também
+   convertia senha vazia em null, qualquer conta editada passava a aceitar
+   entrada com o campo em branco. Trocado por filled(), e o login agora
+   recusa senha vazia e bloqueia contas cujo hash seja md5('').
+
+3. Rotas de API e ajax abertas
+   TeachersApiMiddleware era um return $next() vazio e nem estava registrado.
+   Agora valida o secret do login e protege /api/attendances,
+   /api/courses/{id}/students (que devolvia nome e foto de aluno para
+   qualquer um) e /api/upload-foto, que passou a validar tipo e tamanho do
+   arquivo. As rotas /ajax/* entraram no grupo auth — o único consumidor real
+   é a tela de edição de aluno, já autenticada. O catálogo público e o portal
+   do responsável seguem abertos, agora com throttle; fechá-los de verdade
+   depende do login do SE7 Hub.
+
+4. Verificação de certificado TLS desligada
+   Os 17 withoutVerifying() expunham a chave de produção do Asaas. Todas as
+   chamadas passaram por um AsaasClient único, com verificação ligada e
+   timeout. Sem retry de propósito: repetir um POST /payments criaria
+   cobrança duplicada.
+
+5. Senhas em MD5 sem sal
+   TeacherController passou a usar Hash::make, e o secret virou Str::random
+   no lugar de time() . md5($username), que era previsível. O login aceita os
+   dois formatos e regrava em bcrypt no primeiro acesso bem-sucedido, então a
+   base migra sozinha sem pedir troca de senha a ninguém. A comparação do
+   MD5 legado usa hash_equals.
+
+Junto, por consequência direta:
+
+- SoftDeletes aplicado em Customer e Student. A trait era importada e nunca
+  usada, e a coluna deleted_at existe desde 2023: cancelar matrícula apagava
+  o cadastro em definitivo. Como isso torna o app:remove-asaas-customers
+  funcional (ele chamava withTrashed() e quebrava), o comando ganhou
+  --dry-run e confirmação, e passou a enfileirar o id em vez do model.
+- config('assas.pix_key') -> config('asaas.pix_key'): um caractere que fazia
+  o PIX da pré-matrícula ser criado sem chave.
+- Namespace de AsaasService alinhado ao diretório e Admin/Controller.php
+  duplicado removido — o composer recusava as duas classes com "Skipping".
+
+Verificado: php -l limpo nos 4 arquivos alterados e em todo app/config/
+routes/database, composer dump-autoload sem avisos de PSR-4, e
+php artisan route:list confirmando o middleware aplicado em cada rota.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GMt2Fvzj1iEw5AuyYFXZZV
+---
+ .env.example                                  |  30 +++++
+ app/Console/Commands/RemoveAsaasCustomers.php |  37 +++++-
+ .../Commands/RestoreAsaasCustomers.php        |   4 +-
+ app/Http/Controllers/Admin/Controller.php     |  12 --
+ .../Admin/SubscriptionController.php          |   2 +-
+ .../Controllers/Admin/TeacherController.php   |  25 ++--
+ .../Controllers/Ajax/CustomerController.php   |  31 ++++-
+ .../Controllers/Api/AttendanceController.php  |  15 ++-
+ .../Api/Auth/LoginApiController.php           | 111 ++++++++++++++----
+ app/Http/Controllers/Api/CourseController.php |  22 ++--
+ .../Controllers/Api/EnrollmentController.php  |  13 +-
+ .../Webhook/AsaasWebhookController.php        |  26 ++--
+ app/Http/Kernel.php                           |   2 +
+ app/Http/Middleware/TeachersApiMiddleware.php |  59 +++++++++-
+ app/Http/Middleware/VerifyAsaasWebhook.php    |  42 +++++++
+ app/Models/Customer.php                       |   6 +-
+ app/Models/Student.php                        |   6 +-
+ app/Services/Asaas/AsaasClient.php            |  35 ++++++
+ app/Services/Asaas/AsaasService.php           |  33 +-----
+ app/Services/Asaas/BillService.php            |  31 +----
+ app/Services/Asaas/CustomerService.php        |  25 +---
+ app/Services/Asaas/PaymentLinkService.php     |   7 +-
+ app/Services/Asaas/PixService.php             |   9 +-
+ app/Services/Asaas/WebhookService.php         |  51 +++++---
+ config/asaas.php                              |  43 ++++---
+ routes/ajax.php                               |  12 +-
+ routes/api.php                                |  60 ++++++----
+ routes/webhooks.php                           |   6 +-
+ 28 files changed, 527 insertions(+), 228 deletions(-)
+ delete mode 100644 app/Http/Controllers/Admin/Controller.php
+ create mode 100644 app/Http/Middleware/VerifyAsaasWebhook.php
+ create mode 100644 app/Services/Asaas/AsaasClient.php
+
+diff --git a/.env.example b/.env.example
+index dcecad9..92c459d 100644
+--- a/.env.example
++++ b/.env.example
+@@ -57,3 +57,33 @@ VITE_PUSHER_PORT="${PUSHER_PORT}"
+ VITE_PUSHER_SCHEME="${PUSHER_SCHEME}"
+ VITE_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+ 
++
++# ---------------------------------------------------------------------------
++# Asaas
++# ---------------------------------------------------------------------------
++# A chave usada depende de APP_ENV: em production valem ASAAS_API_KEY e
++# ASAAS_BASE_URL; em qualquer outro ambiente, as de sandbox.
++ASAAS_API_KEY=
++ASAAS_BASE_URL=https://api.asaas.com/v3
++ASAAS_SANDBOX_API_KEY=
++ASAAS_SANDBOX_BASE_URL=https://api-sandbox.asaas.com/v3
++
++# Token do webhook. Cadastre o MESMO valor no painel do Asaas, em
++# Integrações > Webhooks, no campo de token de autenticação. Sem isto a rota
++# /webhook/asaas recusa tudo com 503 — falha fechada, de propósito.
++# Gere com: php -r "echo bin2hex(random_bytes(32));"
++ASAAS_WEBHOOK_TOKEN=
++
++# Segundos até desistir de uma chamada ao Asaas.
++ASAAS_TIMEOUT=15
++
++# Chave PIX usada na pré-matrícula.
++PIX_KEY=
++
++# ---------------------------------------------------------------------------
++# Planos
++# ---------------------------------------------------------------------------
++PLAN_BASE_AMOUNT=99.90
++PLAN_FAMILIA_ID=
++PLAN_DEFAULT_DISCOUNT=0
++PLAN_DISCOUNT_DAYS=0
+diff --git a/app/Console/Commands/RemoveAsaasCustomers.php b/app/Console/Commands/RemoveAsaasCustomers.php
+index 3728405..b5b7c09 100644
+--- a/app/Console/Commands/RemoveAsaasCustomers.php
++++ b/app/Console/Commands/RemoveAsaasCustomers.php
+@@ -13,14 +13,14 @@ class RemoveAsaasCustomers extends Command
+      *
+      * @var string
+      */
+-    protected $signature = 'app:remove-asaas-customers';
++    protected $signature = 'app:remove-asaas-customers {--dry-run : Apenas lista, sem remover nada}';
+ 
+     /**
+      * The console command description.
+      *
+      * @var string
+      */
+-    protected $description = 'Command description';
++    protected $description = 'Remove TODOS os clientes deste banco também do Asaas. Destrutivo.';
+ 
+     /**
+      * Execute the console command.
+@@ -30,10 +30,37 @@ public function handle()
+         $customers = Customer::where('asaas_customer', '!=', null)->withTrashed()->get();
+ 
+         foreach ($customers as $customer) {
+-            $this->info('REMOVER CUSTOMER ======>' . $customer->name);
+-            RemoveAsaasCustomerJob::dispatch($customer);
++            $this->line('  - ' . $customer->name . ' (' . $customer->asaas_customer . ')');
+         }
+ 
+-        $this->info('CLIENTES REMOVIDOS ' . $customers->count());
++        if ($this->option('dry-run')) {
++            $this->info($customers->count() . ' cliente(s) seriam removidos. Nada foi feito.');
++
++            return self::SUCCESS;
++        }
++
++        // Este comando apaga TODOS os clientes da conta do Asaas, sem filtro.
++        // Rodá-lo por engano já custou uma recuperação manual (ver
++        // recovery_customers.json e o comando asaas:restore-customers).
++        $confirmado = $this->confirm(
++            'Isto vai remover ' . $customers->count() . ' cliente(s) do Asaas. Continuar?',
++            false
++        );
++
++        if (! $confirmado) {
++            $this->warn('Cancelado.');
++
++            return self::SUCCESS;
++        }
++
++        foreach ($customers as $customer) {
++            // O job espera o id; antes recebia o model inteiro e o
++            // Customer::find() lá dentro nunca encontrava ninguém.
++            RemoveAsaasCustomerJob::dispatch($customer->id);
++        }
++
++        $this->info('CLIENTES ENFILEIRADOS PARA REMOÇÃO: ' . $customers->count());
++
++        return self::SUCCESS;
+     }
+ }
+diff --git a/app/Console/Commands/RestoreAsaasCustomers.php b/app/Console/Commands/RestoreAsaasCustomers.php
+index 3732cbb..5b54f6e 100644
+--- a/app/Console/Commands/RestoreAsaasCustomers.php
++++ b/app/Console/Commands/RestoreAsaasCustomers.php
+@@ -62,9 +62,9 @@ public function handle()
+         foreach ($customerIds as $customerId) {
+             try {
+                 $response = Http::withHeaders([
+-                    'access_token' => $apiKey
++                    'access_token' => $apiKey,
+                 ])
+-                    ->withoutVerifying()
++                    ->timeout((int) config('asaas.timeout'))
+                     ->post("{$baseUrl}/customers/{$customerId}/restore");
+ 
+                 if ($response->successful()) {
+diff --git a/app/Http/Controllers/Admin/Controller.php b/app/Http/Controllers/Admin/Controller.php
+deleted file mode 100644
+index 77ec359..0000000
+--- a/app/Http/Controllers/Admin/Controller.php
++++ /dev/null
+@@ -1,12 +0,0 @@
+-<?php
+-
+-namespace App\Http\Controllers;
+-
+-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+-use Illuminate\Foundation\Validation\ValidatesRequests;
+-use Illuminate\Routing\Controller as BaseController;
+-
+-class Controller extends BaseController
+-{
+-    use AuthorizesRequests, ValidatesRequests;
+-}
+diff --git a/app/Http/Controllers/Admin/SubscriptionController.php b/app/Http/Controllers/Admin/SubscriptionController.php
+index d5e5152..9e2a784 100644
+--- a/app/Http/Controllers/Admin/SubscriptionController.php
++++ b/app/Http/Controllers/Admin/SubscriptionController.php
+@@ -3,7 +3,7 @@
+ namespace App\Http\Controllers\Admin;
+ 
+ use App\Http\Controllers\Controller;
+-use App\Services\AsaasService;
++use App\Services\Asaas\AsaasService;
+ use Illuminate\Http\Request;
+ 
+ class SubscriptionController extends Controller
+diff --git a/app/Http/Controllers/Admin/TeacherController.php b/app/Http/Controllers/Admin/TeacherController.php
+index 3dc61a2..a9b4578 100644
+--- a/app/Http/Controllers/Admin/TeacherController.php
++++ b/app/Http/Controllers/Admin/TeacherController.php
+@@ -5,6 +5,8 @@
+ use App\Http\Controllers\Controller;
+ use App\Models\Teacher;
+ use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Hash;
++use Illuminate\Support\Str;
+ 
+ class TeacherController extends Controller
+ {
+@@ -24,18 +26,21 @@ public function store(Request $request)
+         $validatedData = $request->validate([
+             'name' => 'required',
+             'username' => 'required|unique:teachers',
+-            'password' => 'nullable|min:3',
++            'password' => 'required|min:6',
+             'active' => 'nullable|boolean',
+             'phone' => 'nullable',
+         ], [
+             'name.required' => 'Nome do professor obrigatório',
+             'username.required' => 'Usuário é obrigatório',
+             'username.unique' => 'Existe outro professor com esse usuário',
+-            'password.required' => 'Senha é obrigatório'
++            'password.required' => 'Senha é obrigatória',
++            'password.min' => 'Senha tem que ser no mínimo 6 caracteres'
+         ]);
+ 
+-        $validatedData['password'] = md5($request->password);
+-        $validatedData['secret'] = time() . md5($request->username);
++        // Era md5() sem sal, e a senha podia ser criada vazia ('nullable').
++        $validatedData['password'] = Hash::make($request->password);
++        // Era time() . md5($username): previsível a partir do nome de usuário.
++        $validatedData['secret'] = Str::random(64);
+ 
+         Teacher::create($validatedData);
+ 
+@@ -63,9 +68,15 @@ public function update(Request $request, Teacher $teacher)
+             'password.min' => 'Senha tem que ser no mínimo 3 caracteres'
+         ]);
+ 
+-        if ($request->has('password')) {
+-            $password = md5($request->password);
+-            $data['password'] = $password;
++        // has() era verdadeiro mesmo com o campo em branco — e o formulário
++        // sempre envia o campo. Toda edição gravava md5(null), e como o login
++        // também transformava senha vazia em null, a conta passava a aceitar
++        // qualquer entrada com o campo de senha em branco. filled() só é
++        // verdadeiro quando a pessoa digitou algo de fato.
++        if ($request->filled('password')) {
++            $data['password'] = Hash::make($request->password);
++        } else {
++            unset($data['password']);
+         }
+ 
+         $teacher->update($data);
+diff --git a/app/Http/Controllers/Ajax/CustomerController.php b/app/Http/Controllers/Ajax/CustomerController.php
+index b2501d0..98bde6e 100644
+--- a/app/Http/Controllers/Ajax/CustomerController.php
++++ b/app/Http/Controllers/Ajax/CustomerController.php
+@@ -4,16 +4,39 @@
+ 
+ use App\Http\Controllers\Controller;
+ use App\Models\Customer;
++use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\Request;
+-use Illuminate\Support\Str;
+ 
+ class CustomerController extends Controller
+ {
+-    public function getCustomerByCpf(Request $request)
++    public function getCustomerByCpf(Request $request): JsonResponse
+     {
+-        $cpf = str_replace(['-', '.'], '', $request->cpf);
++        $cpf = preg_replace('/\D/', '', (string) $request->input('cpf', ''));
++
++        if (strlen($cpf) !== 11) {
++            return response()->json(null);
++        }
++
+         $customer = Customer::where('cpf', $cpf)->first();
+ 
+-        return $customer;
++        if (! $customer) {
++            return response()->json(null);
++        }
++
++        // Antes devolvia o model inteiro — inclusive id interno e
++        // asaas_customer, que a tela não usa para nada. Só sai daqui o que o
++        // formulário de edição de aluno realmente preenche.
++        return response()->json([
++            'name' => $customer->name,
++            'email' => $customer->email,
++            'phone' => $customer->phone,
++            'address_zipcode' => $customer->address_zipcode,
++            'street_name' => $customer->street_name,
++            'address_number' => $customer->address_number,
++            'address_complement' => $customer->address_complement,
++            'neighborhood_name' => $customer->neighborhood_name,
++            'city_name' => $customer->city_name,
++            'state_name' => $customer->state_name,
++        ]);
+     }
+ }
+diff --git a/app/Http/Controllers/Api/AttendanceController.php b/app/Http/Controllers/Api/AttendanceController.php
+index 007175f..6a1ada4 100644
+--- a/app/Http/Controllers/Api/AttendanceController.php
++++ b/app/Http/Controllers/Api/AttendanceController.php
+@@ -13,7 +13,20 @@ class AttendanceController extends Controller
+ {
+     public function store(Request $request)
+     {
+-        $teacher = Teacher::where('secret', $request->teacher)->first();
++        $request->validate([
++            'course_id' => 'required|integer|exists:courses,id',
++            'students' => 'required|array',
++            'students.*.id' => 'required|integer',
++        ], [
++            'course_id.required' => 'Turma é obrigatória',
++            'course_id.exists' => 'Turma não encontrada',
++            'students.required' => 'Nenhum aluno enviado',
++        ]);
++
++        // O professor vem do middleware 'teachers.api', que já validou o
++        // token. Antes era Teacher::where('secret', ...)->first() sem checar o
++        // retorno: token inválido virava erro 500 em $teacher->id.
++        $teacher = $request->attributes->get('teacher_model');
+         $course = Course::find($request->course_id);
+ 
+         $existAttendances = Attendance::whereDate('attendance_date', now())
+diff --git a/app/Http/Controllers/Api/Auth/LoginApiController.php b/app/Http/Controllers/Api/Auth/LoginApiController.php
+index e866ca4..0dfab6e 100644
+--- a/app/Http/Controllers/Api/Auth/LoginApiController.php
++++ b/app/Http/Controllers/Api/Auth/LoginApiController.php
+@@ -4,45 +4,106 @@
+ 
+ use App\Http\Controllers\Controller;
+ use App\Models\Teacher;
++use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\Request;
+-use Illuminate\Support\Str;
++use Illuminate\Support\Facades\Hash;
++use Illuminate\Support\Facades\Log;
+ 
+ class LoginApiController extends Controller
+ {
+-    public function login(Request $request)
++    public function login(Request $request): JsonResponse
+     {
+-        if (!$request->username) {
+-            return response()->json([
+-                'error' => [
+-                    'message' => 'username Obrigatório'
+-                ]
+-            ], 400);
++        $username = (string) $request->input('username', '');
++        $password = (string) $request->input('password', '');
++
++        if ($username === '') {
++            return $this->erro('Usuário obrigatório');
++        }
++
++        // Senha em branco chegava aqui como null e virava md5(''), que era
++        // exatamente o valor gravado no banco a cada edição de professor —
++        // qualquer conta editada passava a entrar com o campo vazio.
++        if ($password === '') {
++            return $this->erro('Senha obrigatória');
+         }
+ 
+-        $teacher = Teacher::where('username', $request->username)
++        $teacher = Teacher::where('username', $username)
+             ->where('active', true)
+             ->first();
+ 
+-        if (!$teacher) {
+-            return response()->json([
+-                'error' => [
+-                    'message' => 'Professor não localizado'
+-                ]
+-            ], 400);
++        if (! $teacher) {
++            return $this->erro('Professor não localizado');
+         }
+ 
+-        if (md5($request->password) == $teacher->password) {
+-            return response()->json([
+-                'login' => true,
+-                'name' => $teacher->name,
+-                'secret' => $teacher->secret
+-            ]);
++        if (! $this->senhaConfere($password, $teacher)) {
++            return $this->erro('Erro ao tentar realizar login');
+         }
+ 
++        $this->migrarSenhaSePreciso($password, $teacher);
++
+         return response()->json([
+-            'error' => [
+-                'message' => 'Erro ao tentar realizar login'
+-            ]
+-        ], 400);
++            'login' => true,
++            'name' => $teacher->name,
++            'secret' => $teacher->secret,
++        ]);
++    }
++
++    /**
++     * Aceita os dois formatos durante a transição: o MD5 antigo e o bcrypt novo.
++     *
++     * A comparação do MD5 usa hash_equals em vez de ==, que fazia comparação
++     * numérica quando os dois hashes começavam com "0e".
++     */
++    private function senhaConfere(string $password, Teacher $teacher): bool
++    {
++        $armazenada = (string) $teacher->password;
++
++        if ($armazenada === '') {
++            return false;
++        }
++
++        if ($this->pareceMd5($armazenada)) {
++            // Conta cuja senha foi apagada pelo bug do TeacherController:
++            // nenhuma senha entra nela até a secretaria cadastrar uma nova.
++            if (hash_equals(strtolower($armazenada), md5(''))) {
++                Log::warning('LOGIN_PROFESSOR: senha em branco no banco, acesso bloqueado.', [
++                    'teacher_id' => $teacher->id,
++                ]);
++
++                return false;
++            }
++
++            return hash_equals(strtolower($armazenada), md5($password));
++        }
++
++        return Hash::check($password, $armazenada);
++    }
++
++    /**
++     * Regrava em bcrypt no primeiro login bem-sucedido de quem ainda está em
++     * MD5. Assim a base migra sozinha, sem pedir troca de senha a ninguém.
++     */
++    private function migrarSenhaSePreciso(string $password, Teacher $teacher): void
++    {
++        if (! $this->pareceMd5((string) $teacher->password)) {
++            return;
++        }
++
++        $teacher->password = Hash::make($password);
++        $teacher->save();
++
++        Log::info('LOGIN_PROFESSOR: senha migrada de MD5 para bcrypt.', [
++            'teacher_id' => $teacher->id,
++        ]);
++    }
++
++    private function pareceMd5(string $valor): bool
++    {
++        return (bool) preg_match('/^[a-f0-9]{32}$/i', $valor);
++    }
++
++    private function erro(string $mensagem): JsonResponse
++    {
++        return response()->json(['error' => ['message' => $mensagem]], 400);
+     }
+ }
+diff --git a/app/Http/Controllers/Api/CourseController.php b/app/Http/Controllers/Api/CourseController.php
+index 7230f9d..6f50e74 100644
+--- a/app/Http/Controllers/Api/CourseController.php
++++ b/app/Http/Controllers/Api/CourseController.php
+@@ -26,8 +26,16 @@ public function index(Request $request)
+         }
+ 
+         if ($request->has('token')) {
+-            $token = $request->token;
+-            $teacher = Teacher::where('secret', $token)->first();
++            $teacher = Teacher::where('secret', $request->token)
++                ->where('active', true)
++                ->first();
++
++            // Token inválido caía em $teacher->courses() sobre null (erro 500)
++            // e o ramo final devolvia o catálogo inteiro para qualquer um.
++            if (! $teacher) {
++                return response()->json(['error' => ['message' => 'Token inválido.']], 401);
++            }
++
+             $courses = $teacher->courses()->whereHas('enrollments')
+                 ->where('active', true)
+                 ->when($request->has('category'), function ($query) use ($request) {
+@@ -39,11 +47,11 @@ public function index(Request $request)
+             return CourseApiResource::collection($courses);
+         }
+ 
+-        $courses = Course::whereHas('enrollments')
+-            ->where('active', true)
+-            ->get();
+-
+-        return CourseApiResource::collection($courses);
++        // Sem token e sem os filtros do site de matrícula, não há a quem
++        // responder: antes esta linha devolvia todas as turmas com matrícula.
++        return response()->json([
++            'error' => ['message' => 'Informe unit_id e category, ou um token de professor.'],
++        ], 400);
+     }
+ 
+     public function students($course)
+diff --git a/app/Http/Controllers/Api/EnrollmentController.php b/app/Http/Controllers/Api/EnrollmentController.php
+index f106def..eafdbdd 100644
+--- a/app/Http/Controllers/Api/EnrollmentController.php
++++ b/app/Http/Controllers/Api/EnrollmentController.php
+@@ -149,8 +149,19 @@ public function store(Request $request)
+ 
+     public function upload(Request $request)
+     {
++        // Antes aceitava qualquer arquivo, de qualquer tamanho, de qualquer
++        // origem — sem login e sem checar o tipo.
++        $request->validate([
++            'file' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
++            'student' => 'required|integer|exists:students,id',
++        ], [
++            'file.required' => 'Nenhum arquivo enviado',
++            'file.image' => 'O arquivo precisa ser uma imagem',
++            'file.max' => 'A imagem pode ter no máximo 5 MB',
++            'student.exists' => 'Aluno não encontrado',
++        ]);
+ 
+-        if ($request->has('file')) {
++        if ($request->hasFile('file')) {
+             $student = Student::find($request->student);
+             if ($student) {
+                 if ($student->photo) {
+diff --git a/app/Http/Controllers/Webhook/AsaasWebhookController.php b/app/Http/Controllers/Webhook/AsaasWebhookController.php
+index b2e0692..f41c6e7 100644
+--- a/app/Http/Controllers/Webhook/AsaasWebhookController.php
++++ b/app/Http/Controllers/Webhook/AsaasWebhookController.php
+@@ -4,6 +4,7 @@
+ 
+ use App\Http\Controllers\Controller;
+ use App\Services\Asaas\WebhookService;
++use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\Log;
+ 
+@@ -13,19 +14,28 @@ class AsaasWebhookController extends Controller
+     const CREATED = 'CREATED';
+     const CONFIRMED = 'CONFIRMED';
+ 
+-    public function handle(Request $request)
++    public function handle(Request $request): JsonResponse
+     {
++        $payment = $request->input('payment');
+ 
+-        switch ($request->payment['status']) {
++        // Antes, `$request->payment['status']` estourava 500 em qualquer
++        // payload fora do formato esperado. Respondemos 200 para o Asaas não
++        // reenviar indefinidamente um evento que nunca vamos processar.
++        if (! is_array($payment) || ! isset($payment['status'])) {
++            Log::info('WEBHOOK_ASAAS: evento sem payment.status, ignorado.', [
++                'evento' => $request->input('event'),
++            ]);
++
++            return response()->json([], 200);
++        }
++
++        switch ($payment['status']) {
+             case self::RECEIVED:
+-                return WebhookService::handlePaymentReceived($request->payment);
+-                break;
++                return WebhookService::handlePaymentReceived($payment);
+             case self::CONFIRMED:
+-                return WebhookService::handlePaymentConfirmed($request->payment);
+-                break;
++                return WebhookService::handlePaymentConfirmed($payment);
+             default:
+-                WebhookService::notHandled($request->payment);
+-                break;
++                return WebhookService::notHandled($payment);
+         }
+     }
+ }
+diff --git a/app/Http/Kernel.php b/app/Http/Kernel.php
+index 1fb53dc..4fe3934 100644
+--- a/app/Http/Kernel.php
++++ b/app/Http/Kernel.php
+@@ -53,6 +53,7 @@ class Kernel extends HttpKernel
+      * @var array<string, class-string|string>
+      */
+     protected $middlewareAliases = [
++        'asaas.webhook' => \App\Http\Middleware\VerifyAsaasWebhook::class,
+         'auth' => \App\Http\Middleware\Authenticate::class,
+         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
+         'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
+@@ -61,6 +62,7 @@ class Kernel extends HttpKernel
+         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
+         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
+         'signed' => \App\Http\Middleware\ValidateSignature::class,
++        'teachers.api' => \App\Http\Middleware\TeachersApiMiddleware::class,
+         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+     ];
+diff --git a/app/Http/Middleware/TeachersApiMiddleware.php b/app/Http/Middleware/TeachersApiMiddleware.php
+index 435dcf6..adfc6f6 100644
+--- a/app/Http/Middleware/TeachersApiMiddleware.php
++++ b/app/Http/Middleware/TeachersApiMiddleware.php
+@@ -2,19 +2,68 @@
+ 
+ namespace App\Http\Middleware;
+ 
++use App\Models\Teacher;
+ use Closure;
+ use Illuminate\Http\Request;
+ use Symfony\Component\HttpFoundation\Response;
+ 
++/**
++ * Valida o `secret` devolvido no login do app dos professores.
++ *
++ * Este middleware existia como um `return $next($request)` vazio e nem estava
++ * registrado — na prática as rotas do app ficavam abertas, e
++ * /api/courses/{id}/students devolvia nome e foto de aluno para qualquer um.
++ *
++ * O token é aceito de onde o app já o envia hoje (parâmetros `token` e
++ * `teacher`) e também por header, que é para onde ele deve migrar — em query
++ * string ele acaba gravado em log de servidor e histórico de proxy.
++ */
+ class TeachersApiMiddleware
+ {
+-    /**
+-     * Handle an incoming request.
+-     *
+-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+-     */
+     public function handle(Request $request, Closure $next): Response
+     {
++        $secret = $this->extrairToken($request);
++
++        if ($secret === '') {
++            return response()->json(['error' => ['message' => 'Token não informado.']], 401);
++        }
++
++        $teacher = Teacher::where('secret', $secret)
++            ->where('active', true)
++            ->first();
++
++        if (! $teacher) {
++            return response()->json(['error' => ['message' => 'Token inválido.']], 401);
++        }
++
++        // Os controllers pegam o professor daqui em vez de reconsultar pelo
++        // parâmetro da requisição.
++        $request->attributes->set('teacher_model', $teacher);
++
+         return $next($request);
+     }
++
++    private function extrairToken(Request $request): string
++    {
++        $bearer = (string) $request->bearerToken();
++        if ($bearer !== '') {
++            return $bearer;
++        }
++
++        foreach (['X-Teacher-Token'] as $header) {
++            $valor = (string) $request->header($header, '');
++            if ($valor !== '') {
++                return $valor;
++            }
++        }
++
++        foreach (['token', 'teacher'] as $campo) {
++            $valor = $request->input($campo);
++            if (is_string($valor) && $valor !== '') {
++                return $valor;
++            }
++        }
++
++        return '';
++    }
+ }
+diff --git a/app/Http/Middleware/VerifyAsaasWebhook.php b/app/Http/Middleware/VerifyAsaasWebhook.php
+new file mode 100644
+index 0000000..50628bf
+--- /dev/null
++++ b/app/Http/Middleware/VerifyAsaasWebhook.php
+@@ -0,0 +1,42 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use Closure;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Log;
++use Symfony\Component\HttpFoundation\Response;
++
++/**
++ * Autentica o webhook do Asaas.
++ *
++ * A rota /webhook/asaas ficava aberta na internet e sem nenhuma verificação:
++ * um POST com {"payment":{"status":"RECEIVED","pixQrCodeId":"..."}} confirmava
++ * matrícula sem pagamento algum. O Asaas envia um token próprio no header
++ * `asaas-access-token` justamente para isso.
++ *
++ * A comparação usa hash_equals para não vazar o token por tempo de resposta.
++ */
++class VerifyAsaasWebhook
++{
++    public function handle(Request $request, Closure $next): Response
++    {
++        $esperado = (string) config('asaas.webhook_token');
++
++        if ($esperado === '') {
++            Log::error('WEBHOOK_ASAAS: ASAAS_WEBHOOK_TOKEN não configurado — requisição recusada.');
++
++            return response()->json(['message' => 'Webhook não configurado.'], 503);
++        }
++
++        $recebido = (string) $request->header('asaas-access-token', '');
++
++        if ($recebido === '' || ! hash_equals($esperado, $recebido)) {
++            Log::warning('WEBHOOK_ASAAS: token inválido.', ['ip' => $request->ip()]);
++
++            return response()->json(['message' => 'Não autorizado.'], 401);
++        }
++
++        return $next($request);
++    }
++}
+diff --git a/app/Models/Customer.php b/app/Models/Customer.php
+index 0a7a859..738deef 100644
+--- a/app/Models/Customer.php
++++ b/app/Models/Customer.php
+@@ -8,7 +8,11 @@
+ 
+ class Customer extends Model
+ {
+-    use HasFactory;
++    // A trait era importada no topo do arquivo e nunca aplicada aqui: a
++    // coluna deleted_at existe desde 30/11/2023 e nunca foi preenchida, então
++    // $customer->delete() apagava o cadastro em definitivo. É o que explica o
++    // recovery_customers.json na raiz do projeto.
++    use HasFactory, SoftDeletes;
+ 
+     public function enrollments()
+     {
+diff --git a/app/Models/Student.php b/app/Models/Student.php
+index 3612bad..c00890e 100644
+--- a/app/Models/Student.php
++++ b/app/Models/Student.php
+@@ -8,7 +8,11 @@
+ 
+ class Student extends Model
+ {
+-    use HasFactory;
++    // A trait era importada no topo do arquivo e nunca aplicada aqui: a
++    // coluna deleted_at existe desde 30/11/2023 e nunca foi preenchida, então
++    // $customer->delete() apagava o cadastro em definitivo. É o que explica o
++    // recovery_customers.json na raiz do projeto.
++    use HasFactory, SoftDeletes;
+ 
+     protected $fillable = [
+         'name',
+diff --git a/app/Services/Asaas/AsaasClient.php b/app/Services/Asaas/AsaasClient.php
+new file mode 100644
+index 0000000..4706ada
+--- /dev/null
++++ b/app/Services/Asaas/AsaasClient.php
+@@ -0,0 +1,35 @@
++<?php
++
++namespace App\Services\Asaas;
++
++use Illuminate\Http\Client\PendingRequest;
++use Illuminate\Support\Facades\Http;
++
++/**
++ * Ponto único de saída para a API do Asaas.
++ *
++ * Existe por dois motivos:
++ *
++ * 1. A verificação de certificado TLS fica LIGADA. Antes, cada chamada trazia
++ *    o seu próprio ->withoutVerifying(), o que desativava a validação do
++ *    certificado enquanto a chave de produção viajava no header — 17 chamadas
++ *    espalhadas por cinco arquivos, todas expostas a interceptação.
++ *
++ * 2. Timeout. Sem ele, uma indisponibilidade do Asaas segura a requisição do
++ *    usuário até o limite do PHP.
++ *
++ * Não há retry aqui de propósito: repetir um POST /payments criaria cobrança
++ * duplicada. Quem precisar de nova tentativa decide caso a caso.
++ */
++class AsaasClient
++{
++    public static function http(): PendingRequest
++    {
++        return Http::withHeaders([
++            'access_token' => config('asaas.api_key'),
++        ])
++            ->baseUrl((string) config('asaas.base_url'))
++            ->timeout((int) config('asaas.timeout'))
++            ->acceptJson();
++    }
++}
+diff --git a/app/Services/Asaas/AsaasService.php b/app/Services/Asaas/AsaasService.php
+index 91e9ae5..681224e 100644
+--- a/app/Services/Asaas/AsaasService.php
++++ b/app/Services/Asaas/AsaasService.php
+@@ -1,61 +1,40 @@
+ <?php
+ 
+-namespace App\Services;
++namespace App\Services\Asaas;
+ 
+-use Illuminate\Support\Facades\Http;
+ 
+ class AsaasService
+ {
+     public static function getCustomers()
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . '/customers'));
++        $request = AsaasClient::http()->get('/customers');
+         return $request->object();
+     }
+ 
+     public static function getPayments()
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . '/payments'));
++        $request = AsaasClient::http()->get('/payments');
+ 
+         return $request->object();
+     }
+ 
+     public static function getPaymentsByCustomer($customer)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . "/payments?customer={$customer}"));
++        $request = AsaasClient::http()->get("/payments?customer={$customer}");
+ 
+         return $request->object();
+     }
+ 
+     public static function getSubscriptions()
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . "/subscriptions"));
++        $request = AsaasClient::http()->get("/subscriptions");
+ 
+         return $request->object();
+     }
+ 
+     public static function createPaymentLink($name, $endDate, $value)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/paymentLinks"), [
++        $request = AsaasClient::http()->post("/paymentLinks", [
+                 'name' => $name,
+                 'endDate' => $endDate,
+                 'value' => $value,
+diff --git a/app/Services/Asaas/BillService.php b/app/Services/Asaas/BillService.php
+index 0760e6d..97e11b1 100644
+--- a/app/Services/Asaas/BillService.php
++++ b/app/Services/Asaas/BillService.php
+@@ -2,7 +2,6 @@
+ 
+ namespace App\Services\Asaas;
+ 
+-use Illuminate\Support\Facades\Http;
+ 
+ class BillService
+ {
+@@ -12,11 +11,7 @@ class BillService
+ 
+     public static function createBills($customer, $enrollment, $installments, $amount, $dueDate)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/payments"), [
++        $request = AsaasClient::http()->post("/payments", [
+                 'customer' => $customer->asaas_customer,
+                 'billingType' => 'BOLETO',
+                 'installmentCount' => $installments,
+@@ -35,44 +30,28 @@ public static function createBills($customer, $enrollment, $installments, $amoun
+ 
+     public static function getBills($installment)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . "/payments?installment={$installment}&limit=20"));
++        $request = AsaasClient::http()->get("/payments?installment={$installment}&limit=20");
+ 
+         return $request->object();
+     }
+ 
+     public static function getBillsByStatus($status)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . "/payments?status={$status}&limit=100"));
++        $request = AsaasClient::http()->get("/payments?status={$status}&limit=100");
+ 
+         return $request->object();
+     }
+ 
+     public static function deleteBill($billId)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->delete((config('asaas.base_url') . "/payments/{$billId}"));
++        $request = AsaasClient::http()->delete("/payments/{$billId}");
+ 
+         return $request->object();
+     }
+ 
+     public static function createBill($customer, $amount, $dueDate, $descripton)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/payments"), [
++        $request = AsaasClient::http()->post("/payments", [
+                 'customer' => $customer->asaas_customer,
+                 'billingType' => 'BOLETO',
+                 'value' => $amount,
+diff --git a/app/Services/Asaas/CustomerService.php b/app/Services/Asaas/CustomerService.php
+index d9a43f3..48b15ff 100644
+--- a/app/Services/Asaas/CustomerService.php
++++ b/app/Services/Asaas/CustomerService.php
+@@ -3,18 +3,13 @@
+ namespace App\Services\Asaas;
+ 
+ use App\Models\Customer;
+-use Illuminate\Support\Facades\Http;
+ 
+ class CustomerService
+ {
+ 
+     public static function createCustomer(Customer $customer)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/customers"), [
++        $request = AsaasClient::http()->post("/customers", [
+                 'name' => $customer->name,
+                 'cpfCnpj' => $customer->cpf,
+                 'mobilePhone' => $customer->phone,
+@@ -27,11 +22,7 @@ public static function createCustomer(Customer $customer)
+     public static function updateCustomer(Customer $customer)
+     {
+ 
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->put((config('asaas.base_url') . "/customers/{$customer->asaas_customer}"), [
++        $request = AsaasClient::http()->put("/customers/{$customer->asaas_customer}", [
+                 'address' => $customer->street_name,
+                 'addressNumber' => $customer->address_number,
+                 'complement' => $customer->address_complement,
+@@ -44,22 +35,14 @@ public static function updateCustomer(Customer $customer)
+ 
+     public static function removeAsaasCustomer(Customer $customer)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->delete((config('asaas.base_url') . "/customers/{$customer->asaas_customer}"));
++        $request = AsaasClient::http()->delete("/customers/{$customer->asaas_customer}");
+ 
+         return $request->object();
+     }
+ 
+     public static function getCustomerBills(Customer $customer)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->get((config('asaas.base_url') . "/payments?customer={$customer->asaas_customer}&limit=18"));
++        $request = AsaasClient::http()->get("/payments?customer={$customer->asaas_customer}&limit=18");
+ 
+         return $request->object();
+     }
+diff --git a/app/Services/Asaas/PaymentLinkService.php b/app/Services/Asaas/PaymentLinkService.php
+index ab63078..c3598d9 100644
+--- a/app/Services/Asaas/PaymentLinkService.php
++++ b/app/Services/Asaas/PaymentLinkService.php
+@@ -2,17 +2,12 @@
+ 
+ namespace App\Services\Asaas;
+ 
+-use Illuminate\Support\Facades\Http;
+ 
+ class PaymentLinkService
+ {
+     public static function createPaymentLink($name, $endDate, $value)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/paymentLinks"), [
++        $request = AsaasClient::http()->post("/paymentLinks", [
+                 'name' => $name,
+                 'endDate' => $endDate,
+                 'value' => $value,
+diff --git a/app/Services/Asaas/PixService.php b/app/Services/Asaas/PixService.php
+index d65aa61..caadf53 100644
+--- a/app/Services/Asaas/PixService.php
++++ b/app/Services/Asaas/PixService.php
+@@ -3,19 +3,14 @@
+ namespace App\Services\Asaas;
+ 
+ use Carbon\Carbon;
+-use Illuminate\Support\Facades\Http;
+ 
+ class PixService
+ {
+     public static function createStaticPix($name, $expiration, $value)
+     {
+-        $request = Http::withHeaders([
+-            'access_token' => config('asaas.api_key')
+-        ])
+-            ->withoutVerifying()
+-            ->post((config('asaas.base_url') . "/pix/qrCodes/static"), [
++        $request = AsaasClient::http()->post("/pix/qrCodes/static", [
+                 'description' => $name,
+-                'addressKey' => config('assas.pix_key'),
++                'addressKey' => config('asaas.pix_key'),
+                 'value' => $value,
+                 'expirationDate' => Carbon::now()->addDays($expiration)->format('Y-m-d H:i:s')
+             ]);
+diff --git a/app/Services/Asaas/WebhookService.php b/app/Services/Asaas/WebhookService.php
+index a7af6a3..bcc45fa 100644
+--- a/app/Services/Asaas/WebhookService.php
++++ b/app/Services/Asaas/WebhookService.php
+@@ -3,46 +3,61 @@
+ namespace App\Services\Asaas;
+ 
+ use App\Models\Enrollment;
++use Illuminate\Http\JsonResponse;
+ use Illuminate\Support\Facades\Log;
+ 
+ class WebhookService
+ {
+-
+-    public static function handlePaymentReceived($payload)
++    public static function handlePaymentReceived($payload): JsonResponse
+     {
+-        if (array_key_exists('pixQrCodeId', $payload) && $payload['pixQrCodeId'] != null) {            
+-            $enrollment = Enrollment::where("payment_id", "=", $payload['pixQrCodeId'])                     
+-                    ->first();
+-        } else {
++        $qrCodeId = $payload['pixQrCodeId'] ?? null;
++
++        if (! $qrCodeId) {
+             return response()->json([], 200);
+         }
+ 
+-        if (!$enrollment) {
++        $enrollment = Enrollment::where('payment_id', '=', $qrCodeId)->first();
++
++        if (! $enrollment) {
+             return response()->json([], 200);
+         }
+-        
+-        $childs = Enrollment::childs($enrollment->customer->id);
+ 
+-        foreach ($childs as $child) {
+-            $child->status = Enrollment::STATUS_CONFIRMED;
+-            $child->asaas_payload = json_encode($payload);
+-            $child->save();
++        $payloadJson = json_encode($payload);
++
++        // Antes, `Enrollment::childs()` trazia TODAS as matrículas do
++        // responsável — inclusive as canceladas e a própria matrícula pai, que
++        // era salva duas vezes. Agora só as irmãs ainda ativas são confirmadas
++        // junto (plano família), e a pai é tratada uma vez só.
++        if ($enrollment->customer) {
++            $irmas = Enrollment::query()
++                ->where('customer_id', $enrollment->customer->id)
++                ->where('id', '!=', $enrollment->id)
++                ->whereNot('status', Enrollment::STATUS_CANCELED)
++                ->get();
++
++            foreach ($irmas as $irma) {
++                $irma->status = Enrollment::STATUS_CONFIRMED;
++                $irma->asaas_payload = $payloadJson;
++                $irma->save();
++            }
+         }
+ 
+         $enrollment->status = Enrollment::STATUS_CONFIRMED;
+-        $enrollment->asaas_payload = json_encode($payload);
++        $enrollment->asaas_payload = $payloadJson;
+         $enrollment->save();
+ 
++        Log::info('WEBHOOK_ASAAS: matrícula confirmada.', ['enrollment_id' => $enrollment->id]);
++
+         return response()->json([], 200);
+     }
+ 
+-    public static function handlePaymentConfirmed($payload)
++    public static function handlePaymentConfirmed($payload): JsonResponse
+     {
+-        return response()->json([],200);
++        return response()->json([], 200);
+     }
+ 
+-    public static function notHandled($payload)
++    public static function notHandled($payload): JsonResponse
+     {
+-        return response()->json([],200);
++        return response()->json([], 200);
+     }
+ }
+diff --git a/config/asaas.php b/config/asaas.php
+index b5b67b1..3412303 100644
+--- a/config/asaas.php
++++ b/config/asaas.php
+@@ -1,21 +1,26 @@
+ <?php
+ 
+-if (env('APP_ENV') == 'production') {
+-  return [
+-    'pix_key' => env('PIX_KEY'),
+-    'api_key' => env('ASAAS_API_KEY'),
+-    'base_url' => env('ASAAS_BASE_URL'),
+-    'enrollment_value' => env('PLAN_BASE_AMOUNT', 99.90),
+-    'plan_discount' => env('PLAN_DEFAULT_DISCOUNT'),
+-    'plan_discount_days' => env('PLAN_DISCOUNT_DAYS')
+-  ];
+-} else {
+-  return [
+-    'pix_key' => env('PIX_KEY'),
+-    'api_key' => env('ASAAS_SANDBOX_API_KEY'),
+-    'base_url' => env('ASAAS_SANDBOX_BASE_URL'),
+-    'enrollment_value' => env('PLAN_BASE_AMOUNT', 99.90),
+-    'plan_discount' => env('PLAN_DEFAULT_DISCOUNT'),
+-    'plan_discount_days' => env('PLAN_DISCOUNT_DAYS')
+-  ];
+-}
++$producao = env('APP_ENV') === 'production';
++
++return [
++  'pix_key' => env('PIX_KEY'),
++
++  // Sandbox e produção continuam em variáveis separadas, como antes — só a
++  // escolha entre elas foi trazida para dentro do array, em vez de dois
++  // returns duplicados.
++  'api_key' => $producao ? env('ASAAS_API_KEY') : env('ASAAS_SANDBOX_API_KEY'),
++  'base_url' => $producao ? env('ASAAS_BASE_URL') : env('ASAAS_SANDBOX_BASE_URL'),
++
++  // Token que o Asaas envia no header `asaas-access-token` de cada webhook.
++  // Configure o mesmo valor no painel do Asaas, em Integrações > Webhooks.
++  // Sem ele, a rota de webhook responde 503 e recusa tudo — falhar fechado é
++  // proposital: melhor não processar do que processar de qualquer origem.
++  'webhook_token' => env('ASAAS_WEBHOOK_TOKEN'),
++
++  // Segundos até desistir de uma chamada ao Asaas.
++  'timeout' => env('ASAAS_TIMEOUT', 15),
++
++  'enrollment_value' => env('PLAN_BASE_AMOUNT', 99.90),
++  'plan_discount' => env('PLAN_DEFAULT_DISCOUNT'),
++  'plan_discount_days' => env('PLAN_DISCOUNT_DAYS'),
++];
+diff --git a/routes/ajax.php b/routes/ajax.php
+index bda0ef5..57f64e8 100644
+--- a/routes/ajax.php
++++ b/routes/ajax.php
+@@ -4,6 +4,12 @@
+ use App\Http\Controllers\Ajax\EnrollmentController;
+ use Illuminate\Support\Facades\Route;
+ 
+-Route::get('/getCustomerByCpf', [CustomerController::class, 'getCustomerByCpf']);
+-
+-Route::post('/createPaymentLink', [EnrollmentController::class, 'createPaymentLink']);
++// Estas duas rotas ficavam abertas: getCustomerByCpf devolvia o cadastro
++// inteiro do responsável (CPF, e-mail, telefone) e createPaymentLink criava
++// cobrança no Asaas, ambas sem login. O único consumidor real é a tela de
++// edição de aluno do admin (resources/views/students/edit.blade.php), que já
++// roda autenticada — então exigir 'auth' não muda nada para quem usa.
++Route::middleware('auth')->group(function () {
++    Route::get('/getCustomerByCpf', [CustomerController::class, 'getCustomerByCpf']);
++    Route::post('/createPaymentLink', [EnrollmentController::class, 'createPaymentLink']);
++});
+diff --git a/routes/api.php b/routes/api.php
+index f7bbcc3..e57c8f3 100644
+--- a/routes/api.php
++++ b/routes/api.php
+@@ -9,23 +9,43 @@
+ use App\Http\Controllers\Api\PlanController;
+ use Illuminate\Support\Facades\Route;
+ 
+-Route::post('/auth/login/teachers', [LoginApiController::class, 'login']);
+-
+-Route::get('/units', [UnitController::class, 'index']);
+-
+-Route::get('/plans', [PlanController::class, 'index']);
+-
+-Route::post('/enrollment', [EnrollmentController::class, 'store']);
+-
+-Route::post('/attendances', [AttendanceController::class, 'store']);
+-
+-Route::get('/courses', [CourseController::class, 'index']);
+-
+-Route::get('/courses/{id}/students', [CourseController::class, 'students']);
+-
+-Route::get('/customer/bills', [CustomerApiController::class, 'bills']);
+-
+-Route::post('/upload-foto', [EnrollmentController::class, 'upload']);
+-
+-Route::put('/update-address-customer', [CustomerApiController::class, 'updateAddress']);
+-Route::get('/get-address-customer', [CustomerApiController::class, 'getAddress']);
++/*
++|---------------------------------------------------------------------------
++| Nenhuma rota daqui tinha autenticação, fora o login. Foram separadas em três
++| grupos conforme quem realmente consome cada uma:
++|
++|   1. App dos professores  -> exige o `secret` do login ('teachers.api')
++|   2. Site de matrícula    -> segue público, é catálogo, mas com limite
++|   3. Portal do responsável-> segue público por ora (o app da família ainda
++|      não tem login); limite apertado para conter varredura de CPF. O
++|      fechamento de verdade é o SE7 Hub, onde o acesso passa a exigir conta.
++|---------------------------------------------------------------------------
++*/
++
++// Login do app dos professores. throttle apertado: é a porta de força bruta.
++Route::post('/auth/login/teachers', [LoginApiController::class, 'login'])
++    ->middleware('throttle:5,1');
++
++// --- 1. App dos professores -------------------------------------------------
++Route::middleware('teachers.api')->group(function () {
++    Route::post('/attendances', [AttendanceController::class, 'store']);
++    Route::get('/courses/{id}/students', [CourseController::class, 'students']);
++    Route::post('/upload-foto', [EnrollmentController::class, 'upload']);
++});
++
++// --- 2. Site de matrícula (catálogo público) --------------------------------
++Route::middleware('throttle:60,1')->group(function () {
++    Route::get('/units', [UnitController::class, 'index']);
++    Route::get('/plans', [PlanController::class, 'index']);
++    Route::get('/courses', [CourseController::class, 'index']);
++});
++
++Route::post('/enrollment', [EnrollmentController::class, 'store'])
++    ->middleware('throttle:5,1');
++
++// --- 3. Portal do responsável ----------------------------------------------
++Route::middleware('throttle:10,1')->group(function () {
++    Route::get('/customer/bills', [CustomerApiController::class, 'bills']);
++    Route::get('/get-address-customer', [CustomerApiController::class, 'getAddress']);
++    Route::put('/update-address-customer', [CustomerApiController::class, 'updateAddress']);
++});
+diff --git a/routes/webhooks.php b/routes/webhooks.php
+index 725f11d..8843855 100644
+--- a/routes/webhooks.php
++++ b/routes/webhooks.php
+@@ -3,4 +3,8 @@
+ use App\Http\Controllers\Webhook\AsaasWebhookController;
+ use Illuminate\Support\Facades\Route;
+ 
+-Route::post('/asaas', [AsaasWebhookController::class, 'handle']);
++// 'asaas.webhook' confere o header `asaas-access-token`; sem ele a rota
++// aceitava qualquer POST da internet. O throttle é um freio extra: o Asaas
++// nunca precisa de mais que isso.
++Route::post('/asaas', [AsaasWebhookController::class, 'handle'])
++    ->middleware(['asaas.webhook', 'throttle:120,1']);
+-- 
+2.43.0
+
