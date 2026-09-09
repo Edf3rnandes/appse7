@@ -11,16 +11,12 @@ import { prisma } from "../lib/prisma.js";
  * Unidades e turmas NÃO saem daqui — são as de verdade, e vêm de
  * `npm run importar:turmas`. Este seed roda depois e se apoia nelas.
  *
- * Os planos são inventados: os 43 planos reais virão com a importação, e até
- * lá dois planos ligados a todas as turmas bastam para exercitar a matrícula.
+ * Planos também não saem daqui — são os 43 de verdade, de
+ * `npm run importar:planos`. Este seed escolhe, para cada matrícula, um plano
+ * que valha para aquela turma.
  *
  * Idempotente. NÃO roda sozinho em lugar nenhum: é `npm run seed:escola`.
  */
-
-const PLANOS = [
-  { nome: "Mensal", valor: 190, parcelas: 1 },
-  { nome: "Semestral", valor: 990, parcelas: 6, descontoPercentual: 10 },
-];
 
 const PROFESSORES = [
   { nome: "Rafael Lima", email: "rafael@exemplo.com" },
@@ -46,29 +42,18 @@ const FAMILIAS = [
 ];
 
 async function main() {
-  const turmas = await prisma.turma.findMany({ include: { unidade: true } });
+  const turmas = await prisma.turma.findMany({
+    include: { unidade: true, planos: { include: { plano: true } } },
+  });
   if (turmas.length === 0) {
     console.error("Nenhuma turma no banco. Rode antes: npm run importar:turmas");
     process.exit(1);
   }
 
-  const planos = new Map<string, string>();
-  for (const p of PLANOS) {
-    const existente = await prisma.plano.findFirst({ where: { nome: p.nome } });
-    const salvo = existente ?? (await prisma.plano.create({ data: p }));
-    planos.set(p.nome, salvo.id);
-  }
-
-  // Todo plano vale para toda turma, só na demonstração: assim dá para
-  // matricular em qualquer uma das 46 sem cadastrar 46 combinações à mão.
-  for (const turma of turmas) {
-    for (const planoId of planos.values()) {
-      await prisma.planoTurma.upsert({
-        where: { planoId_turmaId: { planoId, turmaId: turma.id } },
-        create: { planoId, turmaId: turma.id },
-        update: {},
-      });
-    }
+  const semPlano = turmas.filter((t) => t.planos.length === 0);
+  if (semPlano.length === turmas.length) {
+    console.error("Nenhuma turma tem plano. Rode antes: npm run importar:planos");
+    process.exit(1);
   }
 
   const professores = new Map<string, string>();
@@ -120,13 +105,22 @@ async function main() {
       });
       if (jaTem) continue;
 
+      // Um plano que valha para ESTA turma. Preferimos o semestral, que é o
+      // mais comum na escola; se a turma não tiver, o primeiro que houver.
+      const plano =
+        turma.planos.find((p) => p.plano.nome.startsWith("Semestral")) ?? turma.planos[0];
+      if (!plano) {
+        console.warn(`turma "${turma.nome}" está sem plano; ${a.nome} ficou sem matrícula.`);
+        continue;
+      }
+
       await prisma.matricula.create({
         data: {
           alunoId: aluno.id,
           responsavelId: responsavel.id,
           turmaId: turma.id,
           unidadeId: turma.unidadeId,
-          planoId: planos.get("Semestral")!,
+          planoId: plano.planoId,
           status: StatusMatricula.CONFIRMADA,
         },
       });
@@ -135,7 +129,7 @@ async function main() {
 
   console.log("demonstração pronta:", {
     turmas: turmas.length,
-    planos: planos.size,
+    planos: await prisma.plano.count(),
     professores: professores.size,
     responsaveis: await prisma.responsavel.count(),
     alunos: await prisma.aluno.count(),

@@ -36,11 +36,13 @@ e-mail e senha; sem MySQL, as telas que dependem do sistema antigo respondem
 npx prisma db push        # cria o schema hub
 npm run seed              # admin de ADMIN_EMAILS, com senha
 npm run importar:turmas   # as 6 unidades e as 46 turmas de verdade
-npm run seed:escola       # planos, professores e famílias de demonstração
+npm run importar:planos   # os 43 planos, já ligados às turmas de cada um
+npm run seed:escola       # professores e famílias de demonstração
 ```
 
-A ordem importa: `seed:escola` se apoia nas turmas e para com um recado se
-elas não existirem. `importar:turmas` lê `prisma/dados/turmas.tsv`, que é a
+A ordem importa: `importar:planos` precisa das turmas para ligar cada plano
+às suas, e `seed:escola` precisa das duas — os dois param com um recado se
+faltar o passo anterior. `importar:turmas` lê `prisma/dados/turmas.tsv`, que é a
 exportação do painel do sistema atual, e é repetível — a primeira coluna é o
 id de lá, guardado em `legacyId`, então rodar de novo atualiza em vez de
 duplicar.

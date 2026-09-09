@@ -15,7 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "seed:escola": "tsx src/db/seed-escola.ts",
-    "importar:turmas": "tsx src/db/importar-turmas.ts"
+    "importar:turmas": "tsx src/db/importar-turmas.ts",
+    "importar:planos": "tsx src/db/importar-planos.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

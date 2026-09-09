@@ -1,0 +1,48 @@
+# Planos do sistema atual, exportados do painel em 09/09/2026.
+# id	nome	valor	parcelas
+# O nome carrega a unidade e o padrão de dias — "(Bessa S/Q/S)" é Bessa,
+# segunda/quarta/sexta. É daí que sai a ligação plano↔turma; ver
+# src/db/importar-planos.ts.
+2	Mensal (Cabo Branco T/Q)	112.90	12
+3	Semestral (Cabo Branco S/Q)	112.90	6
+4	Semestral (Cabo Branco T/Q)	112.90	6
+5	Família (Cabo Branco S/Q)	112.90	12
+6	Família (Cabo Branco T/Q)	112.90	12
+7	Base Cabo Branco - Seg/Qua/Sex	182.18	6
+8	Base Altiplano - Ter/Qui	155.84	6
+10	Base Cabo Branco - SQS II	165.62	6
+11	Sábado	93.21	12
+12	Família (Bancários T/Q)	112.90	12
+13	Família (Bancários S/Q/S)	150.92	12
+14	Semestral (Bancários T/Q)	112.90	6
+15	Semestral (Bancários S/Q/S)	150.92	6
+16	Mensal (Bancários T/Q)	112.90	12
+17	Mensal (Bancários S/Q/S)	150.92	12
+18	Mensal (Altiplano T/Q)	121.93	12
+20	Semestral (Altiplano T/Q)	121.93	6
+21	Semestral (Altiplano S/Q/S)	198.11	6
+22	Família (Altiplano T/Q)	121.93	12
+24	Mensal (Bessa T/Q)	116.37	12
+25	Mensal (Bessa S/Q/S)	156.94	12
+26	Semestral (Bessa S/Q/S)	156.94	6
+27	Semestral (Bessa T/Q)	116.37	6
+28	Família (Bessa S/Q/S)	156.94	12
+29	Família (Bessa T/Q)	116.37	12
+30	Mensal SE7 +90 (Altiplano)	198.11	12
+37	Semestral SE7 +90 (Altiplano)	198.11	6
+38	Família SE7 +90 (Altiplano)	198.11	12
+39	Base Bessa - Ter/Qui	155.84	6
+40	Mensal (Bessa S/Q)	116.37	12
+41	Semestral (Bessa S/Q)	116.37	6
+42	Família (Bessa S/Q)	116.37	12
+43	Mensal SE7 +90 (Cabo Branco)	148.04	12
+44	Família SE7 +90 (Cabo Branco)	148.04	12
+45	Semestral SE7 +90 (Cabo Branco)	148.04	6
+46	Base Cabo Branco - SQS III	142.64	6
+47	Mensal (Cabo Branco S/Q)	112.90	12
+48	Mensal (Areia Q/S)	93.75	12
+49	Semestral (Areia Q/S)	93.75	6
+50	Família (Areia Q/S)	93.75	12
+51	Mensal (Alagoa Grande T/Q)	112.50	12
+52	Semestral (Alagoa Grande T/Q)	112.50	6
+53	Família (Alagoa Grande T/Q)	112.50	12
