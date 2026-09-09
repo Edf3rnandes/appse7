@@ -13,6 +13,7 @@ import { conteudoRoutes } from "./modules/conteudo/conteudo.routes.js";
 import { cadastroRoutes } from "./modules/escola/cadastro.routes.js";
 import { publicoRoutes } from "./modules/publico/matricula.routes.js";
 import { cobrancaRoutes } from "./modules/financeiro/cobranca.routes.js";
+import { sociosRoutes } from "./modules/socios/socios.routes.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
 import { tratadorDeErro } from "./lib/erros.js";
@@ -55,6 +56,7 @@ async function main() {
   await app.register(conteudoRoutes);
   await app.register(cadastroRoutes);
   await app.register(cobrancaRoutes);
+  await app.register(sociosRoutes);
 
   // Aberto na internet, com limite próprio — ver o cabeçalho do módulo.
   await app.register(publicoRoutes);

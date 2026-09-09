@@ -51,6 +51,8 @@ services:
       # usa o ViaCEP, que e gratuito e nao pede chave. Esta aqui para trocar de
       # provedor sem mexer no codigo — e porque a matricula NUNCA depende dela:
       # falhando a busca, a familia digita o endereco.
+      # Sociedade. Nao ha variavel: os socios sao cadastrados pela tela, e o
+      # papel SOCIO so e concedido por convite emitido por outro socio.
       - key: CEP_BASE_URL
         value: https://viacep.com.br/ws
       # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a

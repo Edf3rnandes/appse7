@@ -5,7 +5,7 @@
 -- se7-inadimplencia) e clique em Run.
 --
 -- O QUE ELE FAZ
---   1. Cria o schema `hub` e as 20 tabelas do sistema.
+--   1. Cria o schema `hub` e as 22 tabelas do sistema.
 --   2. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
 -- O QUE ELE NÃO TOCA
@@ -19,7 +19,7 @@
 -- ---------------------------------------------------------------------------
 -- ANTES DE RODAR, SE VOCÊ JÁ RODOU A VERSÃO ANTERIOR
 --
---   A versão anterior criava 9 tabelas. O sistema agora tem 20, e três das
+--   A versão anterior criava 9 tabelas. O sistema agora tem 22, e três das
 --   antigas mudaram de forma: o vínculo da conta passou a apontar para
 --   professor/responsável por chave estrangeira, em vez de um id do MySQL.
 --   Este script não altera tabela existente, então ele vai falhar dizendo que
@@ -41,7 +41,7 @@
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
---   -- hub deve ter 20; public, o mesmo número de antes.
+--   -- hub deve ter 22; public, o mesmo número de antes.
 -- ===========================================================================
 
 -- Observações do treino para o professor (maré, quadra, material). Aditiva: o
@@ -56,7 +56,7 @@ CREATE SCHEMA IF NOT EXISTS "hub";
 CREATE TYPE "hub"."Provedor" AS ENUM ('GOOGLE', 'SENHA');
 
 -- CreateEnum
-CREATE TYPE "hub"."PapelNome" AS ENUM ('ADMIN', 'ADMINISTRATIVO', 'PROFESSOR', 'RESPONSAVEL');
+CREATE TYPE "hub"."PapelNome" AS ENUM ('SOCIO', 'ADMIN', 'ADMINISTRATIVO', 'PROFESSOR', 'RESPONSAVEL');
 
 -- CreateEnum
 CREATE TYPE "hub"."TipoVinculo" AS ENUM ('RESPONSAVEL', 'PROFESSOR');
@@ -321,7 +321,8 @@ CREATE TABLE "hub"."alunos" (
     "id" TEXT NOT NULL,
     "legacyId" INTEGER,
     "nome" TEXT NOT NULL,
-    "fotoUrl" TEXT,
+    "foto" TEXT,
+    "fotoMiniatura" TEXT,
     "nascimento" DATE,
     "observacao" TEXT,
     "responsavelId" TEXT,
@@ -344,6 +345,7 @@ CREATE TABLE "hub"."matriculas" (
     "planoId" TEXT NOT NULL,
     "observacao" TEXT,
     "expiraEm" DATE,
+    "principal" BOOLEAN NOT NULL DEFAULT true,
     "asaasReferencia" TEXT,
     "asaasPagamento" TEXT,
     "linkPagamento" TEXT,
@@ -367,6 +369,33 @@ CREATE TABLE "hub"."presencas" (
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "presencas_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."socios" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "participacao" DECIMAL(6,3) NOT NULL,
+    "email" TEXT,
+    "telefone" TEXT,
+    "entrouEm" DATE,
+    "arquivadoEm" TIMESTAMP(3),
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "socios_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."distribuicoes" (
+    "id" TEXT NOT NULL,
+    "socioId" TEXT NOT NULL,
+    "competencia" DATE NOT NULL,
+    "valor" DECIMAL(12,2) NOT NULL,
+    "observacao" TEXT,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "distribuicoes_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -468,6 +497,12 @@ CREATE INDEX "presencas_alunoId_data_idx" ON "hub"."presencas"("alunoId", "data"
 -- CreateIndex
 CREATE UNIQUE INDEX "presencas_turmaId_alunoId_data_key" ON "hub"."presencas"("turmaId", "alunoId", "data");
 
+-- CreateIndex
+CREATE INDEX "distribuicoes_competencia_idx" ON "hub"."distribuicoes"("competencia");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "distribuicoes_socioId_competencia_key" ON "hub"."distribuicoes"("socioId", "competencia");
+
 -- AddForeignKey
 ALTER TABLE "hub"."identidades" ADD CONSTRAINT "identidades_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -536,4 +571,7 @@ ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_alunoId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."distribuicoes" ADD CONSTRAINT "distribuicoes_socioId_fkey" FOREIGN KEY ("socioId") REFERENCES "hub"."socios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

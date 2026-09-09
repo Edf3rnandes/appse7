@@ -96,6 +96,9 @@ model Identidade {
 }
 
 enum PapelNome {
+  // O dono. Faz tudo o que o ADMIN faz, e mais: a area dos socios. Quem contem
+  // quem esta em src/plugins/auth.ts, num lugar so — nao repetido rota a rota.
+  SOCIO
   ADMIN
   ADMINISTRATIVO
   PROFESSOR
@@ -648,5 +651,63 @@ model Presenca {
   @@index([turmaId, data])
   @@index([alunoId, data])
   @@map("presencas")
+  @@schema("hub")
+}
+
+// ---------------------------------------------------------------------------
+// Sociedade
+//
+// Não existe nada equivalente no se7volei: quota e distribuição viviam em
+// planilha. São dois modelos, e a separação entre eles é o ponto.
+//
+// `participacao` é quanto o sócio tem HOJE. Ela muda — entra sócio, sai sócio,
+// alguém compra a parte do outro. Por isso o valor distribuído NÃO é derivado
+// dela na hora de mostrar: ele é gravado em `Distribuicao`, linha por linha.
+// Derivar faria a participação de hoje reescrever o que foi pago no ano
+// passado, que é exatamente o erro que uma planilha comete sozinha.
+// ---------------------------------------------------------------------------
+
+model Socio {
+  id   String @id @default(uuid())
+  nome String
+
+  // Em pontos percentuais: 33.34 é um terço. A soma dos sócios ativos deveria
+  // dar 100, mas o sistema não impede que não dê — durante uma entrada ou uma
+  // saída ela fica quebrada por alguns dias, e travar isso obrigaria a
+  // secretaria a inventar um número só para o formulário fechar. A tela avisa.
+  participacao Decimal @db.Decimal(6, 3)
+
+  email    String?
+  telefone String?
+  entrouEm DateTime? @db.Date
+
+  distribuicoes Distribuicao[]
+
+  arquivadoEm  DateTime?
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@map("socios")
+  @@schema("hub")
+}
+
+model Distribuicao {
+  id      String @id @default(uuid())
+  socioId String
+  socio   Socio  @relation(fields: [socioId], references: [id])
+
+  // Mês de referência, sempre no dia 1: é por competência que a sociedade
+  // fecha, não pela data em que o dinheiro saiu da conta.
+  competencia DateTime @db.Date
+  valor       Decimal  @db.Decimal(12, 2)
+  observacao  String?
+
+  criadoEm DateTime @default(now())
+
+  // Um lançamento por sócio por mês. Dois seriam erro de digitação, e um valor
+  // dobrado numa distribuição é o tipo de erro que ninguém percebe olhando.
+  @@unique([socioId, competencia])
+  @@index([competencia])
+  @@map("distribuicoes")
   @@schema("hub")
 }

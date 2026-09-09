@@ -38,7 +38,7 @@ const cpfSchema = z.object({
 
 const conviteSchema = z.object({
   email: z.string().email("Email invalido."),
-  papel: z.enum(["ADMIN", "ADMINISTRATIVO", "PROFESSOR"]),
+  papel: z.enum(["SOCIO", "ADMIN", "ADMINISTRATIVO", "PROFESSOR"]),
   // Qual professor do cadastro essa conta vai representar.
   professorId: z.string().uuid().optional(),
   validadeDias: z.number().int().min(1).max(90).default(14),
@@ -175,6 +175,16 @@ export async function authRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = conviteSchema.parse(request.body);
       const email = body.email.toLowerCase();
+
+      // Só sócio convida sócio. Sem esta linha um administrativo emitiria um
+      // convite de SOCIO e, no login seguinte, teria acesso a tudo — incluindo
+      // a distribuição de lucro. Convite é o caminho por onde permissão entra
+      // no sistema, e nenhum caminho pode dar mais do que quem o abriu tem.
+      if (body.papel === "SOCIO" && !request.user.papeis.includes("SOCIO")) {
+        return reply.code(403).send({
+          message: "Só um sócio pode convidar outro sócio.",
+        });
+      }
 
       if (body.papel === "PROFESSOR" && body.professorId === undefined) {
         return reply.code(400).send({

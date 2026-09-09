@@ -200,3 +200,35 @@ export async function listarVencidas(limite = 100): Promise<CobrancaAsaas[]> {
   );
   return resposta.data ?? [];
 }
+
+/**
+ * Cobranças recebidas num intervalo, pela data do pagamento.
+ *
+ * `paymentDate` e não `dueDate`: o painel dos sócios pergunta quanto ENTROU no
+ * mês, e um boleto de março pago em abril é dinheiro de abril. Vencimento
+ * responde outra pergunta.
+ *
+ * O Asaas pagina em 100. Aqui seguimos até o fim, com um teto: uma escola de
+ * 570 alunos gera algo perto de 600 cobranças por mês, e parar na primeira
+ * página daria um faturamento silenciosamente menor que o real — o pior tipo
+ * de número errado, porque parece plausível.
+ */
+export async function listarRecebidas(
+  de: string,
+  ate: string,
+  tetoDePaginas = 20,
+): Promise<CobrancaAsaas[]> {
+  const todas: CobrancaAsaas[] = [];
+
+  for (let pagina = 0; pagina < tetoDePaginas; pagina++) {
+    const resposta = await get<ListaAsaas<CobrancaAsaas>>(
+      `/payments?status=RECEIVED&paymentDate%5Bge%5D=${de}&paymentDate%5Ble%5D=${ate}` +
+        `&limit=100&offset=${pagina * 100}&order=asc`,
+    );
+    const lote = resposta.data ?? [];
+    todas.push(...lote);
+    if (lote.length < 100) break;
+  }
+
+  return todas;
+}

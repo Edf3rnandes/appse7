@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Sócios · SE7 Vôlei de Praia</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    /* Cartões de número grande: o painel do sócio é lido de longe, numa
+       reunião, não estudado de perto como uma lista de matrículas. */
+    .placar { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--card); }
+    .placar > div { flex: 1 1 150px; padding: 14px 16px; border-right: 1px solid var(--rule); }
+    .placar > div:last-child { border-right: 0; }
+    .placar .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+    .placar .n.baixo { color: var(--erro, #b4413a); }
+    .placar .n.alto { color: var(--accent); }
+    .placar .rotulo { margin-bottom: 4px; }
+    .placar .apoio { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+
+    /* Colunas do gráfico de meses. Sem biblioteca: seis a doze barras não
+       justificam trazer um megabyte de JavaScript para dentro da página. */
+    .colunas { display: flex; align-items: flex-end; gap: 8px; height: 150px; margin: 6px 0 10px; }
+    .colunas .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+    .colunas .haste { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 3px; opacity: .82; }
+    .colunas .col.agora .haste { opacity: 1; }
+    .colunas .rot { font-size: 11px; color: var(--ink-3); margin-top: 6px; white-space: nowrap; }
+    .colunas .val { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-2); margin-bottom: 4px; }
+
+    .tabelinha { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .tabelinha th { text-align: left; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); padding: 6px 8px; border-bottom: 1px solid var(--rule); font-weight: 600; }
+    .tabelinha td { padding: 9px 8px; border-bottom: 1px solid var(--rule); }
+    .tabelinha td.num, .tabelinha th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .rolagem { overflow-x: auto; }
+
+    .abas-socio { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+    .abas-socio button { border: 1px solid var(--rule); background: var(--card); color: var(--ink-2); padding: 8px 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 14px; }
+    .abas-socio button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header class="topo">
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Sócios</span></div>
+  <div class="espaco"></div>
+  <nav class="areas" id="areas" hidden></nav>
+  <div class="usuario oculto" id="boxUsuario">
+    <img id="avatar" alt="" hidden>
+    <span class="nome" id="nomeUsuario"></span>
+    <button class="botao fantasma" id="btnSair" type="button">Sair</button>
+  </div>
+</header>
+
+<main class="centro" id="telaLogin" hidden>
+  <h1 style="font-size:26px">Área dos sócios</h1>
+  <p style="color:var(--ink-2);margin:14px 0 28px">
+    Entre com a conta da escola.
+  </p>
+  <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
+  <div class="aviso erro oculto" id="erroLogin" style="margin-top:22px;text-align:left"></div>
+</main>
+
+<main class="centro" id="telaSemPermissao" hidden>
+  <h1 style="font-size:22px">Esta área é dos sócios</h1>
+  <p style="color:var(--ink-2);margin:14px 0 24px">
+    Você entrou como <strong id="emailSemPermissao"></strong>, que não é uma conta de sócio.
+  </p>
+  <nav class="areas" id="areasSemPermissao"></nav>
+  <button class="botao fantasma" type="button" id="btnTrocar" style="margin-top:18px">
+    Entrar com outra conta
+  </button>
+</main>
+
+<main class="pagina" id="telaApp" hidden>
+  <div class="abas-socio" role="tablist">
+    <button role="tab" data-aba="painel" aria-selected="true">Painel</button>
+    <button role="tab" data-aba="caixa" aria-selected="false">Caixa e inadimplência</button>
+    <button role="tab" data-aba="sociedade" aria-selected="false">Sociedade</button>
+    <button role="tab" data-aba="distribuicoes" aria-selected="false">Distribuições</button>
+  </div>
+
+  <section id="secPainel"></section>
+  <section id="secCaixa" hidden></section>
+  <section id="secSociedade" hidden></section>
+  <section id="secDistribuicoes" hidden></section>
+</main>
+
+<script type="module">
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao } from "/app.js";
+
+const el = (id) => document.getElementById(id);
+const telas = { login: el("telaLogin"), semPermissao: el("telaSemPermissao"), app: el("telaApp") };
+
+function mostrar(nome) {
+  for (const [chave, node] of Object.entries(telas)) node.hidden = chave !== nome;
+  el("boxUsuario").classList.toggle("oculto", nome === "login");
+}
+
+function pintarUsuario() {
+  const u = Sessao.usuario;
+  if (!u) return;
+  el("nomeUsuario").textContent = u.nome || u.email || "";
+  const img = el("avatar");
+  if (u.avatarUrl) { img.src = u.avatarUrl; img.hidden = false; } else { img.hidden = true; }
+}
+
+function sair() { Sessao.limpar(); mostrar("login"); }
+el("btnSair").addEventListener("click", sair);
+el("btnTrocar").addEventListener("click", sair);
+
+function aviso(e) {
+  const classe = e instanceof ErroApi && e.status === 503 ? "alerta" : "erro";
+  return `<div class="aviso ${classe}">${escapar(e.message)}</div>`;
+}
+
+/** "2026-09" -> "set/2026". Rótulo curto, que cabe embaixo de uma coluna. */
+function rotuloMes(chave) {
+  const [ano, mes] = chave.split("-").map(Number);
+  const nome = new Date(ano, mes - 1, 1)
+    .toLocaleDateString("pt-BR", { month: "short" })
+    .replace(".", "");
+  return `${nome}/${String(ano).slice(2)}`;
+}
+
+/** Só os centavos atrapalham num placar. R$ 61.240 lê melhor que R$ 61.239,87. */
+const moedaCurta = (v) =>
+  (Number(v) || 0).toLocaleString("pt-BR", {
+    style: "currency", currency: "BRL", maximumFractionDigits: 0,
+  });
+
+/**
+ * Gráfico de colunas.
+ *
+ * A escala começa em zero de propósito. Cortar a base faz uma queda de 2%
+ * parecer um desabamento — e é justamente num painel de sócio, lido rápido e
+ * usado para decidir, que essa distorção custa caro.
+ */
+function colunas(itens, valorDe, formatar) {
+  const maximo = Math.max(...itens.map(valorDe), 1);
+  return `
+    <div class="colunas">
+      ${itens.map((i) => {
+        const v = valorDe(i);
+        return `
+          <div class="col ${i.corrente ? "agora" : ""}">
+            <div class="val">${formatar(v)}</div>
+            <div class="haste" style="height:${Math.round((v / maximo) * 100)}%"
+                 title="${escapar(rotuloMes(i.mes))}: ${escapar(String(formatar(v)))}"></div>
+            <div class="rot">${escapar(rotuloMes(i.mes))}</div>
+          </div>`;
+      }).join("")}
+    </div>`;
+}
+
+// ==================================================================== abas
+
+const ABAS = {
+  painel: { secao: "secPainel", carregar: () => carregarPainel() },
+  caixa: { secao: "secCaixa", carregar: () => carregarCaixa() },
+  sociedade: { secao: "secSociedade", carregar: () => carregarSociedade() },
+  distribuicoes: { secao: "secDistribuicoes", carregar: () => carregarDistribuicoes() },
+};
+
+const carregadas = new Set();
+
+function abrirAba(nome) {
+  for (const [chave, aba] of Object.entries(ABAS)) {
+    el(aba.secao).hidden = chave !== nome;
+  }
+  document.querySelectorAll("[data-aba]").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.aba === nome));
+  });
+  if (!carregadas.has(nome)) {
+    carregadas.add(nome);
+    ABAS[nome].carregar();
+  }
+}
+
+document.querySelectorAll("[data-aba]").forEach((b) =>
+  b.addEventListener("click", () => abrirAba(b.dataset.aba)));
+
+/** Força a aba a recarregar na próxima abertura — depois de gravar algo. */
+function invalidar(nome) { carregadas.delete(nome); }
+
+// =================================================================== painel
+
+async function carregarPainel() {
+  const alvo = el("secPainel");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
+  try {
+    const p = await api("/socios/painel?meses=6");
+    const t = p.totais;
+    const ultimo = p.serie[p.serie.length - 1];
+
+    alvo.innerHTML = `
+      <div class="placar">
+        <div>
+          <div class="rotulo">Receita prevista/mês</div>
+          <div class="n">${moedaCurta(t.receitaPrevista)}</div>
+          <div class="apoio">${t.ativas} matrículas ativas</div>
+        </div>
+        <div>
+          <div class="rotulo">Ticket médio</div>
+          <div class="n">${moedaCurta(t.ticketMedio)}</div>
+          <div class="apoio">por aluno, por mês</div>
+        </div>
+        <div>
+          <div class="rotulo">Saldo do mês</div>
+          <div class="n ${ultimo.saldo < 0 ? "baixo" : ultimo.saldo > 0 ? "alto" : ""}">
+            ${ultimo.saldo > 0 ? "+" : ""}${ultimo.saldo}
+          </div>
+          <div class="apoio">${ultimo.novas} entraram · ${ultimo.saidas} saíram</div>
+        </div>
+        <div>
+          <div class="rotulo">Vagas ociosas</div>
+          <div class="n">${t.vagasOciosas}</div>
+          <div class="apoio">${moedaCurta(t.potencialOcioso)}/mês se cheias</div>
+        </div>
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:2px"><strong>Receita prevista, mês a mês</strong></div>
+        ${colunas(p.serie, (i) => i.receitaPrevista, moedaCurta)}
+        <p class="meta" style="margin:0">${escapar(p.reconstruido.nota)}</p>
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:2px"><strong>Alunos ativos, mês a mês</strong></div>
+        ${colunas(p.serie, (i) => i.ativas, (v) => String(v))}
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>Entradas e saídas</strong></div>
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Mês</th><th class="num">Entraram</th><th class="num">Saíram</th>
+                <th class="num">Saldo</th><th class="num">Ativos no fim</th></tr>
+            ${p.serie.slice().reverse().map((m) => `
+              <tr>
+                <td>${escapar(rotuloMes(m.mes))}${m.corrente ? ' <span class="meta">(em curso)</span>' : ""}</td>
+                <td class="num">${m.novas}</td>
+                <td class="num">${m.saidas}</td>
+                <td class="num" style="font-weight:600">${m.saldo > 0 ? "+" : ""}${m.saldo}</td>
+                <td class="num">${m.ativas}</td>
+              </tr>`).join("")}
+          </table>
+        </div>
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>Por unidade</strong></div>
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Unidade</th><th class="num">Turmas</th><th class="num">Ativos</th>
+                <th class="num">Capacidade</th><th class="num">Ociosas</th>
+                <th class="num">Receita prevista</th></tr>
+            ${p.porUnidade.map((u) => `
+              <tr>
+                <td>${escapar(u.unidade)}</td>
+                <td class="num">${u.turmas}</td>
+                <td class="num">${u.ativas}</td>
+                <td class="num">${u.capacidade}</td>
+                <td class="num">${u.vagasOciosas}</td>
+                <td class="num">${fmt.moeda(u.receitaPrevista)}</td>
+              </tr>`).join("")}
+          </table>
+        </div>
+      </div>`;
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+// ==================================================================== caixa
+
+async function carregarCaixa() {
+  const alvo = el("secCaixa");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
+  try {
+    const c = await api("/socios/caixa?meses=6");
+
+    if (!c.disponivel) {
+      alvo.innerHTML = `<div class="aviso alerta">${escapar(c.motivo)}</div>`;
+      return;
+    }
+
+    const v = c.vencidas;
+    const ultimo = c.serie[c.serie.length - 1];
+
+    alvo.innerHTML = `
+      <div class="placar">
+        <div>
+          <div class="rotulo">Recebido no mês</div>
+          <div class="n alto">${moedaCurta(ultimo.recebido)}</div>
+          <div class="apoio">${ultimo.cobrancas} cobranças pagas</div>
+        </div>
+        <div>
+          <div class="rotulo">Em aberto vencido</div>
+          <div class="n ${v.valor > 0 ? "baixo" : ""}">${moedaCurta(v.valor)}</div>
+          <div class="apoio">${v.quantidade} cobranças</div>
+        </div>
+        <div>
+          <div class="rotulo">Inadimplência</div>
+          <div class="n ${v.percentual >= 10 ? "baixo" : ""}">${v.percentual}%</div>
+          <div class="apoio">do que deveria entrar</div>
+        </div>
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:2px"><strong>Recebido, mês a mês</strong></div>
+        ${colunas(c.serie, (i) => i.recebido, moedaCurta)}
+        <p class="meta" style="margin:0">
+          Pela data do pagamento: boleto de um mês pago no seguinte conta no mês em que o
+          dinheiro entrou.
+        </p>
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>Atraso por faixa</strong></div>
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Faixa</th><th class="num">Cobranças</th><th class="num">Valor</th></tr>
+            ${v.faixas.map((f) => `
+              <tr>
+                <td>${escapar(f.rotulo)}</td>
+                <td class="num">${f.quantidade}</td>
+                <td class="num">${fmt.moeda(f.valor)}</td>
+              </tr>`).join("")}
+          </table>
+        </div>
+        <p class="meta" style="margin:10px 0 0">
+          A lista nominal de quem está devendo fica no Administrativo, em Cobranças vencidas —
+          é de lá que se cobra.
+        </p>
+      </div>`;
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+// ================================================================ sociedade
+//
+// O formulário guarda o que foi digitado no estado, e não no DOM: o painel é
+// redesenhado a cada gravação, e um <input> lido depois disso volta vazio.
+
+const soc = {
+  editando: null,
+  rascunho: { nome: "", participacao: "", email: "", telefone: "", entrouEm: "" },
+  erro: "",
+};
+
+const RASCUNHO_VAZIO = () => ({ nome: "", participacao: "", email: "", telefone: "", entrouEm: "" });
+
+function guardarSocio() {
+  document.querySelectorAll("[data-socio-campo]").forEach((c) => {
+    soc.rascunho[c.dataset.socioCampo] = c.value;
+  });
+}
+
+async function carregarSociedade() {
+  const alvo = el("secSociedade");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+  try {
+    soc.dados = await api("/socios/sociedade");
+    pintarSociedade();
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+function pintarSociedade() {
+  const alvo = el("secSociedade");
+  const d = soc.dados;
+  const r = soc.rascunho;
+
+  alvo.innerHTML = `
+    ${d.socios.length && !d.fechaCem ? `
+      <div class="aviso alerta" style="margin-bottom:14px">
+        As participações somam ${d.somaParticipacao}%, não 100%. Se é uma entrada ou saída em
+        andamento, tudo bem — só não esqueça de fechar.
+      </div>` : ""}
+
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Sócios</strong>
+        <span class="meta">${d.somaParticipacao}% distribuídos</span></div>
+      ${d.socios.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Nome</th><th class="num">Participação</th><th>Contato</th><th>Desde</th><th></th></tr>
+            ${d.socios.map((s) => `
+              <tr>
+                <td><strong>${escapar(s.nome)}</strong></td>
+                <td class="num">${s.participacao}%</td>
+                <td>${escapar(s.email || s.telefone || "—")}</td>
+                <td>${s.entrouEm ? fmt.data(s.entrouEm) : "—"}</td>
+                <td class="num">
+                  <button class="botao fantasma" type="button" data-editar="${s.id}">Editar</button>
+                  <button class="botao fantasma" type="button" data-remover="${s.id}">Remover</button>
+                </td>
+              </tr>`).join("")}
+          </table>
+        </div>` : `<div class="vazio">Nenhum sócio cadastrado ainda.</div>`}
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${soc.editando ? "Editar sócio" : "Novo sócio"}</strong>
+        ${soc.editando ? `<button class="botao fantasma" type="button" id="btnCancelarSocio">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div class="campo"><label class="rotulo" for="socNome">Nome</label>
+          <input id="socNome" data-socio-campo="nome" value="${escapar(r.nome)}"></div>
+        <div style="display:flex;gap:10px">
+          <div class="campo" style="flex:1"><label class="rotulo" for="socPart">Participação (%)</label>
+            <input id="socPart" data-socio-campo="participacao" inputmode="decimal" value="${escapar(r.participacao)}"></div>
+          <div class="campo" style="flex:1"><label class="rotulo" for="socDesde">Desde</label>
+            <input id="socDesde" data-socio-campo="entrouEm" type="date" value="${escapar(r.entrouEm)}"></div>
+        </div>
+        <div class="campo"><label class="rotulo" for="socEmail">E-mail</label>
+          <input id="socEmail" data-socio-campo="email" type="email" value="${escapar(r.email)}"></div>
+        <div class="campo"><label class="rotulo" for="socTel">Telefone</label>
+          <input id="socTel" data-socio-campo="telefone" value="${escapar(r.telefone)}"></div>
+        <div class="aviso erro ${soc.erro ? "" : "oculto"}">${escapar(soc.erro)}</div>
+        <button class="botao" type="button" id="btnSalvarSocio">
+          ${soc.editando ? "Salvar" : "Cadastrar"}
+        </button>
+      </div>
+    </div>`;
+
+  ligarSociedade();
+}
+
+function ligarSociedade() {
+  const alvo = el("secSociedade");
+
+  alvo.querySelectorAll("[data-editar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const s = soc.dados.socios.find((x) => x.id === b.dataset.editar);
+      if (!s) return;
+      soc.editando = s.id;
+      soc.erro = "";
+      soc.rascunho = {
+        nome: s.nome,
+        participacao: String(s.participacao),
+        email: s.email || "",
+        telefone: s.telefone || "",
+        entrouEm: s.entrouEm ? String(s.entrouEm).slice(0, 10) : "",
+      };
+      pintarSociedade();
+    }));
+
+  el("btnCancelarSocio")?.addEventListener("click", () => {
+    soc.editando = null;
+    soc.erro = "";
+    soc.rascunho = RASCUNHO_VAZIO();
+    pintarSociedade();
+  });
+
+  alvo.querySelectorAll("[data-remover]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const s = soc.dados.socios.find((x) => x.id === b.dataset.remover);
+      if (!confirm(`Remover ${s?.nome} da sociedade? As distribuições já lançadas continuam no histórico.`)) return;
+      try {
+        await api(`/socios/sociedade/${b.dataset.remover}`, { method: "DELETE" });
+        invalidar("distribuicoes");
+        await carregarSociedade();
+      } catch (e) {
+        soc.erro = e.message;
+        pintarSociedade();
+      }
+    }));
+
+  el("btnSalvarSocio")?.addEventListener("click", async () => {
+    guardarSocio();
+    const r = soc.rascunho;
+    soc.erro = "";
+
+    try {
+      const corpo = JSON.stringify({
+        nome: r.nome.trim(),
+        participacao: r.participacao.replace(",", "."),
+        email: r.email.trim(),
+        telefone: r.telefone.trim(),
+        entrouEm: r.entrouEm,
+      });
+
+      if (soc.editando) {
+        await api(`/socios/sociedade/${soc.editando}`, { method: "PUT", body: corpo });
+      } else {
+        await api("/socios/sociedade", { method: "POST", body: corpo });
+      }
+
+      soc.editando = null;
+      soc.rascunho = RASCUNHO_VAZIO();
+      invalidar("distribuicoes");
+      await carregarSociedade();
+    } catch (e) {
+      soc.erro = e.message;
+      pintarSociedade();
+    }
+  });
+}
+
+// ============================================================ distribuições
+
+const dist = {
+  rascunho: { socioId: "", competencia: "", valor: "", observacao: "" },
+  erro: "",
+};
+
+function guardarDist() {
+  document.querySelectorAll("[data-dist-campo]").forEach((c) => {
+    dist.rascunho[c.dataset.distCampo] = c.value;
+  });
+}
+
+async function carregarDistribuicoes() {
+  const alvo = el("secDistribuicoes");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+  try {
+    const [lista, sociedade] = await Promise.all([
+      api("/socios/distribuicoes?meses=12"),
+      api("/socios/sociedade"),
+    ]);
+    dist.dados = lista;
+    dist.socios = sociedade.socios;
+    pintarDistribuicoes();
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+function pintarDistribuicoes() {
+  const alvo = el("secDistribuicoes");
+  const r = dist.rascunho;
+
+  alvo.innerHTML = `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Lançar distribuição</strong></div>
+      ${dist.socios.length ? `
+        <div class="pilha" style="gap:12px">
+          <div class="campo">
+            <label class="rotulo" for="distSocio">Sócio</label>
+            <select class="selecao" id="distSocio" data-dist-campo="socioId">
+              <option value="">Escolha…</option>
+              ${dist.socios.map((s) => `
+                <option value="${s.id}" ${s.id === r.socioId ? "selected" : ""}>
+                  ${escapar(s.nome)} · ${s.participacao}%
+                </option>`).join("")}
+            </select>
+          </div>
+          <div style="display:flex;gap:10px">
+            <div class="campo" style="flex:1"><label class="rotulo" for="distComp">Competência</label>
+              <input id="distComp" data-dist-campo="competencia" type="month" value="${escapar(r.competencia)}"></div>
+            <div class="campo" style="flex:1"><label class="rotulo" for="distValor">Valor (R$)</label>
+              <input id="distValor" data-dist-campo="valor" inputmode="decimal" value="${escapar(r.valor)}"></div>
+          </div>
+          <div class="campo"><label class="rotulo" for="distObs">Observação</label>
+            <input id="distObs" data-dist-campo="observacao" value="${escapar(r.observacao)}"></div>
+          <div class="aviso erro ${dist.erro ? "" : "oculto"}">${escapar(dist.erro)}</div>
+          <button class="botao" type="button" id="btnLancarDist">Lançar</button>
+        </div>`
+        : `<div class="vazio">Cadastre os sócios primeiro, na aba Sociedade.</div>`}
+    </div>
+
+    ${dist.dados.competencias.length ? dist.dados.competencias.map((c) => `
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px">
+          <strong>${escapar(rotuloMes(c.competencia))}</strong>
+          <span class="valor">${fmt.moeda(c.total)}</span>
+        </div>
+        ${c.itens.map((i) => `
+          <div class="item">
+            <div class="corpo">
+              <div class="titulo">${escapar(i.socio)}</div>
+              ${i.observacao ? `<div class="detalhe">${escapar(i.observacao)}</div>` : ""}
+            </div>
+            <div class="lado">
+              <span class="valor">${fmt.moeda(i.valor)}</span>
+              <button class="botao fantasma" type="button" data-apagar-dist="${i.id}">Apagar</button>
+            </div>
+          </div>`).join("")}
+      </div>`).join("")
+      : `<div class="vazio" style="margin-top:14px">Nenhuma distribuição lançada nos últimos 12 meses.</div>`}`;
+
+  ligarDistribuicoes();
+}
+
+function ligarDistribuicoes() {
+  el("btnLancarDist")?.addEventListener("click", async () => {
+    guardarDist();
+    const r = dist.rascunho;
+    dist.erro = "";
+
+    if (!r.socioId) {
+      dist.erro = "Escolha o sócio.";
+      return pintarDistribuicoes();
+    }
+
+    try {
+      await api("/socios/distribuicoes", {
+        method: "POST",
+        body: JSON.stringify({
+          socioId: r.socioId,
+          competencia: r.competencia,
+          valor: r.valor.replace(/\./g, "").replace(",", "."),
+          observacao: r.observacao.trim(),
+        }),
+      });
+      // A competência fica: lançar os três sócios do mesmo mês é o uso normal,
+      // e redigitar o mês a cada linha seria só atrito.
+      dist.rascunho = { socioId: "", competencia: r.competencia, valor: "", observacao: "" };
+      await carregarDistribuicoes();
+    } catch (e) {
+      dist.erro = e.message;
+      pintarDistribuicoes();
+    }
+  });
+
+  el("secDistribuicoes").querySelectorAll("[data-apagar-dist]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar este lançamento?")) return;
+      try {
+        await api(`/socios/distribuicoes/${b.dataset.apagarDist}`, { method: "DELETE" });
+        await carregarDistribuicoes();
+      } catch (e) {
+        dist.erro = e.message;
+        pintarDistribuicoes();
+      }
+    }));
+}
+
+// =================================================================== início
+
+function concluirLogin(r) {
+  Sessao.token = r.token;
+  Sessao.usuario = r.usuario;
+  pintarUsuario();
+  decidirTela();
+}
+
+async function decidirTela() {
+  try {
+    const eu = await api("/auth/eu");
+    pintarNavegacao(el("areas"), eu, "socios");
+    pintarNavegacao(el("areasSemPermissao"), eu, "socios");
+
+    if (!eu.papeis.includes("SOCIO")) {
+      el("emailSemPermissao").textContent = eu.email || "";
+      return mostrar("semPermissao");
+    }
+
+    mostrar("app");
+    pintarUsuario();
+    abrirAba("painel");
+  } catch {
+    sair();
+  }
+}
+
+async function iniciar() {
+  if (Sessao.token && Sessao.usuario) {
+    pintarUsuario();
+    return decidirTela();
+  }
+  mostrar("login");
+  montarLogin(el("botaoGoogle"), concluirLogin, (mensagem) => {
+    el("erroLogin").textContent = mensagem;
+    el("erroLogin").classList.remove("oculto");
+  });
+}
+
+iniciar();
+</script>
+</body>
+</html>
