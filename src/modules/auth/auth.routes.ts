@@ -10,8 +10,10 @@ import {
   CpfInvalidoError,
   CpfJaVinculadoError,
   CpfNaoEncontradoError,
+  CredencialInvalidaError,
   LimiteTentativasError,
   entrarComGoogle,
+  entrarComSenha,
   montarToken,
   vincularPorCpf,
 } from "./auth.service.js";
@@ -22,6 +24,11 @@ const googleSchema = z.object({
   idToken: z
     .string({ required_error: "idToken e obrigatorio." })
     .min(1, "idToken e obrigatorio."),
+});
+
+const senhaSchema = z.object({
+  email: z.string({ required_error: "Informe o e-mail." }).email("E-mail invalido."),
+  senha: z.string({ required_error: "Informe a senha." }).min(1, "Informe a senha."),
 });
 
 const cpfSchema = z.object({
@@ -47,7 +54,43 @@ export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/config", async () => ({
     google: googleConfigurado,
     clientId: env.GOOGLE_CLIENT_ID,
+    // O front so desenha o formulario de senha quando ele e util: sem Google
+    // configurado ele e a unica porta, e com Google ele fica atras de um link
+    // discreto para nao competir com o caminho normal.
+    senha: true,
   }));
+
+  // Ver entrarComSenha(): porta de servico da administracao, nao o caminho
+  // normal de ninguem.
+  app.post("/auth/senha", async (request, reply) => {
+    const body = senhaSchema.parse(request.body);
+
+    try {
+      const usuario = await entrarComSenha(body.email, body.senha);
+      const payload = montarToken(usuario);
+
+      return reply.send({
+        token: app.jwt.sign(payload),
+        usuario: {
+          id: usuario.id,
+          nome: usuario.nome,
+          email: usuario.email,
+          avatarUrl: usuario.avatarUrl,
+          papeis: payload.papeis,
+          vinculoPendente:
+            payload.papeis.includes("RESPONSAVEL") && payload.responsavelId === undefined,
+        },
+      });
+    } catch (err) {
+      if (err instanceof CredencialInvalidaError) {
+        return reply.code(401).send({ message: err.message });
+      }
+      if (err instanceof ContaInativaError) {
+        return reply.code(403).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
 
   app.post("/auth/google", async (request, reply) => {
     const body = googleSchema.parse(request.body);

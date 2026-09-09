@@ -90,8 +90,20 @@ export function escapar(texto) {
   return div.innerHTML;
 }
 
-/** Carrega o Google Identity Services e desenha o botão de entrar. */
-export async function iniciarGoogle(alvo, aoEntrar, aoFalhar) {
+/**
+ * Desenha a tela de entrada: botão do Google e, atrás dele, a entrada por
+ * e-mail e senha.
+ *
+ * A senha não é o caminho de ninguém no dia a dia — é a porta de serviço da
+ * administração, para o sistema não ficar inacessível quando o Google não
+ * está disponível (projeto ainda não criado, domínio novo sem origem
+ * autorizada, ou uma queda no dia do treino). Por isso ela aparece expandida
+ * só quando o Google não está configurado; havendo Google, fica recolhida
+ * atrás de um link discreto.
+ *
+ * `aoEntrar` recebe a resposta pronta de /auth/*: { token, usuario }.
+ */
+export async function montarLogin(alvo, aoEntrar, aoFalhar) {
   let cfg;
   try {
     cfg = await (await fetch("/auth/config")).json();
@@ -99,10 +111,79 @@ export async function iniciarGoogle(alvo, aoEntrar, aoFalhar) {
     return aoFalhar("Não foi possível falar com o servidor. Tente novamente em instantes.");
   }
 
-  if (!cfg.google || !cfg.clientId) {
-    return aoFalhar("O login com Google ainda não foi configurado neste servidor.");
+  const temGoogle = Boolean(cfg.google && cfg.clientId);
+
+  if (cfg.senha) desenharFormularioDeSenha(alvo, aoEntrar, aoFalhar, temGoogle);
+
+  if (!temGoogle) {
+    // Sem Google e sem senha não há como entrar, e aí sim é um erro. Com senha
+    // disponível, dizer "o Google não está configurado" seria assustar a
+    // pessoa com um detalhe de servidor diante de uma tela que funciona.
+    if (!cfg.senha) {
+      return aoFalhar("Nenhuma forma de entrada foi configurada neste servidor.");
+    }
+    return;
   }
 
+  await iniciarGoogle(alvo, cfg, aoEntrar, aoFalhar);
+}
+
+function desenharFormularioDeSenha(alvo, aoEntrar, aoFalhar, recolhido) {
+  const caixa = document.createElement("div");
+  caixa.className = "entrada-senha";
+  caixa.innerHTML = `
+    <button class="botao fantasma alternar" type="button" hidden>Entrar com e-mail e senha</button>
+    <form class="pilha formulario" style="gap:14px">
+      <div class="campo">
+        <label class="rotulo" for="loginEmail">E-mail</label>
+        <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="campo">
+        <label class="rotulo" for="loginSenha">Senha</label>
+        <input id="loginSenha" name="senha" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="botao" type="submit">Entrar</button>
+    </form>`;
+
+  const alternar = caixa.querySelector(".alternar");
+  const formulario = caixa.querySelector(".formulario");
+
+  if (recolhido) {
+    alternar.hidden = false;
+    formulario.hidden = true;
+    alternar.addEventListener("click", () => {
+      formulario.hidden = false;
+      alternar.hidden = true;
+      caixa.querySelector("#loginEmail").focus();
+    });
+  }
+
+  formulario.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const botao = formulario.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    botao.textContent = "Entrando…";
+
+    try {
+      const r = await api("/auth/senha", {
+        method: "POST",
+        body: JSON.stringify({
+          email: caixa.querySelector("#loginEmail").value,
+          senha: caixa.querySelector("#loginSenha").value,
+        }),
+      });
+      aoEntrar(r);
+    } catch (e) {
+      aoFalhar(e.message);
+      botao.disabled = false;
+      botao.textContent = "Entrar";
+    }
+  });
+
+  alvo.insertAdjacentElement("afterend", caixa);
+}
+
+async function iniciarGoogle(alvo, cfg, aoEntrar, aoFalhar) {
   await new Promise((resolve, reject) => {
     if (window.google?.accounts?.id) return resolve();
     const s = document.createElement("script");
@@ -117,7 +198,18 @@ export async function iniciarGoogle(alvo, aoEntrar, aoFalhar) {
 
   window.google.accounts.id.initialize({
     client_id: cfg.clientId,
-    callback: (resposta) => aoEntrar(resposta.credential),
+    callback: async (resposta) => {
+      try {
+        aoEntrar(
+          await api("/auth/google", {
+            method: "POST",
+            body: JSON.stringify({ idToken: resposta.credential }),
+          }),
+        );
+      } catch (e) {
+        aoFalhar(e.message);
+      }
+    },
   });
 
   window.google.accounts.id.renderButton(alvo, {

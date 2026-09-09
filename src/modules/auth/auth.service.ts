@@ -1,4 +1,5 @@
 import { PapelNome, Provedor, TipoVinculo } from "@prisma/client";
+import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { adminEmails, env } from "../../config/env.js";
 import { cpfValido, hashCpf, somenteDigitos } from "../../lib/cpf.js";
@@ -11,6 +12,7 @@ export class CpfInvalidoError extends Error {}
 export class CpfNaoEncontradoError extends Error {}
 export class CpfJaVinculadoError extends Error {}
 export class LimiteTentativasError extends Error {}
+export class CredencialInvalidaError extends Error {}
 
 // Entrada unica de todo login social. Cria a conta na primeira vez e, dai em
 // diante, so atualiza nome/foto e o carimbo de ultimo acesso.
@@ -63,6 +65,52 @@ async function aplicarConvitePendente(usuarioId: string, email: string) {
   });
 
   await prisma.convite.update({ where: { id: convite.id }, data: { usadoEm: new Date() } });
+}
+
+/**
+ * Entrada por e-mail e senha.
+ *
+ * Não é o caminho normal — o normal é o Google. Existe para a administração
+ * não ficar trancada do lado de fora quando o login social não está
+ * disponível: projeto do Google Cloud ainda não criado, domínio novo sem
+ * origem autorizada, ou uma queda do provedor no dia do treino. Só tem senha
+ * quem o seed criou, a partir de SEED_ADMIN_SENHA.
+ *
+ * A mesma mensagem sai para e-mail inexistente, conta sem senha cadastrada e
+ * senha errada. Distinguir os casos diria a um estranho quais e-mails existem
+ * aqui dentro.
+ */
+export async function entrarComSenha(emailBruto: string, senha: string) {
+  const email = emailBruto.trim().toLowerCase();
+
+  const identidade = await prisma.identidade.findUnique({
+    where: { provedor_provedorSub: { provedor: Provedor.SENHA, provedorSub: email } },
+    include: { usuario: { include: { papeis: true, vinculos: true } } },
+  });
+
+  // bcrypt.compare contra um hash descartável mesmo sem identidade: sem isso a
+  // resposta volta na hora quando o e-mail não existe e demora ~100ms quando
+  // existe, e essa diferença por si só revela quais contas são reais.
+  const hash = identidade?.senhaHash ?? "$2a$10$invalidoinvalidoinvalidoinvalidoinvalidoinvalidoinvalidoinv";
+  const confere = await bcrypt.compare(senha, hash);
+
+  if (!identidade || !confere) {
+    throw new CredencialInvalidaError("E-mail ou senha incorretos.");
+  }
+  if (!identidade.usuario.ativo) throw new ContaInativaError("Conta desativada.");
+
+  await prisma.usuario.update({
+    where: { id: identidade.usuarioId },
+    data: { ultimoLoginEm: new Date() },
+  });
+  await aplicarConvitePendente(identidade.usuarioId, identidade.usuario.email);
+
+  // Relido depois do convite, pelo mesmo motivo do login com Google: o papel
+  // recém-aplicado precisa entrar no token desta sessão.
+  return prisma.usuario.findUniqueOrThrow({
+    where: { id: identidade.usuarioId },
+    include: { papeis: true, vinculos: true },
+  });
 }
 
 export async function entrarComGoogle(perfil: PerfilGoogle) {

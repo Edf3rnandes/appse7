@@ -297,3 +297,19 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 420px) {
   .usuario .nome { display: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Entrada por e-mail e senha (porta de serviço da administração — ver
+   montarLogin em app.js). Fica abaixo do botão do Google, com largura igual
+   à dele para as duas portas parecerem parte da mesma tela.
+   -------------------------------------------------------------------------- */
+.entrada-senha {
+  max-width: 280px;
+  margin: 18px auto 0;
+  text-align: left;
+}
+.entrada-senha .alternar {
+  display: block;
+  margin: 0 auto;
+  font-size: 13px;
+}

@@ -73,7 +73,7 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle, pintarNavegacao } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
@@ -102,16 +102,11 @@ function sair() {
 }
 
 // ------------------------------------------------------------------ entrar
-async function entrarComGoogle(idToken) {
-  try {
-    const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
-    Sessao.token = r.token;
-    Sessao.usuario = r.usuario;
-    pintarUsuario();
-    r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
-  } catch (e) {
-    erro(el("erroLogin"), e.message);
-  }
+function concluirLogin(r) {
+  Sessao.token = r.token;
+  Sessao.usuario = r.usuario;
+  pintarUsuario();
+  r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
 }
 
 // ------------------------------------------------------------------ vínculo
@@ -371,7 +366,7 @@ async function iniciar() {
   }
 
   mostrar("login");
-  iniciarGoogle(el("botaoGoogle"), entrarComGoogle, (mensagem) => erro(el("erroLogin"), mensagem));
+  montarLogin(el("botaoGoogle"), concluirLogin, (mensagem) => erro(el("erroLogin"), mensagem));
 }
 
 iniciar();
