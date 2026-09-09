@@ -11,6 +11,7 @@ import { portalRoutes } from "./modules/escola/portal.routes.js";
 import { professorRoutes } from "./modules/escola/professor.routes.js";
 import { conteudoRoutes } from "./modules/conteudo/conteudo.routes.js";
 import { cadastroRoutes } from "./modules/escola/cadastro.routes.js";
+import { publicoRoutes } from "./modules/publico/matricula.routes.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
 import { tratadorDeErro } from "./lib/erros.js";
@@ -52,6 +53,9 @@ async function main() {
   await app.register(professorRoutes);
   await app.register(conteudoRoutes);
   await app.register(cadastroRoutes);
+
+  // Aberto na internet, com limite próprio — ver o cabeçalho do módulo.
+  await app.register(publicoRoutes);
 
   // Diz o que esta ligado sem exigir login — e o que se olha depois de um
   // deploy para saber se as integracoes subiram como esperado.

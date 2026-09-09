@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Pré-matrícula · SE7 Vôlei de Praia</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="topo">
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Vôlei de Praia</span></div>
+</header>
+
+<main class="pagina" id="tela">
+  <div class="carregando">Carregando as turmas…</div>
+</main>
+
+<script type="module">
+import { api, ErroApi, fmt, escapar } from "/app.js";
+
+/**
+ * Pré-matrícula pelo site — a página que a família preenche.
+ *
+ * Ela é pública e não pede login: quem chega aqui ainda não tem conta. O que
+ * ela cria é uma matrícula CRIADA, que aparece na tela da secretaria para
+ * confirmação. Pagamento não acontece aqui.
+ *
+ * A ordem das perguntas é a da conversa no balcão: primeiro onde e quando a
+ * pessoa quer treinar, depois quem ela é. Perguntar CPF antes de mostrar
+ * horário faz a família desistir sem saber se existe turma no dia dela.
+ */
+
+const el = (id) => document.getElementById(id);
+
+const DIAS = {
+  DOMINGO: "Dom", SEGUNDA: "Seg", TERCA: "Ter", QUARTA: "Qua",
+  QUINTA: "Qui", SEXTA: "Sex", SABADO: "Sáb",
+};
+const ORDEM = Object.keys(DIAS);
+
+function horarioLegivel(horarios) {
+  if (!horarios.length) return "";
+  const ordenados = [...horarios].sort((a, b) => ORDEM.indexOf(a.dia) - ORDEM.indexOf(b.dia));
+  const dias = ordenados.map((h) => DIAS[h.dia]).join("/");
+  const iguais = new Set(ordenados.map((h) => h.inicio + h.fim)).size === 1;
+  return iguais
+    ? `${dias} · ${ordenados[0].inicio} às ${ordenados[0].fim}`
+    : ordenados.map((h) => `${DIAS[h.dia]} ${h.inicio}`).join(" · ");
+}
+
+const estado = {
+  catalogo: [],
+  unidadeId: "",
+  // Um por aluno: o primeiro é quem está se matriculando, os outros são irmãos.
+  alunos: [{ nome: "", nascimento: "", turmaId: "", planoId: "" }],
+  responsavelEhOAluno: false,
+  resp: { nome: "", cpf: "", email: "", telefone: "" },
+  erro: "",
+  enviando: false,
+  recibo: null,
+};
+
+async function iniciar() {
+  try {
+    estado.catalogo = await api("/publico/catalogo");
+    pintar();
+  } catch (e) {
+    el("tela").innerHTML = `<div class="aviso erro">${escapar(e.message)}</div>`;
+  }
+}
+
+function turmasDaUnidade() {
+  return estado.catalogo.find((u) => u.id === estado.unidadeId)?.turmas ?? [];
+}
+
+function blocoAluno(a, indice) {
+  const turmas = turmasDaUnidade();
+  const turma = turmas.find((t) => t.id === a.turmaId);
+
+  return `
+    <div class="cartao" style="margin-bottom:14px">
+      <div class="linha" style="margin-bottom:12px">
+        <strong>${indice === 0 ? "Aluno" : `Irmão ${indice}`}</strong>
+        ${indice > 0 ? `<button class="botao fantasma" type="button" data-tirar="${indice}">Remover</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div class="campo">
+          <label class="rotulo" for="nome${indice}">Nome completo</label>
+          <input id="nome${indice}" data-campo="nome" data-i="${indice}" value="${escapar(a.nome)}">
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="nasc${indice}">Data de nascimento</label>
+          <input id="nasc${indice}" type="date" data-campo="nascimento" data-i="${indice}" value="${a.nascimento}">
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="turma${indice}">Turma</label>
+          <select class="selecao" id="turma${indice}" data-campo="turmaId" data-i="${indice}">
+            <option value="">Escolha a turma…</option>
+            ${turmas.map((t) => `
+              <option value="${t.id}" ${t.id === a.turmaId ? "selected" : ""}>
+                ${escapar(t.nome)}${t.horarios.length ? " · " + escapar(horarioLegivel(t.horarios)) : ""}${
+                  t.vagas === null ? "" : ` · ${t.vagas} vaga${t.vagas === 1 ? "" : "s"}`}
+              </option>`).join("")}
+          </select>
+        </div>
+        ${turma ? `
+          <div class="campo">
+            <label class="rotulo" for="plano${indice}">Plano</label>
+            <select class="selecao" id="plano${indice}" data-campo="planoId" data-i="${indice}">
+              <option value="">Escolha o plano…</option>
+              ${turma.planos.map((p) => `
+                <option value="${p.id}" ${p.id === a.planoId ? "selected" : ""}>
+                  ${escapar(p.nome)} · ${fmt.moeda(p.valor)} em ${p.parcelas}x
+                </option>`).join("")}
+            </select>
+          </div>` : ""}
+      </div>
+    </div>`;
+}
+
+function pintar() {
+  if (estado.recibo) return pintarRecibo();
+
+  const primeiro = estado.alunos[0];
+  const podeEnviar =
+    estado.alunos.every((a) => a.nome.trim().length > 2 && a.nascimento && a.turmaId && a.planoId) &&
+    estado.resp.cpf.replace(/\D/g, "").length === 11 &&
+    estado.resp.telefone.trim().length >= 10 &&
+    (estado.responsavelEhOAluno || estado.resp.nome.trim().length > 2);
+
+  el("tela").innerHTML = `
+    <h1 style="font-size:24px;margin:0 0 6px">Pré-matrícula</h1>
+    <p class="meta" style="margin:0 0 20px">
+      Escolha a turma e deixe seus dados. A secretaria confirma e fala com você
+      para combinar o pagamento.
+    </p>
+
+    <div class="cartao" style="margin-bottom:14px">
+      <div class="campo">
+        <label class="rotulo" for="unidade">Onde você quer treinar</label>
+        <select class="selecao" id="unidade">
+          <option value="">Escolha a unidade…</option>
+          ${estado.catalogo.map((u) => `
+            <option value="${u.id}" ${u.id === estado.unidadeId ? "selected" : ""}>${escapar(u.nome)}</option>`).join("")}
+        </select>
+        ${estado.unidadeId
+          ? `<span class="meta">${escapar(estado.catalogo.find((u) => u.id === estado.unidadeId)?.endereco ?? "")}</span>`
+          : ""}
+      </div>
+    </div>
+
+    ${!estado.unidadeId ? "" : `
+      ${estado.alunos.map(blocoAluno).join("")}
+
+      <div class="barra-acoes" style="margin-bottom:18px">
+        <button class="botao fantasma" type="button" id="btnIrmao">+ matricular um irmão junto</button>
+      </div>
+
+      <div class="cartao" style="margin-bottom:14px">
+        <div class="linha" style="margin-bottom:12px"><strong>Responsável financeiro</strong></div>
+        <div class="pilha" style="gap:12px">
+          <label class="marcavel">
+            <input type="checkbox" id="ehOAluno" ${estado.responsavelEhOAluno ? "checked" : ""}>
+            <span>Sou eu mesmo (tenho 18 anos ou mais)</span>
+          </label>
+          ${estado.responsavelEhOAluno ? `
+            <p class="meta">Usaremos o nome <strong>${escapar(primeiro.nome || "do aluno")}</strong>.</p>` : `
+            <div class="campo">
+              <label class="rotulo" for="respNome">Nome do responsável</label>
+              <input id="respNome" data-resp="nome" value="${escapar(estado.resp.nome)}">
+            </div>`}
+          <div class="campo">
+            <label class="rotulo" for="respCpf">CPF</label>
+            <input id="respCpf" data-resp="cpf" inputmode="numeric" placeholder="000.000.000-00"
+                   value="${escapar(estado.resp.cpf)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="respTel">WhatsApp</label>
+            <input id="respTel" data-resp="telefone" inputmode="tel" placeholder="(83) 99999-0000"
+                   value="${escapar(estado.resp.telefone)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="respEmail">E-mail</label>
+            <input id="respEmail" data-resp="email" type="email" value="${escapar(estado.resp.email)}">
+          </div>
+        </div>
+      </div>
+
+      <div class="aviso erro ${estado.erro ? "" : "oculto"}" style="margin-bottom:14px">${escapar(estado.erro)}</div>
+
+      <button class="botao" type="button" id="btnEnviar" ${podeEnviar && !estado.enviando ? "" : "disabled"}
+              style="width:100%">
+        ${estado.enviando ? "Enviando…" : "Enviar pré-matrícula"}
+      </button>
+      <p class="meta" style="text-align:center;margin-top:12px">
+        Seus dados vão só para a secretaria da SE7.
+      </p>`}`;
+
+  ligar();
+}
+
+function pintarRecibo() {
+  const r = estado.recibo;
+  el("tela").innerHTML = `
+    <div class="cartao" style="text-align:center">
+      <div style="font-size:40px;line-height:1">🏐</div>
+      <h1 style="font-size:22px;margin:10px 0">${escapar(r.mensagem)}</h1>
+      <p class="meta">Guarde esta tela ou tire um print.</p>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="rotulo" style="margin-bottom:8px">O que foi pedido</div>
+      ${r.matriculas.map((m) => `
+        <div class="registro">
+          <div class="titulo">${escapar(m.aluno)}</div>
+          <div class="meta">${escapar(m.turma)} · ${escapar(m.unidade)}</div>
+          <div class="meta">${escapar(m.plano)} · ${fmt.moeda(m.valor)} em ${m.parcelas}x</div>
+        </div>`).join("")}
+    </div>
+
+    ${r.grupos.length ? `
+      <div class="cartao" style="margin-top:14px">
+        <div class="rotulo" style="margin-bottom:8px">Grupo da turma no WhatsApp</div>
+        ${r.grupos.map((g) => `
+          <div class="item">
+            <div class="corpo"><div class="titulo">${escapar(g.turma)}</div></div>
+            <div class="lado">
+              <a class="link-botao" href="${escapar(g.link)}" target="_blank" rel="noopener">Entrar</a>
+            </div>
+          </div>`).join("")}
+      </div>` : ""}`;
+}
+
+function ligar() {
+  el("unidade")?.addEventListener("change", (e) => {
+    estado.unidadeId = e.target.value;
+    // Turma e plano pertencem à unidade: trocar de unidade tem de zerar as
+    // escolhas, senão sobra uma turma de outro bairro na matrícula.
+    for (const a of estado.alunos) { a.turmaId = ""; a.planoId = ""; }
+    pintar();
+  });
+
+  // Os campos vão para o estado a cada tecla: a tela se redesenha quando a
+  // turma muda (para trocar a lista de planos), e sem isto o que foi digitado
+  // se perderia.
+  document.querySelectorAll("[data-campo]").forEach((campo) => {
+    const evento = campo.tagName === "SELECT" ? "change" : "input";
+    campo.addEventListener(evento, (e) => {
+      const aluno = estado.alunos[Number(e.target.dataset.i)];
+      aluno[e.target.dataset.campo] = e.target.value;
+      if (e.target.dataset.campo === "turmaId") aluno.planoId = "";
+      if (evento === "change") return pintar();
+      atualizarBotao();
+    });
+  });
+
+  document.querySelectorAll("[data-resp]").forEach((campo) =>
+    campo.addEventListener("input", (e) => {
+      estado.resp[e.target.dataset.resp] = e.target.value;
+      atualizarBotao();
+    }));
+
+  el("ehOAluno")?.addEventListener("change", (e) => {
+    estado.responsavelEhOAluno = e.target.checked;
+    pintar();
+  });
+
+  el("btnIrmao")?.addEventListener("click", () => {
+    estado.alunos.push({ nome: "", nascimento: "", turmaId: "", planoId: "" });
+    pintar();
+  });
+
+  document.querySelectorAll("[data-tirar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      estado.alunos.splice(Number(b.dataset.tirar), 1);
+      pintar();
+    }));
+
+  el("btnEnviar")?.addEventListener("click", enviar);
+}
+
+/** Só o botão muda enquanto se digita: redesenhar a cada tecla tiraria o foco. */
+function atualizarBotao() {
+  const botao = el("btnEnviar");
+  if (!botao) return;
+  const ok =
+    estado.alunos.every((a) => a.nome.trim().length > 2 && a.nascimento && a.turmaId && a.planoId) &&
+    estado.resp.cpf.replace(/\D/g, "").length === 11 &&
+    estado.resp.telefone.trim().length >= 10 &&
+    (estado.responsavelEhOAluno || estado.resp.nome.trim().length > 2);
+  botao.disabled = !ok || estado.enviando;
+}
+
+async function enviar() {
+  estado.enviando = true;
+  estado.erro = "";
+  pintar();
+
+  const [aluno, ...irmaos] = estado.alunos;
+
+  try {
+    estado.recibo = await api("/publico/pre-matricula", {
+      method: "POST",
+      body: JSON.stringify({
+        aluno,
+        irmaos,
+        responsavelEhOAluno: estado.responsavelEhOAluno,
+        responsavel: {
+          nome: estado.responsavelEhOAluno ? undefined : estado.resp.nome.trim(),
+          cpf: estado.resp.cpf,
+          email: estado.resp.email.trim(),
+          telefone: estado.resp.telefone.trim(),
+        },
+      }),
+    });
+  } catch (e) {
+    estado.erro =
+      e instanceof ErroApi && e.status === 429
+        ? "Muitos envios deste aparelho. Tente de novo daqui a pouco ou fale com a secretaria."
+        : e.message;
+  } finally {
+    estado.enviando = false;
+    pintar();
+  }
+}
+
+iniciar();
+</script>
+</body>
+</html>
