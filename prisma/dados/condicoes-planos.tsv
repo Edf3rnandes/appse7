@@ -8,3 +8,5 @@
 Mensal	10	12	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 10% até o vencimento; DURAÇÃO DO PLANO: 12 meses; CANCELAMENTO: sem multa, mediante aviso prévio.
 Semestral	20	6	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 20% até o vencimento; DURAÇÃO DO PLANO: 6 meses; CANCELAMENTO: 10% multa por quebra de contrato.
 Família	20	12	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 20% até o vencimento; DURAÇÃO DO PLANO: 12 meses; CANCELAMENTO: sem multa, mediante aviso prévio.
+Base	10	6	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 10% até o vencimento; DURAÇÃO DO PLANO: 6 meses; CANCELAMENTO: 10% multa por quebra de contrato.
+Sábado	10	12	DATA DE VENCIMENTO: Dia 10; FORMAS DE PAGAMENTO: PIX e Boleto; DESCONTO: 10% até o vencimento; DURAÇÃO DO PLANO: 12 meses; CANCELAMENTO: sem multa, mediante aviso prévio.
