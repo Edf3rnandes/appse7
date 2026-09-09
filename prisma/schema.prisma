@@ -579,6 +579,19 @@ model Matricula {
   observacao String?
   expiraEm   DateTime? @db.Date
 
+  // Matrícula principal do responsável, ou vinculada a ela.
+  //
+  // É o plano família: um responsável paga por dois ou três filhos, e uma das
+  // matrículas carrega a cobrança enquanto as outras acompanham. No sistema
+  // antigo isso era gravado na coluna `category` da matrícula, com os valores
+  // 'parent' e 'child' — a mesma coluna que em `courses` guarda Kids/Teens/
+  // Adulto. Duas coisas sem relação no mesmo nome.
+  //
+  // Não impedimos duas principais no mesmo responsável: uma família com
+  // filhos em unidades diferentes pode ter dois planos família de verdade. A
+  // tela mostra quais são, e a secretaria decide.
+  principal Boolean @default(true)
+
   // Cobrança. `asaasPayload` guarda a resposta crua da criação, que é o que
   // permite reconstruir o que foi enviado quando uma cobrança diverge.
   asaasReferencia String?

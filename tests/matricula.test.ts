@@ -116,6 +116,64 @@ describe("matrícula", () => {
     assert.ok(aindaLa.arquivadoEm);
   });
 
+  // O plano família: um responsável paga por dois ou três filhos, e uma das
+  // matrículas carrega a cobrança. No sistema antigo isso era a coluna
+  // `category` com 'parent'/'child' — a mesma coluna que em `courses` guarda
+  // Kids/Teens/Adulto.
+  it("a primeira matrícula do responsável nasce principal, as seguintes vinculadas", async () => {
+    const ctx = await cenario(10);
+
+    // O responsável é o mesmo dos outros testes (o CPF é único), e as
+    // matrículas que eles criaram continuam ativas. A regra que estamos
+    // testando pergunta "já existe principal para este responsável?", então
+    // ela precisa começar de zero — senão o teste mediria a ordem em que os
+    // testes rodam, não a regra.
+    await prisma.matricula.deleteMany({ where: { responsavelId: ctx.responsavel.id } });
+
+    const primeiro = await prisma.aluno.create({
+      data: { nome: `${MARCA} irmão 1`, responsavelId: ctx.responsavel.id },
+    });
+    const segundo = await prisma.aluno.create({
+      data: { nome: `${MARCA} irmão 2`, responsavelId: ctx.responsavel.id },
+    });
+
+    // A regra mora na rota; aqui reproduzimos a decisão que ela toma, que é
+    // "já existe principal ativa para este responsável?".
+    const decidir = async () =>
+      (await prisma.matricula.count({
+        where: {
+          responsavelId: ctx.responsavel.id,
+          principal: true,
+          arquivadoEm: null,
+          status: { not: StatusMatricula.CANCELADA },
+        },
+      })) === 0;
+
+    const m1 = await prisma.matricula.create({
+      data: {
+        alunoId: primeiro.id, responsavelId: ctx.responsavel.id, turmaId: ctx.turma.id,
+        unidadeId: ctx.unidade.id, planoId: ctx.plano.id,
+        status: StatusMatricula.CONFIRMADA, principal: await decidir(),
+      },
+    });
+    const m2 = await prisma.matricula.create({
+      data: {
+        alunoId: segundo.id, responsavelId: ctx.responsavel.id, turmaId: ctx.turma.id,
+        unidadeId: ctx.unidade.id, planoId: ctx.plano.id,
+        status: StatusMatricula.CONFIRMADA, principal: await decidir(),
+      },
+    });
+
+    assert.equal(m1.principal, true, "a primeira deveria ser a principal");
+    assert.equal(m2.principal, false, "a segunda deveria nascer vinculada");
+
+    // E a família de uma traz a outra — é o "Matrículas Vinculadas" da tela.
+    const familia = await prisma.matricula.findMany({
+      where: { responsavelId: ctx.responsavel.id, id: { not: m2.id }, arquivadoEm: null },
+    });
+    assert.ok(familia.some((f) => f.id === m1.id));
+  });
+
   it("uma chamada por aluno por dia: reenviar corrige em vez de duplicar", async () => {
     const ctx = await cenario(5);
     const professor = await prisma.professor.create({ data: { nome: `${MARCA} professor` } });

@@ -126,6 +126,10 @@ const matriculaSchema = z.object({
     .transform((v) => new Date(`${v}T00:00:00.000Z`))
     .optional(),
   status: z.nativeEnum(StatusMatricula).default(StatusMatricula.CRIADA),
+  // Ausente = o servidor decide: a primeira matrícula de um responsável é a
+  // principal, as seguintes são vinculadas. É o caso comum, e deixar o padrão
+  // certo evita que a família inteira vire "principal" por descuido.
+  principal: z.boolean().optional(),
 });
 
 /** Texto de busca vira filtro "contém, sem diferenciar maiúsculas". */
@@ -563,7 +567,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
         take: limite,
         include: {
           aluno: { select: { id: true, nome: true } },
-          responsavel: { select: { id: true, nome: true, telefone: true } },
+          responsavel: { select: { id: true, nome: true, telefone: true, cpf: true } },
           turma: { select: { id: true, nome: true } },
           unidade: { select: { id: true, nome: true } },
           plano: { select: { id: true, nome: true, valor: true } },
@@ -572,6 +576,40 @@ export async function cadastroRoutes(app: FastifyInstance) {
     ]);
 
     return { total, pagina, limite, itens };
+  });
+
+  /**
+   * As outras matrículas do mesmo responsável.
+   *
+   * É o "Matrículas Vinculadas" da tela antiga: quando uma família tem dois ou
+   * três filhos na escola, quem atende precisa ver o conjunto — não a linha
+   * isolada que abriu.
+   */
+  app.get("/escola/matriculas/:id/familia", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+
+    const matricula = await prisma.matricula.findUnique({
+      where: { id },
+      include: { responsavel: { select: { id: true, nome: true, telefone: true, cpf: true } } },
+    });
+    if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
+
+    const irmas = await prisma.matricula.findMany({
+      where: {
+        responsavelId: matricula.responsavelId,
+        id: { not: id },
+        arquivadoEm: null,
+      },
+      orderBy: [{ principal: "desc" }, { criadoEm: "desc" }],
+      include: {
+        aluno: { select: { id: true, nome: true } },
+        turma: { select: { nome: true } },
+        unidade: { select: { nome: true } },
+        plano: { select: { nome: true, valor: true } },
+      },
+    });
+
+    return { responsavel: matricula.responsavel, vinculadas: irmas };
   });
 
   app.post("/escola/matriculas", equipe, async (request, reply) => {
@@ -617,9 +655,19 @@ export async function cadastroRoutes(app: FastifyInstance) {
       return reply.code(409).send({ message: "Esse aluno já está matriculado nessa turma." });
     }
 
+    const jaTemPrincipal = await prisma.matricula.count({
+      where: {
+        responsavelId: aluno.responsavelId,
+        principal: true,
+        arquivadoEm: null,
+        status: { not: StatusMatricula.CANCELADA },
+      },
+    });
+
     const criada = await prisma.matricula.create({
       data: {
         ...corpo,
+        principal: corpo.principal ?? jaTemPrincipal === 0,
         responsavelId: aluno.responsavelId,
         unidadeId: turma.unidadeId,
       },
@@ -632,19 +680,37 @@ export async function cadastroRoutes(app: FastifyInstance) {
     return reply.code(201).send(criada);
   });
 
-  app.patch("/escola/matriculas/:id", equipe, async (request) => {
+  app.patch("/escola/matriculas/:id", equipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const { status, observacao } = z
+    const { status, observacao, principal } = z
       .object({
-        status: z.nativeEnum(StatusMatricula),
+        status: z.nativeEnum(StatusMatricula).optional(),
         observacao: z.string().max(1000).optional(),
+        principal: z.boolean().optional(),
       })
       .parse(request.body);
+
+    if (status === undefined && principal === undefined && observacao === undefined) {
+      return reply.code(400).send({ message: "Nada para alterar." });
+    }
+
+    // Só o `principal` mudou: não é troca de situação, e mexer em
+    // `canceladaEm` aqui apagaria a data de um cancelamento real.
+    if (status === undefined) {
+      return prisma.matricula.update({
+        where: { id },
+        data: {
+          ...(principal === undefined ? {} : { principal }),
+          ...(observacao === undefined ? {} : { observacao }),
+        },
+      });
+    }
 
     return prisma.matricula.update({
       where: { id },
       data: {
         status,
+        ...(principal === undefined ? {} : { principal }),
         ...(observacao === undefined ? {} : { observacao }),
         // Reativar limpa o carimbo, senão a tela mostra "cancelada em" numa
         // matrícula que voltou a valer.
