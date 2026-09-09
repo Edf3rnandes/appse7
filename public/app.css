@@ -26,6 +26,12 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Qualquer regra com `display` explícito (e há várias aqui, .campo e .item
+   entre elas) vence o display:none que o atributo `hidden` traz por padrão.
+   Sem esta linha, esconder um elemento com `el.hidden = true` simplesmente
+   não funciona. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;

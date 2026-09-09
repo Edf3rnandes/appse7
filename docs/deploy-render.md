@@ -75,12 +75,22 @@ neste fluxo: o servidor só valida o `id_token`.
 Depois do deploy, abra `https://se7-hub.onrender.com/health`:
 
 ```json
-{"ok":true,"google":true,"legado":false,"lancamentoFrequencia":false}
+{"ok":true,"banco":true,"cronogramaCompartilhado":true,
+ "google":true,"legado":false,"lancamentoFrequencia":false}
 ```
 
-`google: true` confirma que o login está configurado. `legado` e
-`lancamentoFrequencia` seguem `false` até as variáveis do MySQL existirem — é o
-esperado no primeiro deploy.
+Como ler cada campo:
+
+| Campo | O que significa quando é `false` |
+|---|---|
+| `banco` | A `DATABASE_URL` está errada ou o Postgres não respondeu |
+| `cronogramaCompartilhado` | Conectou, mas **num banco sem `cronograma_semanas`** — provavelmente projeto errado, ou o `instalar-no-supabase.sql` não rodou |
+| `google` | Falta `GOOGLE_CLIENT_ID` — **ninguém consegue entrar, nem o ADMIN** |
+| `legado` | Sem as variáveis `LEGACY_MYSQL_*`: alunos, faturas, chamada e cadastro ficam indisponíveis |
+| `lancamentoFrequencia` | Sem `LEGACY_API_URL`: o professor vê a chamada mas não consegue enviar |
+
+Os dois últimos em `false` são o esperado no primeiro deploy. Os três primeiros
+precisam estar `true` para o sistema servir para alguma coisa.
 
 Então entre em `/secretaria.html` com a conta de `ADMIN_EMAILS`. Você cai como
 ADMIN e já consegue cadastrar cronograma e eventos — inclusive vendo as semanas

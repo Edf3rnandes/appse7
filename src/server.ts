@@ -61,14 +61,37 @@ async function main() {
   await app.register(professorRoutes);
   await app.register(conteudoRoutes);
 
-  // Diz o que esta ligado sem exigir login — util no deploy para saber se o
-  // servico subiu com as integracoes que voce esperava.
-  app.get("/health", async () => ({
-    ok: true,
-    google: googleConfigurado,
-    legado: legadoConfigurado,
-    lancamentoFrequencia: legadoApiConfigurada,
-  }));
+  // Diz o que esta ligado sem exigir login — e o que se olha depois de um
+  // deploy para saber se as integracoes subiram como esperado.
+  //
+  // `banco` e `cronogramaCompartilhado` custam uma consulta cada, mas sao
+  // exatamente o que falta descobrir num primeiro deploy: se a DATABASE_URL
+  // esta certa, e se ela aponta mesmo para o Postgres onde o se7-inadimplencia
+  // guarda o cronograma. Descobrir isso pela tela de login quebrando seria bem
+  // pior. Sao booleanos de configuracao, nao expoem dado nenhum, e a rota
+  // continua sob o limite global de requisicoes.
+  app.get("/health", async () => {
+    const banco = await prisma
+      .$queryRaw`SELECT 1`
+      .then(() => true)
+      .catch(() => false);
+
+    const cronogramaCompartilhado = banco
+      ? await prisma
+          .$queryRaw`SELECT 1 FROM public.cronograma_semanas LIMIT 1`
+          .then(() => true)
+          .catch(() => false)
+      : false;
+
+    return {
+      ok: true,
+      banco,
+      cronogramaCompartilhado,
+      google: googleConfigurado,
+      legado: legadoConfigurado,
+      lancamentoFrequencia: legadoApiConfigurada,
+    };
+  });
 
   const encerrar = async () => {
     await app.close();

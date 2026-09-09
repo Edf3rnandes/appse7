@@ -5,6 +5,7 @@ import {
   alunoPertenceAoResponsavel,
   listarAlunosDoResponsavel,
   listarPresencasDoAluno,
+  listarProfessoresAtivos,
   obterOcupacaoPorUnidade,
 } from "../../db/legacy/escola.repository.js";
 import { readOnlyQuery } from "../../db/legacy/pool.js";
@@ -170,6 +171,14 @@ export async function portalRoutes(app: FastifyInstance) {
       },
     };
   });
+
+  // Alimenta o campo de professor no convite: sem isso a secretaria teria de
+  // saber de cabeça o id do professor no sistema antigo.
+  app.get(
+    "/escola/professores",
+    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    async () => listarProfessoresAtivos(),
+  );
 
   app.get(
     "/escola/ocupacao",

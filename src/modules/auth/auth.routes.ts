@@ -191,4 +191,75 @@ export async function authRoutes(app: FastifyInstance) {
         },
       }),
   );
+
+  // Cancelar um convite ainda não usado — e-mail errado, pessoa que desistiu.
+  app.delete(
+    "/auth/convites/:id",
+    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      await prisma.convite.delete({ where: { id } }).catch(() => null);
+      return reply.code(204).send();
+    },
+  );
+
+  // Quem tem acesso hoje, com papel e vínculo. É a resposta para "quem entra
+  // no sistema?", que antes só existia consultando o banco na mão.
+  app.get(
+    "/auth/usuarios",
+    { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] },
+    async () => {
+      const usuarios = await prisma.usuario.findMany({
+        orderBy: [{ ativo: "desc" }, { nome: "asc" }],
+        take: 200,
+        select: {
+          id: true,
+          nome: true,
+          email: true,
+          ativo: true,
+          ultimoLoginEm: true,
+          papeis: { select: { nome: true } },
+          vinculos: { select: { tipo: true, legacyId: true } },
+        },
+      });
+
+      return usuarios.map((u) => ({
+        id: u.id,
+        nome: u.nome,
+        email: u.email,
+        ativo: u.ativo,
+        ultimoLoginEm: u.ultimoLoginEm,
+        papeis: u.papeis.map((p) => p.nome),
+        vinculos: u.vinculos,
+      }));
+    },
+  );
+
+  // Desativar quem saiu da escola. Não apagamos a conta: o histórico de
+  // frequência e de vínculo continua fazendo sentido, e reativar é um clique.
+  app.patch(
+    "/auth/usuarios/:id",
+    { preHandler: [app.exigirPapel("ADMIN")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const { ativo } = z.object({ ativo: z.boolean() }).parse(request.body);
+
+      if (id === request.user.sub && !ativo) {
+        return reply.code(409).send({
+          message: "Você não pode desativar a própria conta.",
+        });
+      }
+
+      const existe = await prisma.usuario.findUnique({ where: { id } });
+      if (!existe) return reply.code(404).send({ message: "Usuário não encontrado." });
+
+      const usuario = await prisma.usuario.update({
+        where: { id },
+        data: { ativo },
+        select: { id: true, nome: true, email: true, ativo: true },
+      });
+
+      return usuario;
+    },
+  );
 }
