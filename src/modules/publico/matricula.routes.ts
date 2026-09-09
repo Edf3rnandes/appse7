@@ -55,7 +55,7 @@ const alunoSchema = z.object({
 });
 
 /**
- * Endereço de quem paga.
+ * Endereço do responsável financeiro.
  *
  * O sistema atual tem estas colunas em `customers` desde sempre, mas nenhuma
  * tela as preenche — e uma delas, `address_number`, foi criada NOT NULL sem

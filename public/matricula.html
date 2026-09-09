@@ -72,12 +72,13 @@ const estado = {
   passo: 0,
   catalogo: null,
   aluno: { nome: "", nascimento: "", telefone: "", email: "", cpf: "" },
-  // O adulto se matricula sozinho; para menor, os dados são de quem paga.
+  // O adulto se matricula sozinho; para menor, os dados são do responsável
+  // financeiro.
   ehMenor: false,
   resp: { nome: "", cpf: "", telefone: "", email: "" },
-  // Endereço de quem paga. Fica fora de `aluno`/`resp` de propósito: ele é da
-  // mesma pessoa nos dois casos, e duplicar daria dois lugares para
-  // dessincronizar quando a caixa "é menor" é marcada.
+  // Endereço do responsável financeiro. Fica fora de `aluno`/`resp` de
+  // propósito: é a mesma pessoa nos dois casos, e duplicar daria dois lugares
+  // para dessincronizar quando a caixa "é menor" é marcada.
   endereco: { cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "" },
   buscandoCep: false,
   recadoCep: "",
@@ -106,14 +107,17 @@ const unidade = () => estado.catalogo.unidades.find((u) => u.id === estado.unida
 const turma = () => unidade()?.turmas.find((t) => t.id === estado.turmaId);
 const plano = () => turma()?.planos.find((p) => p.id === estado.planoId);
 
-/** Quem paga: o próprio aluno, ou o responsável quando ele é menor. */
-const pagante = () =>
+/**
+ * O responsável financeiro: o próprio aluno quando adulto, ou o responsável
+ * quando ele é menor.
+ */
+const responsavelFinanceiro = () =>
   estado.ehMenor
     ? estado.resp
     : { nome: estado.aluno.nome, cpf: estado.aluno.cpf, telefone: estado.aluno.telefone, email: estado.aluno.email };
 
 function passoValido() {
-  const p = pagante();
+  const p = responsavelFinanceiro();
   const digitos = (v) => v.replace(/\D/g, "");
   switch (estado.passo) {
     case 0:
@@ -228,7 +232,7 @@ function passoAluno() {
 function blocoEndereco() {
   const e = estado.endereco;
   return `
-    <div class="rotulo" style="margin-top:4px">Endereço de quem paga</div>
+    <div class="rotulo" style="margin-top:4px">Endereço do responsável financeiro</div>
 
     <div class="campo">
       <label class="rotulo" for="endCep">CEP</label>
@@ -340,7 +344,7 @@ function passoPlano() {
 
 // ------------------------------------------------------------ passo 4
 function passoConfirmacao() {
-  const p = pagante();
+  const p = responsavelFinanceiro();
   const t = turma();
   const pl = plano();
   const taxa = estado.catalogo.taxaMatricula;
@@ -576,7 +580,7 @@ async function enviar() {
   estado.erro = "";
   pintar();
 
-  const p = pagante();
+  const p = responsavelFinanceiro();
 
   try {
     estado.recibo = await api("/publico/matricula", {
