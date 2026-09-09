@@ -202,3 +202,60 @@ export function pintarNavegacao(alvo, eu, atual) {
     .join("");
   alvo.hidden = areas.length === 0;
 }
+
+/**
+ * Grade de calendário de um mês, com os eventos marcados nos dias.
+ *
+ * Uma lista responde "o que tem este mês?"; a grade responde "que dia da
+ * semana isso cai?" e "tem alguma coisa perto do treino de quarta?" — que é
+ * como professor e secretaria realmente pensam a agenda.
+ *
+ * `eventos` precisa de { data, dataFim?, titulo, tipo }. Devolve HTML.
+ */
+export function gradeDoMes(ano, mes, eventos, { hojeIso = null } = {}) {
+  const primeiro = new Date(ano, mes - 1, 1);
+  const diasNoMes = new Date(ano, mes, 0).getDate();
+  // getDay: 0 = domingo. A grade começa no domingo, como todo calendário
+  // impresso que a escola usa.
+  const vazioAntes = primeiro.getDay();
+
+  const doDia = new Map();
+  for (const ev of eventos) {
+    const inicio = String(ev.data).slice(0, 10);
+    const fim = String(ev.dataFim || ev.data).slice(0, 10);
+    for (let d = 1; d <= diasNoMes; d++) {
+      const iso = `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      // Evento de vários dias aparece em cada dia do intervalo.
+      if (iso >= inicio && iso <= fim) {
+        if (!doDia.has(d)) doDia.set(d, []);
+        doDia.get(d).push(ev);
+      }
+    }
+  }
+
+  const celulas = [];
+  for (let i = 0; i < vazioAntes; i++) celulas.push(`<div class="dia-vazio"></div>`);
+
+  for (let d = 1; d <= diasNoMes; d++) {
+    const iso = `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const doHoje = hojeIso === iso;
+    const lista = doDia.get(d) || [];
+    celulas.push(`
+      <div class="dia-grade${doHoje ? " hoje" : ""}${lista.length ? " com-evento" : ""}">
+        <span class="numero">${d}</span>
+        ${lista.map((ev) => `<span class="marca" title="${escapar(ev.titulo)}">${escapar(ev.titulo)}</span>`).join("")}
+      </div>`);
+  }
+
+  // Completa a última semana: sem estas células o fundo da grade aparece como
+  // um bloco cinza solto depois do último dia.
+  while (celulas.length % 7 !== 0) {
+    celulas.push(`<div class="dia-vazio"></div>`);
+  }
+
+  const cabecalho = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+    .map((d) => `<div class="dia-cabecalho">${d}</div>`)
+    .join("");
+
+  return `<div class="calendario">${cabecalho}${celulas.join("")}</div>`;
+}

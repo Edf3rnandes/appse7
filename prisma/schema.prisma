@@ -224,3 +224,63 @@ model Configuracao {
   @@map("configuracoes")
   @@schema("hub")
 }
+
+// ---------------------------------------------------------------------------
+// Ocorrências — o professor avisa, a secretaria resolve.
+//
+// Junta numa caixa de entrada só o que hoje se perde no WhatsApp: aluno na
+// turma errada, aluno que deveria estar na lista e não está, e o registro do
+// que aconteceu no treino. São a mesma coisa do ponto de vista de quem
+// resolve — alguém precisa ler, agir e dar baixa —, então um modelo com tipo
+// serve melhor que três telas parecidas.
+//
+// Turma e aluno ficam como texto além do id: quando a ponte com o MySQL
+// estiver desligada, o professor ainda precisa conseguir avisar, e a
+// secretaria precisa entender o aviso sem consultar outro sistema.
+// ---------------------------------------------------------------------------
+
+enum TipoOcorrencia {
+  TURMA_ERRADA        // aluno está numa turma que não é a dele
+  ALUNO_FALTANDO      // aluno deveria estar na lista da turma e não está
+  REGISTRO_TREINO     // o que aconteceu no treino (chuva, material, lesão)
+  OUTRO
+
+  @@schema("hub")
+}
+
+enum StatusOcorrencia {
+  ABERTA
+  RESOLVIDA
+
+  @@schema("hub")
+}
+
+model Ocorrencia {
+  id                String           @id @default(uuid())
+  tipo              TipoOcorrencia
+  status            StatusOcorrencia @default(ABERTA)
+
+  // Quem avisou. O id do legado permite ligar ao professor; o nome fica
+  // gravado para o aviso continuar legível mesmo sem a ponte.
+  professorLegacyId Int
+  professorNome     String
+
+  turmaLegacyId     Int?
+  turmaNome         String?
+  alunoNome         String?
+
+  descricao         String
+
+  // A resposta da secretaria fecha o ciclo: o professor vê o que foi feito.
+  resposta          String?
+  resolvidoPorId    String?
+  resolvidoEm       DateTime?
+
+  criadoEm          DateTime         @default(now())
+  atualizadoEm      DateTime         @updatedAt
+
+  @@index([status, criadoEm])
+  @@index([professorLegacyId, criadoEm])
+  @@map("ocorrencias")
+  @@schema("hub")
+}

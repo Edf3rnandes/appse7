@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { TipoEvento } from "@prisma/client";
+import { StatusOcorrencia, TipoEvento } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { segundaDaSemana } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
@@ -176,6 +176,46 @@ export async function conteudoRoutes(app: FastifyInstance) {
     const { id } = idParams.parse(request.params);
     await apagarSemana(id);
     return reply.code(204).send();
+  });
+
+  // ------------------------------------------------------- ocorrências
+  app.get("/conteudo/ocorrencias", somenteEquipe, async (request) => {
+    const { status } = z
+      .object({ status: z.nativeEnum(StatusOcorrencia).optional() })
+      .parse(request.query);
+
+    return prisma.ocorrencia.findMany({
+      where: status ? { status } : undefined,
+      // Abertas primeiro, e as mais antigas no topo dentro delas: o que está
+      // esperando há mais tempo é o que precisa de resposta.
+      orderBy: [{ status: "asc" }, { criadoEm: "asc" }],
+      take: 200,
+    });
+  });
+
+  app.patch("/conteudo/ocorrencias/:id", somenteEquipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const { status, resposta } = z
+      .object({
+        status: z.nativeEnum(StatusOcorrencia),
+        resposta: z.string().max(2000).optional(),
+      })
+      .parse(request.body);
+
+    const existe = await prisma.ocorrencia.findUnique({ where: { id } });
+    if (!existe) return reply.code(404).send({ message: "Ocorrência não encontrada." });
+
+    return prisma.ocorrencia.update({
+      where: { id },
+      data: {
+        status,
+        resposta: resposta ?? null,
+        // Reabrir limpa o carimbo: senão a tela mostraria "resolvida em" numa
+        // ocorrência que voltou a estar aberta.
+        resolvidoPorId: status === StatusOcorrencia.RESOLVIDA ? request.user.sub : null,
+        resolvidoEm: status === StatusOcorrencia.RESOLVIDA ? new Date() : null,
+      },
+    });
   });
 
   // ------------------------------------------------------- eventos

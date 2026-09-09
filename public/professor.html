@@ -48,6 +48,7 @@
     <button class="aba" role="tab" id="abaTurmas"  aria-selected="false" data-painel="painelTurmas">Turmas</button>
     <button class="aba" role="tab" id="abaSemana"  aria-selected="false" data-painel="painelSemana">Semana</button>
     <button class="aba" role="tab" id="abaMes"     aria-selected="false" data-painel="painelMes">Mês</button>
+    <button class="aba" role="tab" id="abaAvisos"  aria-selected="false" data-painel="painelAvisos">Avisos</button>
   </div>
 
   <section id="painelChamada" role="tabpanel" aria-labelledby="abaChamada">
@@ -56,10 +57,11 @@
   <section id="painelTurmas" role="tabpanel" aria-labelledby="abaTurmas" hidden></section>
   <section id="painelSemana" role="tabpanel" aria-labelledby="abaSemana" hidden></section>
   <section id="painelMes"    role="tabpanel" aria-labelledby="abaMes"    hidden></section>
+  <section id="painelAvisos" role="tabpanel" aria-labelledby="abaAvisos" hidden></section>
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle, pintarNavegacao } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle, pintarNavegacao, gradeDoMes } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semVinculo: el("telaSemVinculo"), app: el("telaApp") };
@@ -127,6 +129,7 @@ async function decidirTela() {
     carregarTurmas();
     carregarSemana();
     carregarMes();
+    carregarAvisos();
   } catch {
     sair();
   }
@@ -468,6 +471,10 @@ async function carregarMes() {
         <button class="botao fantasma" type="button" id="mesSeguinte" aria-label="Próximo mês">→</button>
       </div>
 
+      <div class="cartao" style="margin-bottom:14px">
+        ${gradeDoMes(r.ano, r.mes, r.eventos, { hojeIso: hoje })}
+      </div>
+
       <div class="cartao">
         <div class="rotulo" style="margin-bottom:10px">Eventos do mês</div>
         ${r.eventos.length ? [...r.eventos]
@@ -521,6 +528,143 @@ function mudarMes(passo) {
   agenda.mes = d.getMonth() + 1;
   agenda.ano = d.getFullYear();
   carregarMes();
+}
+
+// ================================================================== AVISOS
+const TIPOS_AVISO = {
+  TURMA_ERRADA: "Aluno na turma errada",
+  ALUNO_FALTANDO: "Falta um aluno na lista",
+  REGISTRO_TREINO: "Registro do treino",
+  OUTRO: "Outro assunto",
+};
+
+// O aluno vai como texto livre de propósito: o professor sabe o nome, e nem
+// sempre o aluno está na lista — é justamente sobre isso que ele avisa.
+const PEDE_ALUNO = new Set(["TURMA_ERRADA", "ALUNO_FALTANDO"]);
+
+async function carregarAvisos() {
+  const alvo = el("painelAvisos");
+  try {
+    const [avisos] = await Promise.all([api("/professor/ocorrencias")]);
+    alvo.innerHTML = formAviso() + listaAvisos(avisos);
+    ligarFormAviso();
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+function formAviso() {
+  const turmas = chamada.turmas || [];
+  return `
+    <form class="cartao" id="formAviso" style="margin-bottom:22px">
+      <h2 style="font-size:18px;margin-bottom:4px">Avisar a secretaria</h2>
+      <p class="meta" style="margin:0 0 16px">
+        Aluno na turma errada, aluno que devia estar na lista e não está, ou o que aconteceu
+        no treino. A secretaria recebe, resolve e responde por aqui.
+      </p>
+
+      <div class="form-grade">
+        <div class="campo largo">
+          <label class="rotulo" for="avisoTipo">Assunto</label>
+          <select id="avisoTipo">
+            ${Object.entries(TIPOS_AVISO).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="avisoTurma">Turma <span class="ajuda">(opcional)</span></label>
+          <select id="avisoTurma">
+            <option value="">Nenhuma em especial</option>
+            ${turmas.map((t) => `<option value="${t.id}">${escapar(t.nome)} · ${escapar(t.unidadeNome)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo" id="campoAvisoAluno">
+          <label class="rotulo" for="avisoAluno">Aluno</label>
+          <input id="avisoAluno" maxlength="200" placeholder="Nome do aluno">
+        </div>
+        <div class="campo largo">
+          <label class="rotulo" for="avisoDescricao">O que aconteceu</label>
+          <textarea id="avisoDescricao" rows="3" maxlength="2000"
+            placeholder="Escreva como você contaria para a secretaria"></textarea>
+        </div>
+      </div>
+
+      <div class="barra-acoes" style="margin-top:16px">
+        <button class="botao" type="submit" id="btnEnviarAviso">Enviar aviso</button>
+      </div>
+      <div class="aviso oculto" id="recadoAviso" style="margin-top:12px"></div>
+    </form>`;
+}
+
+function listaAvisos(avisos) {
+  if (!avisos.length) {
+    return `<div class="vazio">Você ainda não enviou nenhum aviso.</div>`;
+  }
+
+  return `<div class="cartao">
+    <div class="rotulo" style="margin-bottom:8px">Seus avisos</div>
+    ${avisos.map((o) => `
+      <div class="item">
+        <div class="corpo">
+          <div class="titulo">${escapar(TIPOS_AVISO[o.tipo] || o.tipo)}</div>
+          <div class="detalhe">
+            ${fmt.diaCurto(o.criadoEm)}
+            ${o.turmaNome ? " · " + escapar(o.turmaNome) : ""}
+            ${o.alunoNome ? " · " + escapar(o.alunoNome) : ""}
+          </div>
+          <div class="bloco-texto" style="margin-top:6px">${escapar(o.descricao)}</div>
+          ${o.resposta
+            ? `<div class="aviso info" style="margin-top:8px">
+                 <strong>Secretaria:</strong> ${escapar(o.resposta)}
+               </div>`
+            : ""}
+        </div>
+        <div class="lado">
+          <span class="pilula ${o.status === "RESOLVIDA" ? "ok" : "alerta"}">
+            ${o.status === "RESOLVIDA" ? "Resolvido" : "Aguardando"}
+          </span>
+        </div>
+      </div>`).join("")}
+  </div>`;
+}
+
+function ligarFormAviso() {
+  const tipo = el("avisoTipo");
+  const alternarAluno = () => { el("campoAvisoAluno").hidden = !PEDE_ALUNO.has(tipo.value); };
+  tipo.addEventListener("change", alternarAluno);
+  alternarAluno();
+
+  el("formAviso").addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoAviso");
+    const botao = el("btnEnviarAviso");
+    recado.classList.add("oculto");
+    botao.disabled = true;
+    botao.textContent = "Enviando…";
+
+    const turmaId = el("avisoTurma").value;
+    const alunoNome = el("avisoAluno").value.trim();
+
+    try {
+      await api("/professor/ocorrencias", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo: tipo.value,
+          ...(turmaId ? { turmaId: Number(turmaId) } : {}),
+          ...(alunoNome && PEDE_ALUNO.has(tipo.value) ? { alunoNome } : {}),
+          descricao: el("avisoDescricao").value.trim(),
+        }),
+      });
+      await carregarAvisos();
+      const novo = el("recadoAviso");
+      novo.className = "aviso info";
+      novo.textContent = "Aviso enviado. A secretaria responde por aqui mesmo.";
+    } catch (e) {
+      recado.className = "aviso erro";
+      recado.textContent = e.message;
+      botao.disabled = false;
+      botao.textContent = "Enviar aviso";
+    }
+  });
 }
 
 // ------------------------------------------------------------------ início

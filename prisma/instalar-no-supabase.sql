@@ -60,6 +60,18 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "hub"."TipoOcorrencia" AS ENUM ('TURMA_ERRADA', 'ALUNO_FALTANDO', 'REGISTRO_TREINO', 'OUTRO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "hub"."StatusOcorrencia" AS ENUM ('ABERTA', 'RESOLVIDA');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "hub"."usuarios" (
     "id" TEXT NOT NULL,
@@ -162,6 +174,26 @@ CREATE TABLE IF NOT EXISTS "hub"."configuracoes" (
     CONSTRAINT "configuracoes_pkey" PRIMARY KEY ("chave")
 );
 
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "hub"."ocorrencias" (
+    "id" TEXT NOT NULL,
+    "tipo" "hub"."TipoOcorrencia" NOT NULL,
+    "status" "hub"."StatusOcorrencia" NOT NULL DEFAULT 'ABERTA',
+    "professorLegacyId" INTEGER NOT NULL,
+    "professorNome" TEXT NOT NULL,
+    "turmaLegacyId" INTEGER,
+    "turmaNome" TEXT,
+    "alunoNome" TEXT,
+    "descricao" TEXT NOT NULL,
+    "resposta" TEXT,
+    "resolvidoPorId" TEXT,
+    "resolvidoEm" TIMESTAMP(3),
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ocorrencias_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX IF NOT EXISTS "usuarios_email_key" ON "hub"."usuarios"("email");
 
@@ -191,6 +223,12 @@ CREATE INDEX IF NOT EXISTS "convites_email_idx" ON "hub"."convites"("email");
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "eventos_data_publicado_idx" ON "hub"."eventos"("data", "publicado");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "ocorrencias_status_criadoEm_idx" ON "hub"."ocorrencias"("status", "criadoEm");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "ocorrencias_professorLegacyId_criadoEm_idx" ON "hub"."ocorrencias"("professorLegacyId", "criadoEm");
 
 -- AddForeignKey
 DO $$ BEGIN

@@ -81,6 +81,9 @@ pertence, para não confirmar que o aluno existe.
 | `POST` | `/professor/frequencia` | professor vinculado |
 | `GET` | `/professor/semana` | professor vinculado |
 | `GET` | `/professor/agenda` | professor vinculado |
+| `POST` `GET` | `/professor/ocorrencias` | professor vinculado |
+| `GET` `PATCH` | `/conteudo/ocorrencias` | ADMIN, SECRETARIA |
+| `GET` `PUT` | `/conteudo/config` | ADMIN, SECRETARIA |
 | `GET` `PUT` `DELETE` | `/conteudo/cronograma` | ADMIN, SECRETARIA |
 | `GET` `POST` `PUT` `DELETE` | `/conteudo/eventos` | ADMIN, SECRETARIA |
 | `GET` | `/escola/ocupacao` | ADMIN, SECRETARIA |
@@ -259,6 +262,21 @@ professor. Quem já entrou antes só precisa sair e entrar de novo para o convit
 
 Se o professor indicado já pertencer a outra conta, o vínculo não é transferido e o convite fica
 pendente, para a secretaria enxergar que algo não fechou.
+
+## Avisos do professor
+
+O que hoje se perde no WhatsApp — aluno na turma errada, aluno que devia estar na lista e não
+está, e o que aconteceu no treino — vira uma caixa de entrada única na secretaria, com resposta
+que volta para o professor. São o mesmo modelo com tipos diferentes: do ponto de vista de quem
+resolve, todos são "alguém precisa ler, agir e dar baixa".
+
+A aba da secretaria mostra o número de avisos abertos. Sem esse contador ninguém abre a caixa por
+hábito e os avisos ficam parados até o professor cobrar por fora.
+
+Turma e aluno são gravados **como texto**, além do id. Com a ponte do MySQL desligada o professor
+ainda precisa conseguir avisar, e a secretaria precisa entender o aviso sem abrir outro sistema —
+por isso um aviso com turma é aceito mesmo quando não dá para conferir a turma: recusá-lo trocaria
+um problema pequeno (contexto incompleto) por um grande (o professor sem como avisar).
 
 ## O que ainda não está aqui
 

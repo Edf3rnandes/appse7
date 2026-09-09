@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { TipoOcorrencia } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
 import {
@@ -30,6 +31,16 @@ const frequenciaSchema = z.object({
     .min(1, "Marque a lista antes de enviar."),
 });
 
+const ocorrenciaSchema = z.object({
+  tipo: z.nativeEnum(TipoOcorrencia),
+  turmaId: z.number().int().positive().optional(),
+  alunoNome: z.string().max(200).optional(),
+  descricao: z
+    .string({ required_error: "Descreva o que aconteceu." })
+    .min(5, "Descreva com um pouco mais de detalhe.")
+    .max(2000),
+});
+
 const mesQuery = z.object({
   mes: z.coerce.number().int().min(1).max(12).optional(),
   ano: z.coerce.number().int().min(2020).max(2100).optional(),
@@ -38,11 +49,15 @@ const mesQuery = z.object({
 export async function professorRoutes(app: FastifyInstance) {
   app.setErrorHandler(
     tratadorDeErro((erro) => {
-      if (
-        erro instanceof LegadoIndisponivelError ||
-        erro instanceof LegadoApiIndisponivelError ||
-        erro instanceof CronogramaIndisponivelError
-      ) {
+      // Mensagem de gente: a original cita LEGACY_MYSQL_* e nomes de tabela,
+      // que dizem tudo para quem opera o servidor e nada para o professor.
+      if (erro instanceof LegadoIndisponivelError) {
+        return {
+          status: 503,
+          mensagem: "Os dados de alunos e turmas estão indisponíveis no momento.",
+        };
+      }
+      if (erro instanceof LegadoApiIndisponivelError || erro instanceof CronogramaIndisponivelError) {
         return { status: 503, mensagem: erro.message };
       }
       if (erro instanceof FrequenciaRecusadaError) {
@@ -116,6 +131,57 @@ export async function professorRoutes(app: FastifyInstance) {
       total: presencas.length,
     });
   });
+
+  // O professor avisa; a secretaria resolve. O nome dele e o da turma são
+  // gravados junto do id: sem a ponte com o MySQL ligada, o aviso ainda
+  // precisa ser legível de ponta a ponta.
+  app.post("/professor/ocorrencias", { preHandler: [app.exigirProfessor] }, async (request, reply) => {
+    const corpo = ocorrenciaSchema.parse(request.body);
+    const professorId = request.user.professorId!;
+
+    let turmaNome: string | null = null;
+    if (corpo.turmaId !== undefined) {
+      try {
+        if (!(await turmaPertenceAoProfessor(corpo.turmaId, professorId))) {
+          return reply.code(404).send({ message: "Turma não encontrada." });
+        }
+        const turmas = await listarTurmasDoProfessor(professorId);
+        turmaNome = turmas.find((t) => t.id === corpo.turmaId)?.nome ?? null;
+      } catch (erro) {
+        // Com a ponte desligada não dá para conferir a turma — mas recusar o
+        // aviso por isso seria trocar um problema pequeno (contexto
+        // incompleto) por um grande (o professor sem como avisar). Guardamos
+        // o aviso; o id da turma fica sem nome e a secretaria entende pelo
+        // texto, que é o que ela lê de qualquer forma.
+        if (!(erro instanceof LegadoIndisponivelError)) throw erro;
+        request.log.warn("Aviso gravado sem conferir a turma: ponte com o legado desligada.");
+      }
+    }
+
+    const ocorrencia = await prisma.ocorrencia.create({
+      data: {
+        tipo: corpo.tipo,
+        professorLegacyId: professorId,
+        professorNome: request.user.nome,
+        turmaLegacyId: corpo.turmaId ?? null,
+        turmaNome,
+        alunoNome: corpo.alunoNome ?? null,
+        descricao: corpo.descricao,
+      },
+    });
+
+    return reply.code(201).send(ocorrencia);
+  });
+
+  // O professor acompanha o que avisou e o que a secretaria respondeu — sem
+  // isso ele avisa no escuro e volta para o WhatsApp para saber se deu certo.
+  app.get("/professor/ocorrencias", { preHandler: [app.exigirProfessor] }, async (request) =>
+    prisma.ocorrencia.findMany({
+      where: { professorLegacyId: request.user.professorId! },
+      orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
+      take: 50,
+    }),
+  );
 
   // Cronograma da semana atual e da próxima — o professor planeja a aula de
   // hoje e já vê o que vem. Aqui a arte VAI junto: são duas semanas, e é a
