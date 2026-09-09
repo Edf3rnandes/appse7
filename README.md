@@ -90,6 +90,12 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 |---|---|
 | `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
 | `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
+| `/secretaria.html` | **Secretaria** — cadastra a programação das semanas e os eventos que o professor vê |
+
+A semana é sempre identificada pela **segunda-feira**: a secretaria escolhe qualquer dia e o
+servidor normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. Nada
+aparece para o professor enquanto estiver como rascunho — dá para montar o mês inteiro antes de
+publicar.
 
 O login é o botão do Google (GIS); no primeiro acesso o responsável informa o CPF e a partir daí
 o token guardado no navegador carrega o vínculo. Mobile primeiro: quase todo acesso do responsável

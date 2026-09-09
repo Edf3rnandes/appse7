@@ -203,6 +203,34 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .evento .dia .m { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
 .bloco-texto { white-space: pre-wrap; }
 
+/* ---------------- formulários ---------------- */
+.form-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-grade .largo { grid-column: 1 / -1; }
+@media (max-width: 560px) { .form-grade { grid-template-columns: 1fr; } }
+
+.campo textarea, .campo select {
+  font: inherit; padding: 11px 13px; border-radius: 8px; width: 100%;
+  background: var(--surface); border: 1px solid var(--rule-forte); color: var(--ink);
+  resize: vertical;
+}
+.campo textarea:focus, .campo select:focus, .campo input:focus {
+  outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent;
+}
+.campo .ajuda { font-size: 13px; color: var(--ink-3); }
+
+/* Interruptor de publicação: o estado precisa ser óbvio de relance, porque é
+   ele que decide se o professor enxerga ou não. */
+.interruptor { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.interruptor input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.botao.secundario {
+  background: none; color: var(--accent); border: 1px solid var(--accent);
+}
+.botao.secundario:hover { background: var(--accent-suave); }
+.botao.perigo { background: none; color: var(--erro); border: 1px solid var(--erro); }
+.botao.perigo:hover { background: var(--erro-suave); }
+.botao.pequeno { padding: 7px 12px; font-size: 14px; }
+
 @media (max-width: 420px) {
   .usuario .nome { display: none; }
 }
