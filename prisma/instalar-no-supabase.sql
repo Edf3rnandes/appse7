@@ -153,6 +153,15 @@ CREATE TABLE IF NOT EXISTS "hub"."eventos" (
     CONSTRAINT "eventos_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "hub"."configuracoes" (
+    "chave" TEXT NOT NULL,
+    "valor" TEXT NOT NULL,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "configuracoes_pkey" PRIMARY KEY ("chave")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX IF NOT EXISTS "usuarios_email_key" ON "hub"."usuarios"("email");
 

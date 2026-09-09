@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TipoEvento } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { segundaDaSemana } from "../../lib/datas.js";
+import { tratadorDeErro } from "../../lib/erros.js";
 import {
   CronogramaIndisponivelError,
   apagarSemana,
@@ -36,7 +37,6 @@ const cronogramaSchema = z.object({
   observacoes: z.string().max(2000).optional(),
   postagensPlanejadas: z.string().max(2000).optional(),
   textoDivulgacao: z.string().max(4000).optional(),
-  linkCanva: z.string().url("Link do Canva inválido.").max(500).optional().or(z.literal("")),
   // null apaga a arte; ausente mantém a que já está lá.
   imagemBase64: imagemDataUrl.nullable().optional(),
   imagemNome: z.string().max(200).nullable().optional(),
@@ -44,7 +44,12 @@ const cronogramaSchema = z.object({
 });
 
 const eventoSchema = z.object({
-  titulo: z.string().min(1, "Título é obrigatório.").max(200),
+  // required_error além do min(): campo ausente devolveria o "Required" cru do
+  // Zod, e é essa mensagem que a secretaria lê na tela.
+  titulo: z
+    .string({ required_error: "Título é obrigatório." })
+    .min(1, "Título é obrigatório.")
+    .max(200),
   descricao: z.string().max(2000).optional(),
   tipo: z.nativeEnum(TipoEvento).default(TipoEvento.OUTRO),
   data: dataIso,
@@ -58,6 +63,15 @@ const eventoSchema = z.object({
 
 const idParams = z.object({ id: z.string().uuid() });
 
+// Chaves permitidas, uma a uma. Uma tabela chave/valor sem lista fechada vira
+// depósito de qualquer coisa que o cliente resolva mandar.
+const CHAVE_CANVA = "cronograma.linkCanva";
+
+const configSchema = z.object({
+  // String vazia apaga o link — é como a secretaria "remove" o documento.
+  linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]),
+});
+
 /**
  * Quem alimenta o que o professor lê: cronograma das semanas e eventos do mês.
  * Só secretaria e admin escrevem — o professor tem só as rotas de leitura em
@@ -66,17 +80,43 @@ const idParams = z.object({ id: z.string().uuid() });
 export async function conteudoRoutes(app: FastifyInstance) {
   const somenteEquipe = { preHandler: [app.exigirPapel("ADMIN", "SECRETARIA")] };
 
-  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
-    // O cronograma vive numa tabela do se7-inadimplencia. Se o Hub estiver
-    // apontando para outro banco, a tela precisa dizer isso, não estourar 500.
-    if (err instanceof CronogramaIndisponivelError) {
-      return reply.code(503).send({ message: err.message });
+  app.setErrorHandler(
+    tratadorDeErro((erro) =>
+      // O cronograma vive numa tabela do se7-inadimplencia. Se o Hub estiver
+      // apontando para outro banco, a tela precisa dizer isso.
+      erro instanceof CronogramaIndisponivelError
+        ? { status: 503, mensagem: erro.message }
+        : undefined,
+    ),
+  );
+
+  // ------------------------------------------------------- configuração
+  //
+  // O link do Canva é UM documento que rege todas as semanas, não um por
+  // semana — por isso mora aqui, e não em cada linha do cronograma.
+  app.get("/conteudo/config", somenteEquipe, async () => {
+    const registro = await prisma.configuracao
+      .findUnique({ where: { chave: CHAVE_CANVA } })
+      .catch(() => null);
+
+    return { linkCanva: registro?.valor ?? "" };
+  });
+
+  app.put("/conteudo/config", somenteEquipe, async (request) => {
+    const { linkCanva } = configSchema.parse(request.body);
+
+    if (linkCanva === "") {
+      await prisma.configuracao.deleteMany({ where: { chave: CHAVE_CANVA } });
+      return { linkCanva: "" };
     }
-    request.log.error(err);
-    const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
-    return reply.code(statusCode).send({
-      message: statusCode < 500 ? err.message : "Erro interno.",
+
+    const registro = await prisma.configuracao.upsert({
+      where: { chave: CHAVE_CANVA },
+      create: { chave: CHAVE_CANVA, valor: linkCanva },
+      update: { valor: linkCanva },
     });
+
+    return { linkCanva: registro.valor };
   });
 
   // ------------------------------------------------------- cronograma
@@ -116,7 +156,10 @@ export async function conteudoRoutes(app: FastifyInstance) {
         observacoes: corpo.observacoes ?? null,
         postagensPlanejadas: corpo.postagensPlanejadas ?? null,
         textoDivulgacao: corpo.textoDivulgacao ?? null,
-        linkCanva: corpo.linkCanva ? corpo.linkCanva : null,
+        // Preservado como está: a coluna pertence à tabela do se7-inadimplencia
+        // e pode ter valor por semana gravado por lá. O Hub não escreve mais
+        // nela — o link agora é único, em hub.configuracoes.
+        linkCanva: undefined,
         status: corpo.status,
         // `undefined` preserva a arte que já está gravada; `null` apaga.
         ...(corpo.imagemBase64 === undefined

@@ -153,6 +153,11 @@ normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. O
 `planejado → pronto → publicado`, e só "publicado" chega ao professor — dá para montar a
 temporada inteira antes de liberar.
 
+O **link do Canva é único**, guardado em `hub.configuracoes` e mostrado no topo da aba
+Cronograma: é um documento só que rege a temporada inteira, não um por semana. A coluna
+`linkCanva` da tabela compartilhada continua existindo e o Hub **não escreve mais nela** — o
+sistema vizinho pode ter valor por semana gravado lá, e sobrescrever apagaria o dele.
+
 A arte da semana fica como data URL na própria linha, mesma decisão do sistema de origem (é ~1
 imagem por semana, não justifica bucket nem CDN). O navegador reduz para 1400px e recomprime em
 JPEG antes de enviar — uma foto de celular sai de vários MB para dezenas de KB — e a rota que
@@ -166,7 +171,7 @@ Quem vê o quê:
 | Arte da semana | sim | sim (com botão de copiar o texto) |
 | Texto de divulgação | sim | sim |
 | Postagens planejadas | sim | não |
-| **Link do Canva** | sim | **não** — é o documento editável da equipe |
+| **Link do Canva** | sim, um só para todas as semanas | **não** — é o documento editável da equipe |
 
 Listagens nunca carregam a arte: a visão do mês manda só `temArte`, e o data URL vem apenas na
 semana aberta. Sem isso, um mês com cinco semanas viraria uma resposta de megabytes no celular

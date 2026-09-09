@@ -207,3 +207,20 @@ model Evento {
   @@map("eventos")
   @@schema("hub")
 }
+
+// ---------------------------------------------------------------------------
+// Configurações do Hub — pares chave/valor que valem para o sistema todo.
+//
+// Nasceu do link do Canva: ele é UM documento que rege todas as semanas, não
+// um por semana. Guardar por semana obrigava a repetir o mesmo endereço toda
+// vez e deixava a pergunta "qual é o certo?" no ar.
+// ---------------------------------------------------------------------------
+
+model Configuracao {
+  chave        String   @id
+  valor        String
+  atualizadoEm DateTime @updatedAt
+
+  @@map("configuracoes")
+  @@schema("hub")
+}

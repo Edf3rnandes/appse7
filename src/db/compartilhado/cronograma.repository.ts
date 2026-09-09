@@ -138,7 +138,9 @@ export interface DadosSemana {
   observacoes: string | null;
   postagensPlanejadas: string | null;
   textoDivulgacao: string | null;
-  linkCanva: string | null;
+  // undefined preserva o que estiver gravado — a coluna é da tabela vizinha e
+  // o Hub deixou de escrever nela quando o link do Canva virou único.
+  linkCanva?: string | null;
   status: string;
   // undefined preserva a arte gravada; null apaga; string substitui.
   imagemBase64?: string | null;
@@ -167,7 +169,7 @@ export async function salvarSemana(
     ) VALUES (
       ${crypto.randomUUID()}, ${iso(semana)}::date, ${dados.tema}, ${dados.fundamentos},
       ${dados.exerciciosSugeridos}, ${dados.observacoes},
-      ${dados.postagensPlanejadas}, ${dados.textoDivulgacao}, ${dados.linkCanva},
+      ${dados.postagensPlanejadas}, ${dados.textoDivulgacao}, ${dados.linkCanva ?? null},
       ${dados.imagemBase64 ?? null}, ${dados.imagemNome ?? null},
       ${dados.status}, now(), now()
     )
@@ -178,7 +180,8 @@ export async function salvarSemana(
       observacoes = EXCLUDED.observacoes,
       "postagensPlanejadas" = EXCLUDED."postagensPlanejadas",
       "textoDivulgacao" = EXCLUDED."textoDivulgacao",
-      "linkCanva" = EXCLUDED."linkCanva",
+      -- linkCanva de propósito fora do UPDATE: o Hub não gerencia mais essa
+      -- coluna, e sobrescrevê-la apagaria o que o sistema vizinho gravou.
       status = EXCLUDED.status,
       "imagemBase64" = CASE WHEN ${trocaArte} THEN EXCLUDED."imagemBase64"
                             ELSE public.cronograma_semanas."imagemBase64" END,

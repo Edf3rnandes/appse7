@@ -14,6 +14,7 @@ import {
   lancarFrequencia,
 } from "../../services/legado/frequencia.service.js";
 import { hoje, primeiroDiaDoMes, segundaDaSemana, somarDias, ultimoDiaDoMes } from "../../lib/datas.js";
+import { tratadorDeErro } from "../../lib/erros.js";
 import {
   CronogramaIndisponivelError,
   listarPublicadasNoIntervalo,
@@ -35,23 +36,21 @@ const mesQuery = z.object({
 });
 
 export async function professorRoutes(app: FastifyInstance) {
-  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
-    if (
-      err instanceof LegadoIndisponivelError ||
-      err instanceof LegadoApiIndisponivelError ||
-      err instanceof CronogramaIndisponivelError
-    ) {
-      return reply.code(503).send({ message: err.message });
-    }
-    if (err instanceof FrequenciaRecusadaError) {
-      return reply.code(409).send({ message: err.message });
-    }
-    request.log.error(err);
-    const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
-    return reply.code(statusCode).send({
-      message: statusCode < 500 ? err.message : "Erro interno.",
-    });
-  });
+  app.setErrorHandler(
+    tratadorDeErro((erro) => {
+      if (
+        erro instanceof LegadoIndisponivelError ||
+        erro instanceof LegadoApiIndisponivelError ||
+        erro instanceof CronogramaIndisponivelError
+      ) {
+        return { status: 503, mensagem: erro.message };
+      }
+      if (erro instanceof FrequenciaRecusadaError) {
+        return { status: 409, mensagem: erro.message };
+      }
+      return undefined;
+    }),
+  );
 
   app.get("/professor/turmas", { preHandler: [app.exigirProfessor] }, async (request) =>
     listarTurmasDoProfessor(request.user.professorId!),

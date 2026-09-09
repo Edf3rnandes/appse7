@@ -11,6 +11,7 @@ import {
 import { readOnlyQuery } from "../../db/legacy/pool.js";
 import { AsaasIndisponivelError, asaasConfigurado, listarFaturasDoCliente } from "../../services/asaas/asaas.client.js";
 import { mascararCpf } from "../../lib/cpf.js";
+import { tratadorDeErro } from "../../lib/erros.js";
 
 const alunoParams = z.object({ id: z.coerce.number().int().positive() });
 
@@ -19,21 +20,19 @@ const alunoParams = z.object({ id: z.coerce.number().int().positive() });
 // criterio de busca vindo do cliente — student_id so entra depois de passar
 // pela checagem de posse. E o que fecha o IDOR que a API atual tem.
 export async function portalRoutes(app: FastifyInstance) {
-  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
-    // O legado e o Asaas sao dependencias externas: quando caem, o portal
-    // responde 503 com texto entendivel em vez de 500 generico.
-    if (err instanceof LegadoIndisponivelError) {
-      return reply.code(503).send({ message: "Cadastro indisponivel no momento." });
-    }
-    if (err instanceof AsaasIndisponivelError) {
-      return reply.code(503).send({ message: "Financeiro indisponivel no momento." });
-    }
-    request.log.error(err);
-    const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
-    return reply.code(statusCode).send({
-      message: statusCode < 500 ? err.message : "Erro interno.",
-    });
-  });
+  app.setErrorHandler(
+    tratadorDeErro((erro) => {
+      // O legado e o Asaas são dependências externas: quando caem, o portal
+      // responde 503 com texto entendível em vez de 500 genérico.
+      if (erro instanceof LegadoIndisponivelError) {
+        return { status: 503, mensagem: "Cadastro indisponivel no momento." };
+      }
+      if (erro instanceof AsaasIndisponivelError) {
+        return { status: 503, mensagem: "Financeiro indisponivel no momento." };
+      }
+      return undefined;
+    }),
+  );
 
   app.get("/portal/alunos", { preHandler: [app.exigirResponsavel] }, async (request) => {
     const alunos = await listarAlunosDoResponsavel(request.user.responsavelId!);

@@ -4,7 +4,6 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fstatic from "@fastify/static";
 import Fastify from "fastify";
-import { ZodError } from "zod";
 import { env, googleConfigurado, legadoApiConfigurada, legadoConfigurado } from "./config/env.js";
 import authPlugin from "./plugins/auth.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
@@ -13,6 +12,7 @@ import { professorRoutes } from "./modules/escola/professor.routes.js";
 import { conteudoRoutes } from "./modules/conteudo/conteudo.routes.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
+import { tratadorDeErro } from "./lib/erros.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,18 +20,8 @@ async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
 
   // Sem isto, todo `schema.parse()` que falha vira 500 generico em vez de 400
-  // com a mensagem util. Mesma decisao ja tomada no se7-inadimplencia.
-  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
-    if (err instanceof ZodError) {
-      const mensagem = err.issues.map((i) => i.message).join("; ");
-      return reply.code(400).send({ message: mensagem || "Dados invalidos." });
-    }
-    request.log.error(err);
-    const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
-    return reply.code(statusCode).send({
-      message: statusCode < 500 ? err.message : "Erro interno.",
-    });
-  });
+  // com a mensagem util.
+  app.setErrorHandler(tratadorDeErro());
 
   await app.register(cors, { origin: true });
 
