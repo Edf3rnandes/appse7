@@ -19,6 +19,15 @@ import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
 
 const idParams = z.object({ id: z.string().uuid() });
 
+// Data de calendário vinda da query. Meia-noite UTC, pelo mesmo motivo do
+// resto do sistema: `new Date("2026-09-08")` já é UTC, mas passar a string
+// crua deixaria o fuso do servidor decidir o dia.
+const dataOpcional = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use AAAA-MM-DD.")
+  .transform((v) => new Date(`${v}T00:00:00.000Z`))
+  .optional();
+
 const paginacao = z.object({
   busca: z.string().max(120).optional(),
   limite: z.coerce.number().int().min(1).max(200).default(50),
@@ -414,6 +423,116 @@ export async function cadastroRoutes(app: FastifyInstance) {
     const { id } = idParams.parse(request.params);
     await prisma.aluno.update({ where: { id }, data: { arquivadoEm: new Date() } });
     return reply.code(204).send();
+  });
+
+  // ------------------------------------------------------------ frequência
+  //
+  // As duas telas que o sistema antigo tem em Administrativo. A diferença é
+  // que lá a tabela só listava presenças: a falta não era um registro, era a
+  // ausência de um. Não dava para dizer se um aluno faltou ou se a chamada
+  // daquele dia nunca foi feita — e essa é justamente a pergunta que a
+  // secretaria faz. Aqui a falta é uma linha, então o percentual significa
+  // alguma coisa.
+
+  const periodo = z.object({
+    de: dataOpcional,
+    ate: dataOpcional,
+  });
+
+  /** Padrão: os últimos 30 dias, que é o recorte de uma conversa com o pai. */
+  function intervalo(de?: Date, ate?: Date) {
+    const fim = ate ?? new Date();
+    const inicio = de ?? new Date(fim.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return { gte: inicio, lte: fim };
+  }
+
+  function resumir(registros: { presente: boolean }[]) {
+    const presencas = registros.filter((r) => r.presente).length;
+    return {
+      aulas: registros.length,
+      presencas,
+      faltas: registros.length - presencas,
+      percentual: registros.length ? Math.round((presencas / registros.length) * 100) : null,
+    };
+  }
+
+  app.get("/escola/frequencia/turma", equipe, async (request, reply) => {
+    const { turmaId, de, ate } = periodo
+      .extend({ turmaId: z.string().uuid("Escolha a turma.") })
+      .parse(request.query);
+
+    const turma = await prisma.turma.findUnique({
+      where: { id: turmaId },
+      include: { unidade: { select: { nome: true } } },
+    });
+    if (!turma) return reply.code(404).send({ message: "Turma não encontrada." });
+
+    const registros = await prisma.presenca.findMany({
+      where: { turmaId, data: intervalo(de, ate) },
+      orderBy: [{ data: "desc" }, { aluno: { nome: "asc" } }],
+      include: {
+        aluno: { select: { id: true, nome: true } },
+        professor: { select: { nome: true } },
+      },
+    });
+
+    // Agrupado por dia: a secretaria olha "o treino de terça" como uma coisa
+    // só, não como vinte linhas soltas.
+    const porDia = new Map<string, typeof registros>();
+    for (const r of registros) {
+      const dia = r.data.toISOString().slice(0, 10);
+      if (!porDia.has(dia)) porDia.set(dia, []);
+      porDia.get(dia)!.push(r);
+    }
+
+    return {
+      turma: { id: turma.id, nome: turma.nome, unidade: turma.unidade.nome },
+      resumo: resumir(registros),
+      aulas: [...porDia].map(([data, linhas]) => ({
+        data,
+        professor: linhas[0].professor.nome,
+        presentes: linhas.filter((l) => l.presente).length,
+        total: linhas.length,
+        alunos: linhas.map((l) => ({ id: l.aluno.id, nome: l.aluno.nome, presente: l.presente })),
+      })),
+    };
+  });
+
+  app.get("/escola/frequencia/aluno", equipe, async (request, reply) => {
+    const { alunoId, de, ate } = periodo
+      .extend({ alunoId: z.string().uuid("Escolha o aluno.") })
+      .parse(request.query);
+
+    const aluno = await prisma.aluno.findUnique({
+      where: { id: alunoId },
+      include: { responsavel: { select: { nome: true, telefone: true } } },
+    });
+    if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado." });
+
+    const registros = await prisma.presenca.findMany({
+      where: { alunoId, data: intervalo(de, ate) },
+      orderBy: { data: "desc" },
+      include: {
+        turma: { select: { nome: true } },
+        professor: { select: { nome: true } },
+      },
+    });
+
+    return {
+      aluno: {
+        id: aluno.id,
+        nome: aluno.nome,
+        responsavel: aluno.responsavel?.nome ?? null,
+        telefone: aluno.responsavel?.telefone ?? null,
+      },
+      resumo: resumir(registros),
+      registros: registros.map((r) => ({
+        data: r.data,
+        presente: r.presente,
+        turma: r.turma.nome,
+        professor: r.professor.nome,
+      })),
+    };
   });
 
   // ------------------------------------------------------------- matrículas
