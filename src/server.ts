@@ -14,6 +14,7 @@ import { cadastroRoutes } from "./modules/escola/cadastro.routes.js";
 import { publicoRoutes } from "./modules/publico/matricula.routes.js";
 import { cobrancaRoutes } from "./modules/financeiro/cobranca.routes.js";
 import { sociosRoutes } from "./modules/socios/socios.routes.js";
+import { agendarFechamento, preencherDiasEmFalta } from "./modules/socios/fechamento.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
 import { tratadorDeErro } from "./lib/erros.js";
@@ -105,6 +106,21 @@ async function main() {
   process.on("SIGINT", encerrar);
 
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
+
+  // Fechamento do dia: agenda o das 23:59 e preenche os dias que passaram sem
+  // fechamento. O segundo cobre o caso normal de uma hospedagem que hiberna —
+  // o serviço simplesmente nao estava de pe na hora — e tambem o primeiro dia
+  // de vida do sistema, em que a serie inteira precisa nascer de algum lugar.
+  //
+  // Fora do await do listen de proposito: preencher dois meses de historico
+  // nao pode atrasar o servidor a ficar de pe. Se falhar, o proximo restart
+  // tenta de novo, e a rota de reprocessamento existe para o caso teimoso.
+  agendarFechamento();
+  preencherDiasEmFalta()
+    .then((dias) => {
+      if (dias.length) app.log.info({ dias: dias.length }, "fechamentos reconstruidos");
+    })
+    .catch((erro) => app.log.error({ erro }, "falha ao reconstruir fechamentos"));
 }
 
 main().catch((err) => {

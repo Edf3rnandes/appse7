@@ -3,6 +3,7 @@ import { z } from "zod";
 import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
+import { diaUtc, fecharDia } from "./fechamento.js";
 import {
   asaasConfigurado,
   AsaasIndisponivelError,
@@ -331,6 +332,267 @@ export async function sociosRoutes(app: FastifyInstance) {
     };
   });
 
+  /**
+   * Turmas: onde sobra vaga e onde falta.
+   *
+   * As duas perguntas que o sócio faz olhando a grade — "qual turma está
+   * vazia" e "qual está estourando" — são a mesma consulta, lida dos dois
+   * lados. Devolvemos todas as turmas com os números, e a tela ordena.
+   *
+   * Vaga ociosa não é só uma cadeira vazia: é uma cadeira vazia numa quadra
+   * alugada, com professor pago e horário reservado. O custo já correu.
+   */
+  app.get("/socios/turmas", somenteSocios, async () => {
+    const janela = ultimosMeses(4);
+    const desde = janela[0].inicio;
+    const mesCorrente = janela[janela.length - 1];
+
+    const turmas = await prisma.turma.findMany({
+      where: { ativa: true },
+      orderBy: [{ unidade: { nome: "asc" } }, { nome: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        categoria: true,
+        capacidade: true,
+        aceitaNovasMatriculas: true,
+        unidade: { select: { nome: true } },
+        horarios: { select: { dia: true, inicio: true, fim: true }, orderBy: { inicio: "asc" } },
+        // Os planos da turma dão o preço de referência quando ela está vazia e
+        // não há aluno de onde tirar ticket médio.
+        planos: { select: { plano: { select: { valor: true, ativo: true } } } },
+        matriculas: {
+          select: {
+            status: true,
+            criadoEm: true,
+            canceladaEm: true,
+            arquivadoEm: true,
+            expiraEm: true,
+            atualizadoEm: true,
+            plano: { select: { valor: true } },
+          },
+        },
+      },
+    });
+
+    const linhas = turmas.map((t) => {
+      const paraConta = t.matriculas.map((m) => ({
+        ...m,
+        unidade: { id: "", nome: "" },
+      })) as unknown as MatriculaParaConta[];
+
+      const ativas = paraConta.filter((m) => ativaEm(m, mesCorrente.fim, mesCorrente.inicio));
+      const receita = ativas.reduce((soma, m) => soma + paraNumero(m.plano.valor), 0);
+      const capacidade = t.capacidade ?? 0;
+
+      // Preço de referência da turma vazia: a mediana dos planos ativos ligados
+      // a ela. Mediana e não média porque uma turma costuma ter mensal,
+      // semestral e família no mesmo balcão, e a média entre eles não é o preço
+      // de ninguém.
+      const precos = t.planos
+        .filter((p) => p.plano.ativo)
+        .map((p) => paraNumero(p.plano.valor))
+        .filter((v) => v > 0)
+        .sort((x, y) => x - y);
+      const ticketDoPlano = precos.length ? precos[Math.floor(precos.length / 2)] : 0;
+      const ticket = ativas.length > 0 ? receita / ativas.length : ticketDoPlano;
+
+      // Pedidos que chegaram pelo site e ainda não foram confirmados. Numa
+      // turma cheia isso é fila de espera; numa turma vazia é trabalho parado
+      // no administrativo. Os dois casos interessam, por motivos opostos.
+      const pendentes = t.matriculas.filter(
+        (m) => m.status === StatusMatricula.CRIADA && !m.arquivadoEm,
+      ).length;
+
+      const entradasRecentes = t.matriculas.filter(
+        (m) => m.criadoEm >= desde && m.status !== StatusMatricula.CRIADA,
+      ).length;
+
+      const saidasRecentes = t.matriculas.filter((m) => {
+        const saida = saidaDe(m as unknown as MatriculaParaConta);
+        return saida !== null && saida >= desde;
+      }).length;
+
+      return {
+        turmaId: t.id,
+        turma: t.nome,
+        categoria: t.categoria,
+        unidade: t.unidade.nome,
+        horarios: t.horarios.map((h) => ({ dia: h.dia, inicio: h.inicio, fim: h.fim })),
+        aceitaNovas: t.aceitaNovasMatriculas,
+        ativas: ativas.length,
+        capacidade,
+        // Sem capacidade cadastrada não dá para falar em ocupação. Devolver 0
+        // faria a turma parecer vazia numa lista ordenada por ociosidade, que
+        // é justamente onde ela não deveria estar.
+        ocupacao: capacidade > 0 ? Number(((ativas.length / capacidade) * 100).toFixed(1)) : null,
+        vagas: capacidade > 0 ? capacidade - ativas.length : null,
+        receitaPrevista: Number(receita.toFixed(2)),
+        // O que essas cadeiras vazias renderiam por mês.
+        //
+        // Com aluno na turma, o ticket sai da própria turma. Sem aluno nenhum,
+        // sai do plano ligado a ela — e é justamente a turma vazia que precisa
+        // deste número, porque ela é a que mais custa. Deixar nulo aqui
+        // esconderia o caso mais caro atrás de um traço.
+        potencialOcioso:
+          capacidade > 0 ? Number((ticket * (capacidade - ativas.length)).toFixed(2)) : null,
+        // De onde veio o preço usado acima, para a tela não apresentar os dois
+        // com a mesma confiança.
+        ticketDe: ativas.length > 0 ? "turma" : ticketDoPlano > 0 ? "plano" : "sem referência",
+        pendentes,
+        entradasRecentes,
+        saidasRecentes,
+      };
+    });
+
+    return { meses: 4, turmas: linhas };
+  });
+
+  /**
+   * Taxa de adesão: de cada pedido que chegou, quantos viraram matrícula.
+   *
+   * ATENÇÃO À DEFINIÇÃO, porque "adesão" tem duas leituras e elas dão números
+   * muito diferentes:
+   *
+   *   - a que está aqui: pedidos CONFIRMADOS ÷ pedidos RECEBIDOS. Mede o funil
+   *     — quanto do interesse que chega vira aluno de verdade;
+   *   - a outra: matriculados ÷ capacidade. Essa é ocupação, e já está em
+   *     /socios/turmas.
+   *
+   * Se para vocês adesão é a segunda, é trocar de campo na tela — as duas
+   * estão calculadas.
+   */
+  app.get("/socios/adesao", somenteSocios, async (request) => {
+    const { meses } = z
+      .object({ meses: z.coerce.number().int().min(3).max(24).default(6) })
+      .parse(request.query);
+
+    const janela = ultimosMeses(meses);
+
+    const matriculas = await prisma.matricula.findMany({
+      where: { criadoEm: { gte: janela[0].inicio } },
+      select: {
+        status: true,
+        criadoEm: true,
+        canceladaEm: true,
+        arquivadoEm: true,
+        atualizadoEm: true,
+        observacao: true,
+      },
+    });
+
+    const serie = janela.map((mes) => {
+      const doMes = matriculas.filter(
+        (m) => m.criadoEm >= mes.inicio && m.criadoEm <= mes.fim,
+      );
+
+      const confirmadas = doMes.filter(
+        (m) =>
+          m.status === StatusMatricula.CONFIRMADA ||
+          m.status === StatusMatricula.PAGAMENTO_PENDENTE,
+      ).length;
+
+      const aguardando = doMes.filter((m) => m.status === StatusMatricula.CRIADA).length;
+      const recusadas = doMes.filter((m) => m.status === StatusMatricula.CANCELADA).length;
+
+      // De onde veio o pedido. A matrícula feita pelo site carimba isso na
+      // observação; a que o administrativo digitou, não. É o que separa
+      // "quanto o site converte" de "quanto a escola matricula".
+      const pelosite = doMes.filter((m) =>
+        (m.observacao ?? "").startsWith("Matrícula feita pelo site"),
+      ).length;
+
+      return {
+        mes: mes.chave,
+        corrente: mes.corrente,
+        recebidos: doMes.length,
+        confirmados: confirmadas,
+        aguardando,
+        recusados: recusadas,
+        pelosite,
+        // Só conta o que já foi decidido: um pedido ainda esperando o
+        // administrativo não é uma recusa, e colocá-lo no denominador
+        // derrubaria a taxa do mês corrente todo mês, por construção.
+        taxa:
+          confirmadas + recusadas > 0
+            ? Number(((confirmadas / (confirmadas + recusadas)) * 100).toFixed(1))
+            : null,
+      };
+    });
+
+    const decididos = serie.reduce((s, m) => s + m.confirmados + m.recusados, 0);
+    const confirmados = serie.reduce((s, m) => s + m.confirmados, 0);
+
+    return {
+      serie,
+      periodo: {
+        recebidos: serie.reduce((s, m) => s + m.recebidos, 0),
+        confirmados,
+        aguardando: serie.reduce((s, m) => s + m.aguardando, 0),
+        pelosite: serie.reduce((s, m) => s + m.pelosite, 0),
+        taxa: decididos > 0 ? Number(((confirmados / decididos) * 100).toFixed(1)) : null,
+      },
+    };
+  });
+
+  /**
+   * A série de fechamentos diários.
+   *
+   * Diferente de tudo o mais neste módulo: isto é lido de uma tabela, não
+   * calculado na hora. Cada linha foi gravada às 23:59 do próprio dia.
+   */
+  app.get("/socios/fechamentos", somenteSocios, async (request) => {
+    const { dias } = z
+      .object({ dias: z.coerce.number().int().min(7).max(180).default(30) })
+      .parse(request.query);
+
+    const desde = new Date(diaUtc(new Date()).getTime() - dias * 86400000);
+
+    const linhas = await prisma.fechamentoDiario.findMany({
+      where: { data: { gte: desde } },
+      orderBy: { data: "asc" },
+    });
+
+    return {
+      dias: linhas.map((f) => ({
+        data: f.data.toISOString().slice(0, 10),
+        ativos: f.ativos,
+        entradas: f.entradas,
+        saidas: f.saidas,
+        saldo: f.entradas - f.saidas,
+        receitaPrevista: Number(f.receitaPrevista),
+        vagasOciosas: f.vagasOciosas,
+        origem: f.origem,
+      })),
+      // Quantos dias da série são reconstrução e não fechamento de verdade. A
+      // tela avisa enquanto esse número não for zero.
+      reconstruidos: linhas.filter((f) => f.origem === "RECONSTRUIDO").length,
+    };
+  });
+
+  /**
+   * Reprocessa o fechamento de um dia.
+   *
+   * Existe para o dia em que o servidor estava dormindo às 23:59 — coisa que
+   * acontece em qualquer hospedagem que hiberna. Sem isto, um dia perdido
+   * ficaria perdido.
+   */
+  app.post("/socios/fechamentos/reprocessar", somenteSocios, async (request) => {
+    const { data } = z
+      .object({ data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use AAAA-MM-DD.").optional() })
+      .parse(request.body ?? {});
+
+    const dia = data ? new Date(`${data}T00:00:00.000Z`) : new Date();
+    const fechado = await fecharDia(dia, "MANUAL");
+
+    return {
+      data: fechado.data.toISOString().slice(0, 10),
+      ativos: fechado.ativos,
+      entradas: fechado.entradas,
+      saidas: fechado.saidas,
+    };
+  });
+
   // ---------------------------------------------------------------- sociedade
 
   const socioSchema = z.object({
@@ -409,9 +671,8 @@ export async function sociosRoutes(app: FastifyInstance) {
   /**
    * Saída de sócio: carimbo, não DELETE.
    *
-   * As distribuições já pagas apontam para ele. Apagar a linha levaria junto o
-   * histórico de quanto cada um recebeu — que é o único registro que a
-   * sociedade tem.
+   * Mesma regra do resto do sistema — nada aqui apaga de verdade. Saber que
+   * fulano foi sócio entre 2019 e 2024 é informação, e um DELETE a queimaria.
    */
   app.delete("/socios/sociedade/:id", somenteSocios, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -419,92 +680,6 @@ export async function sociosRoutes(app: FastifyInstance) {
     if (!existe) return reply.code(404).send({ message: "Sócio não encontrado." });
 
     await prisma.socio.update({ where: { id }, data: { arquivadoEm: new Date() } });
-    return { id };
-  });
-
-  // ------------------------------------------------------------ distribuições
-
-  app.get("/socios/distribuicoes", somenteSocios, async (request) => {
-    const { meses } = z
-      .object({ meses: z.coerce.number().int().min(3).max(48).default(12) })
-      .parse(request.query);
-
-    const desde = ultimosMeses(meses)[0].inicio;
-
-    const linhas = await prisma.distribuicao.findMany({
-      where: { competencia: { gte: desde } },
-      orderBy: [{ competencia: "desc" }, { valor: "desc" }],
-      include: { socio: { select: { id: true, nome: true } } },
-    });
-
-    // Agrupadas por competência: é assim que a sociedade conversa sobre elas.
-    const porCompetencia = new Map<
-      string,
-      { competencia: string; total: number; itens: { id: string; socio: string; valor: number; observacao: string | null }[] }
-    >();
-
-    for (const l of linhas) {
-      const chave = l.competencia.toISOString().slice(0, 7);
-      if (!porCompetencia.has(chave)) {
-        porCompetencia.set(chave, { competencia: chave, total: 0, itens: [] });
-      }
-      const grupo = porCompetencia.get(chave)!;
-      grupo.total = Number((grupo.total + Number(l.valor)).toFixed(2));
-      grupo.itens.push({
-        id: l.id,
-        socio: l.socio.nome,
-        valor: Number(l.valor),
-        observacao: l.observacao,
-      });
-    }
-
-    return { competencias: [...porCompetencia.values()] };
-  });
-
-  app.post("/socios/distribuicoes", somenteSocios, async (request, reply) => {
-    const d = z
-      .object({
-        socioId: z.string().uuid("Escolha o sócio."),
-        competencia: z.string().regex(/^\d{4}-\d{2}$/, "Use AAAA-MM."),
-        valor: z.coerce.number().positive("Valor precisa ser maior que zero."),
-        observacao: z.string().max(300).optional().or(z.literal("")),
-      })
-      .parse(request.body);
-
-    const socio = await prisma.socio.findFirst({
-      where: { id: d.socioId, arquivadoEm: null },
-    });
-    if (!socio) return reply.code(404).send({ message: "Sócio não encontrado." });
-
-    const competencia = new Date(`${d.competencia}-01T00:00:00.000Z`);
-
-    const jaTem = await prisma.distribuicao.findUnique({
-      where: { socioId_competencia: { socioId: d.socioId, competencia } },
-    });
-    if (jaTem) {
-      return reply.code(409).send({
-        message: `${socio.nome} já tem lançamento em ${d.competencia}. Apague o anterior para relançar.`,
-      });
-    }
-
-    const criada = await prisma.distribuicao.create({
-      data: {
-        socioId: d.socioId,
-        competencia,
-        valor: d.valor,
-        observacao: d.observacao || null,
-      },
-    });
-
-    return reply.code(201).send({ id: criada.id });
-  });
-
-  app.delete("/socios/distribuicoes/:id", somenteSocios, async (request, reply) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const existe = await prisma.distribuicao.findUnique({ where: { id } });
-    if (!existe) return reply.code(404).send({ message: "Lançamento não encontrado." });
-
-    await prisma.distribuicao.delete({ where: { id } });
     return { id };
   });
 }

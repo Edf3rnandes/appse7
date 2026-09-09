@@ -657,14 +657,9 @@ model Presenca {
 // ---------------------------------------------------------------------------
 // Sociedade
 //
-// Não existe nada equivalente no se7volei: quota e distribuição viviam em
-// planilha. São dois modelos, e a separação entre eles é o ponto.
-//
-// `participacao` é quanto o sócio tem HOJE. Ela muda — entra sócio, sai sócio,
-// alguém compra a parte do outro. Por isso o valor distribuído NÃO é derivado
-// dela na hora de mostrar: ele é gravado em `Distribuicao`, linha por linha.
-// Derivar faria a participação de hoje reescrever o que foi pago no ano
-// passado, que é exatamente o erro que uma planilha comete sozinha.
+// É só o registro de quem é sócio e de quanto tem. O repasse do dinheiro NÃO
+// vive aqui: ele é feito fora do sistema, e trazê-lo para cá seria manter um
+// segundo livro-caixa em paralelo ao que já existe.
 // ---------------------------------------------------------------------------
 
 model Socio {
@@ -681,8 +676,6 @@ model Socio {
   telefone String?
   entrouEm DateTime? @db.Date
 
-  distribuicoes Distribuicao[]
-
   arquivadoEm  DateTime?
   criadoEm     DateTime  @default(now())
   atualizadoEm DateTime  @updatedAt
@@ -691,23 +684,42 @@ model Socio {
   @@schema("hub")
 }
 
-model Distribuicao {
-  id      String @id @default(uuid())
-  socioId String
-  socio   Socio  @relation(fields: [socioId], references: [id])
+// ---------------------------------------------------------------------------
+// Fechamento do dia
+//
+// Uma linha por dia, gravada às 23:59, com o retrato da escola naquele
+// instante. Existe porque a série do painel era RECONSTRUÍDA das datas de cada
+// matrícula, e reconstrução tem dois furos que nenhum código conserta: ela usa
+// o preço de hoje para meses passados, e `status` não guarda histórico.
+//
+// A partir do primeiro fechamento gravado, o número do dia é o que ele era no
+// dia — não o que a base de hoje sugere que ele tenha sido.
+//
+// A linha é idempotente pela data: rodar duas vezes no mesmo dia corrige, não
+// duplica. É o que permite reprocessar um dia que falhou sem medo.
+// ---------------------------------------------------------------------------
 
-  // Mês de referência, sempre no dia 1: é por competência que a sociedade
-  // fecha, não pela data em que o dinheiro saiu da conta.
-  competencia DateTime @db.Date
-  valor       Decimal  @db.Decimal(12, 2)
-  observacao  String?
+model FechamentoDiario {
+  id   String   @id @default(uuid())
+  data DateTime @unique @db.Date
 
-  criadoEm DateTime @default(now())
+  ativos   Int
+  entradas Int
+  saidas   Int
 
-  // Um lançamento por sócio por mês. Dois seriam erro de digitação, e um valor
-  // dobrado numa distribuição é o tipo de erro que ninguém percebe olhando.
-  @@unique([socioId, competencia])
-  @@index([competencia])
-  @@map("distribuicoes")
+  receitaPrevista Decimal @db.Decimal(12, 2)
+  vagasOciosas    Int
+
+  // Como a linha nasceu: AUTOMATICO no horário, MANUAL quando alguém mandou
+  // reprocessar, RECONSTRUIDO quando o sistema preencheu um dia que passou sem
+  // fechamento. O terceiro carrega a ressalva da reconstrução e a tela precisa
+  // saber disso para não apresentar os três com a mesma cara de exato.
+  origem String @default("AUTOMATICO")
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([data])
+  @@map("fechamentos_diarios")
   @@schema("hub")
 }

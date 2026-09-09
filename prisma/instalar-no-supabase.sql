@@ -387,15 +387,19 @@ CREATE TABLE "hub"."socios" (
 );
 
 -- CreateTable
-CREATE TABLE "hub"."distribuicoes" (
+CREATE TABLE "hub"."fechamentos_diarios" (
     "id" TEXT NOT NULL,
-    "socioId" TEXT NOT NULL,
-    "competencia" DATE NOT NULL,
-    "valor" DECIMAL(12,2) NOT NULL,
-    "observacao" TEXT,
+    "data" DATE NOT NULL,
+    "ativos" INTEGER NOT NULL,
+    "entradas" INTEGER NOT NULL,
+    "saidas" INTEGER NOT NULL,
+    "receitaPrevista" DECIMAL(12,2) NOT NULL,
+    "vagasOciosas" INTEGER NOT NULL,
+    "origem" TEXT NOT NULL DEFAULT 'AUTOMATICO',
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "distribuicoes_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "fechamentos_diarios_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -498,10 +502,10 @@ CREATE INDEX "presencas_alunoId_data_idx" ON "hub"."presencas"("alunoId", "data"
 CREATE UNIQUE INDEX "presencas_turmaId_alunoId_data_key" ON "hub"."presencas"("turmaId", "alunoId", "data");
 
 -- CreateIndex
-CREATE INDEX "distribuicoes_competencia_idx" ON "hub"."distribuicoes"("competencia");
+CREATE UNIQUE INDEX "fechamentos_diarios_data_key" ON "hub"."fechamentos_diarios"("data");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "distribuicoes_socioId_competencia_key" ON "hub"."distribuicoes"("socioId", "competencia");
+CREATE INDEX "fechamentos_diarios_data_idx" ON "hub"."fechamentos_diarios"("data");
 
 -- AddForeignKey
 ALTER TABLE "hub"."identidades" ADD CONSTRAINT "identidades_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -571,7 +575,4 @@ ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_alunoId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "hub"."distribuicoes" ADD CONSTRAINT "distribuicoes_socioId_fkey" FOREIGN KEY ("socioId") REFERENCES "hub"."socios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

@@ -75,15 +75,17 @@
 <main class="pagina" id="telaApp" hidden>
   <div class="abas-socio" role="tablist">
     <button role="tab" data-aba="painel" aria-selected="true">Painel</button>
+    <button role="tab" data-aba="turmas" aria-selected="false">Turmas</button>
+    <button role="tab" data-aba="adesao" aria-selected="false">Adesão</button>
     <button role="tab" data-aba="caixa" aria-selected="false">Caixa e inadimplência</button>
     <button role="tab" data-aba="sociedade" aria-selected="false">Sociedade</button>
-    <button role="tab" data-aba="distribuicoes" aria-selected="false">Distribuições</button>
   </div>
 
   <section id="secPainel"></section>
+  <section id="secTurmas" hidden></section>
+  <section id="secAdesao" hidden></section>
   <section id="secCaixa" hidden></section>
   <section id="secSociedade" hidden></section>
-  <section id="secDistribuicoes" hidden></section>
 </main>
 
 <script type="module">
@@ -136,18 +138,19 @@ const moedaCurta = (v) =>
  * parecer um desabamento — e é justamente num painel de sócio, lido rápido e
  * usado para decidir, que essa distorção custa caro.
  */
-function colunas(itens, valorDe, formatar) {
+function colunas(itens, valorDe, formatar, rotularCom = (i) => rotuloMes(i.mes)) {
   const maximo = Math.max(...itens.map(valorDe), 1);
   return `
     <div class="colunas">
       ${itens.map((i) => {
         const v = valorDe(i);
+        const rot = rotularCom(i);
         return `
           <div class="col ${i.corrente ? "agora" : ""}">
             <div class="val">${formatar(v)}</div>
             <div class="haste" style="height:${Math.round((v / maximo) * 100)}%"
-                 title="${escapar(rotuloMes(i.mes))}: ${escapar(String(formatar(v)))}"></div>
-            <div class="rot">${escapar(rotuloMes(i.mes))}</div>
+                 title="${escapar(rot)}: ${escapar(String(formatar(v)))}"></div>
+            <div class="rot">${escapar(rot)}</div>
           </div>`;
       }).join("")}
     </div>`;
@@ -157,9 +160,10 @@ function colunas(itens, valorDe, formatar) {
 
 const ABAS = {
   painel: { secao: "secPainel", carregar: () => carregarPainel() },
+  turmas: { secao: "secTurmas", carregar: () => carregarTurmas() },
+  adesao: { secao: "secAdesao", carregar: () => carregarAdesao() },
   caixa: { secao: "secCaixa", carregar: () => carregarCaixa() },
   sociedade: { secao: "secSociedade", carregar: () => carregarSociedade() },
-  distribuicoes: { secao: "secDistribuicoes", carregar: () => carregarDistribuicoes() },
 };
 
 const carregadas = new Set();
@@ -190,7 +194,12 @@ async function carregarPainel() {
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
 
   try {
-    const p = await api("/socios/painel?meses=6");
+    // Os dois juntos: o painel é calculado agora, o fechamento foi gravado às
+    // 23:59 de cada dia. Se o fechamento falhar, o painel ainda abre.
+    const [p, f] = await Promise.all([
+      api("/socios/painel?meses=6"),
+      api("/socios/fechamentos?dias=30").catch(() => null),
+    ]);
     const t = p.totais;
     const ultimo = p.serie[p.serie.length - 1];
 
@@ -219,6 +228,8 @@ async function carregarPainel() {
           <div class="apoio">${moedaCurta(t.potencialOcioso)}/mês se cheias</div>
         </div>
       </div>
+
+      ${blocoFechamentos(f)}
 
       <div class="cartao" style="margin-top:14px">
         <div class="linha" style="margin-bottom:2px"><strong>Receita prevista, mês a mês</strong></div>
@@ -504,133 +515,253 @@ function ligarSociedade() {
   });
 }
 
-// ============================================================ distribuições
+/**
+ * O fechamento de cada dia, gravado às 23:59.
+ *
+ * Vem primeiro no painel porque é o único número da tela que não foi calculado
+ * agora: ele é o que a escola era naquele dia, e não o que a base de hoje
+ * sugere que ela tenha sido. A diferença aparece quando um plano muda de preço
+ * ou uma matrícula é cancelada — o passado calculado muda, o gravado não.
+ */
+function blocoFechamentos(f) {
+  if (!f || !f.dias.length) {
+    return `
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:6px"><strong>Fechamento diário</strong></div>
+        <p class="meta" style="margin:0">
+          O primeiro fechamento é gravado às 23:59 de hoje. A partir daí, esta série mostra o
+          movimento de cada dia — quantos alunos, quantos entraram e quantos saíram.
+        </p>
+      </div>`;
+  }
 
-const dist = {
-  rascunho: { socioId: "", competencia: "", valor: "", observacao: "" },
-  erro: "",
-};
+  const ultimos = f.dias.slice(-14);
+  const ontem = f.dias[f.dias.length - 1];
 
-function guardarDist() {
-  document.querySelectorAll("[data-dist-campo]").forEach((c) => {
-    dist.rascunho[c.dataset.distCampo] = c.value;
-  });
+  return `
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:2px">
+        <strong>Fechamento diário</strong>
+        <span class="meta">último: ${fmt.data(ontem.data)} · ${ontem.ativos} alunos</span>
+      </div>
+      ${colunas(
+        ultimos.map((d) => ({ ...d, corrente: d === ontem })),
+        (i) => i.ativos,
+        (v) => String(v),
+        // Rótulo de dia, não de mês: catorze colunas seguidas com "set/26"
+        // embaixo de cada uma não diriam nada.
+        (i) => i.data.slice(8, 10) + "/" + i.data.slice(5, 7),
+      )}
+      <div class="rolagem" style="margin-top:4px">
+        <table class="tabelinha">
+          <tr><th>Dia</th><th class="num">Alunos</th><th class="num">Entraram</th>
+              <th class="num">Saíram</th><th class="num">Saldo</th><th></th></tr>
+          ${f.dias.slice().reverse().slice(0, 10).map((d) => `
+            <tr>
+              <td>${fmt.diaCurto(d.data)}</td>
+              <td class="num">${d.ativos}</td>
+              <td class="num">${d.entradas}</td>
+              <td class="num">${d.saidas}</td>
+              <td class="num" style="font-weight:600">${d.saldo > 0 ? "+" : ""}${d.saldo}</td>
+              <td class="num">${d.origem === "RECONSTRUIDO"
+                ? '<span class="pilula alerta">reconstruído</span>' : ""}</td>
+            </tr>`).join("")}
+        </table>
+      </div>
+      ${f.reconstruidos ? `
+        <p class="meta" style="margin:10px 0 0">
+          ${f.reconstruidos} ${f.reconstruidos === 1 ? "dia foi reconstruído" : "dias foram reconstruídos"}
+          da base atual, porque o sistema não estava de pé às 23:59 daquele dia. Os demais são
+          o retrato gravado no próprio dia.
+        </p>` : ""}
+    </div>`;
 }
 
-async function carregarDistribuicoes() {
-  const alvo = el("secDistribuicoes");
+// ==================================================================== turmas
+
+/**
+ * Ociosa e disputada são a mesma lista, lida dos dois lados. Turma sem
+ * capacidade cadastrada fica fora das duas: sem o número não há ocupação, e
+ * ela apareceria no topo das ociosas por falta de dado, não por falta de aluno.
+ */
+async function carregarTurmas() {
+  const alvo = el("secTurmas");
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
   try {
-    const [lista, sociedade] = await Promise.all([
-      api("/socios/distribuicoes?meses=12"),
-      api("/socios/sociedade"),
-    ]);
-    dist.dados = lista;
-    dist.socios = sociedade.socios;
-    pintarDistribuicoes();
+    const r = await api("/socios/turmas");
+    const comCapacidade = r.turmas.filter((t) => t.capacidade > 0);
+    const semCapacidade = r.turmas.filter((t) => !t.capacidade);
+
+    const ociosas = [...comCapacidade]
+      .sort((a, b) => (b.potencialOcioso ?? 0) - (a.potencialOcioso ?? 0) || b.vagas - a.vagas)
+      .slice(0, 12);
+
+    // Demanda é turma que tem alguém: com aluno matriculado ou com pedido na
+    // fila. Sem este filtro a lista se enchia de turmas em 0% — que são o
+    // oposto de demanda, e estavam ali só porque a ordenação empatava tudo.
+    const disputadas = comCapacidade
+      .filter((t) => t.ocupacao > 0 || t.pendentes > 0)
+      .sort((a, b) => b.ocupacao - a.ocupacao || b.pendentes - a.pendentes)
+      .slice(0, 12);
+
+    const ociosoTotal = comCapacidade.reduce((s, t) => s + (t.potencialOcioso || 0), 0);
+    const cheias = comCapacidade.filter((t) => t.ocupacao >= 100).length;
+
+    alvo.innerHTML = `
+      <div class="placar">
+        <div>
+          <div class="rotulo">Turmas cheias</div>
+          <div class="n">${cheias}</div>
+          <div class="apoio">de ${comCapacidade.length} com capacidade</div>
+        </div>
+        <div>
+          <div class="rotulo">Vagas ociosas</div>
+          <div class="n">${comCapacidade.reduce((s, t) => s + t.vagas, 0)}</div>
+          <div class="apoio">${moedaCurta(ociosoTotal)}/mês se cheias</div>
+        </div>
+        <div>
+          <div class="rotulo">Pedidos na fila</div>
+          <div class="n">${r.turmas.reduce((s, t) => s + t.pendentes, 0)}</div>
+          <div class="apoio">aguardando o administrativo</div>
+        </div>
+      </div>
+
+      ${tabelaTurmas("Turmas que mais deixam dinheiro na mesa", ociosas, "ociosa")}
+      ${disputadas.length
+        ? tabelaTurmas("Turmas com maior demanda", disputadas, "demanda")
+        : `<div class="cartao" style="margin-top:14px">
+             <div class="linha" style="margin-bottom:6px"><strong>Turmas com maior demanda</strong></div>
+             <p class="meta" style="margin:0">Nenhuma turma com aluno matriculado ou pedido na fila ainda.</p>
+           </div>`}
+
+      ${semCapacidade.length ? `
+        <div class="aviso alerta" style="margin-top:14px">
+          ${semCapacidade.length} turma${semCapacidade.length === 1 ? "" : "s"} sem capacidade
+          cadastrada ${semCapacidade.length === 1 ? "ficou" : "ficaram"} fora das duas listas:
+          ${escapar(semCapacidade.slice(0, 6).map((t) => t.turma).join(", "))}${semCapacidade.length > 6 ? "…" : ""}.
+          Sem o número não dá para dizer se está cheia ou vazia.
+        </div>` : ""}`;
   } catch (e) {
     alvo.innerHTML = aviso(e);
   }
 }
 
-function pintarDistribuicoes() {
-  const alvo = el("secDistribuicoes");
-  const r = dist.rascunho;
-
-  alvo.innerHTML = `
-    <div class="cartao">
-      <div class="linha" style="margin-bottom:10px"><strong>Lançar distribuição</strong></div>
-      ${dist.socios.length ? `
-        <div class="pilha" style="gap:12px">
-          <div class="campo">
-            <label class="rotulo" for="distSocio">Sócio</label>
-            <select class="selecao" id="distSocio" data-dist-campo="socioId">
-              <option value="">Escolha…</option>
-              ${dist.socios.map((s) => `
-                <option value="${s.id}" ${s.id === r.socioId ? "selected" : ""}>
-                  ${escapar(s.nome)} · ${s.participacao}%
-                </option>`).join("")}
-            </select>
-          </div>
-          <div style="display:flex;gap:10px">
-            <div class="campo" style="flex:1"><label class="rotulo" for="distComp">Competência</label>
-              <input id="distComp" data-dist-campo="competencia" type="month" value="${escapar(r.competencia)}"></div>
-            <div class="campo" style="flex:1"><label class="rotulo" for="distValor">Valor (R$)</label>
-              <input id="distValor" data-dist-campo="valor" inputmode="decimal" value="${escapar(r.valor)}"></div>
-          </div>
-          <div class="campo"><label class="rotulo" for="distObs">Observação</label>
-            <input id="distObs" data-dist-campo="observacao" value="${escapar(r.observacao)}"></div>
-          <div class="aviso erro ${dist.erro ? "" : "oculto"}">${escapar(dist.erro)}</div>
-          <button class="botao" type="button" id="btnLancarDist">Lançar</button>
-        </div>`
-        : `<div class="vazio">Cadastre os sócios primeiro, na aba Sociedade.</div>`}
-    </div>
-
-    ${dist.dados.competencias.length ? dist.dados.competencias.map((c) => `
-      <div class="cartao" style="margin-top:14px">
-        <div class="linha" style="margin-bottom:10px">
-          <strong>${escapar(rotuloMes(c.competencia))}</strong>
-          <span class="valor">${fmt.moeda(c.total)}</span>
-        </div>
-        ${c.itens.map((i) => `
-          <div class="item">
-            <div class="corpo">
-              <div class="titulo">${escapar(i.socio)}</div>
-              ${i.observacao ? `<div class="detalhe">${escapar(i.observacao)}</div>` : ""}
-            </div>
-            <div class="lado">
-              <span class="valor">${fmt.moeda(i.valor)}</span>
-              <button class="botao fantasma" type="button" data-apagar-dist="${i.id}">Apagar</button>
-            </div>
-          </div>`).join("")}
-      </div>`).join("")
-      : `<div class="vazio" style="margin-top:14px">Nenhuma distribuição lançada nos últimos 12 meses.</div>`}`;
-
-  ligarDistribuicoes();
+function tabelaTurmas(titulo, linhas, tipo) {
+  if (!linhas.length) return "";
+  return `
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>${escapar(titulo)}</strong></div>
+      <div class="rolagem">
+        <table class="tabelinha">
+          <tr>
+            <th>Turma</th><th>Unidade</th>
+            <th class="num">Alunos</th><th class="num">Capacidade</th>
+            <th class="num">Ocupação</th>
+            <th class="num">${tipo === "ociosa" ? "Ocioso/mês" : "Na fila"}</th>
+            <th class="num">Entraram</th><th class="num">Saíram</th>
+          </tr>
+          ${linhas.map((t) => `
+            <tr>
+              <td><strong>${escapar(t.turma)}</strong>
+                  ${t.categoria ? `<div class="meta">${escapar(t.categoria)}</div>` : ""}</td>
+              <td>${escapar(t.unidade)}</td>
+              <td class="num">${t.ativas}</td>
+              <td class="num">${t.capacidade}</td>
+              <td class="num">
+                <span class="pilula ${t.ocupacao >= 100 ? "erro" : t.ocupacao >= 80 ? "ok" : t.ocupacao >= 40 ? "neutra" : "alerta"}">
+                  ${t.ocupacao}%
+                </span>
+              </td>
+              <td class="num">${tipo === "ociosa"
+                ? (t.potencialOcioso === null ? "—" : moedaCurta(t.potencialOcioso) +
+                    (t.ticketDe === "plano" ? '<div class="meta">pelo plano</div>' : ""))
+                : t.pendentes}</td>
+              <td class="num">${t.entradasRecentes}</td>
+              <td class="num">${t.saidasRecentes}</td>
+            </tr>`).join("")}
+        </table>
+      </div>
+      <p class="meta" style="margin:10px 0 0">
+        Entradas e saídas dos últimos 4 meses.
+        ${tipo === "ociosa"
+          ? "O valor é o que a turma renderia cheia. Com aluno, pelo ticket da própria turma; vazia, pelo preço do plano ligado a ela."
+          : "“Na fila” são pedidos que chegaram e ainda não foram confirmados."}
+      </p>
+    </div>`;
 }
 
-function ligarDistribuicoes() {
-  el("btnLancarDist")?.addEventListener("click", async () => {
-    guardarDist();
-    const r = dist.rascunho;
-    dist.erro = "";
+// ==================================================================== adesão
 
-    if (!r.socioId) {
-      dist.erro = "Escolha o sócio.";
-      return pintarDistribuicoes();
-    }
+async function carregarAdesao() {
+  const alvo = el("secAdesao");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
 
-    try {
-      await api("/socios/distribuicoes", {
-        method: "POST",
-        body: JSON.stringify({
-          socioId: r.socioId,
-          competencia: r.competencia,
-          valor: r.valor.replace(/\./g, "").replace(",", "."),
-          observacao: r.observacao.trim(),
-        }),
-      });
-      // A competência fica: lançar os três sócios do mesmo mês é o uso normal,
-      // e redigitar o mês a cada linha seria só atrito.
-      dist.rascunho = { socioId: "", competencia: r.competencia, valor: "", observacao: "" };
-      await carregarDistribuicoes();
-    } catch (e) {
-      dist.erro = e.message;
-      pintarDistribuicoes();
-    }
-  });
+  try {
+    const a = await api("/socios/adesao?meses=6");
+    const p = a.periodo;
 
-  el("secDistribuicoes").querySelectorAll("[data-apagar-dist]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (!confirm("Apagar este lançamento?")) return;
-      try {
-        await api(`/socios/distribuicoes/${b.dataset.apagarDist}`, { method: "DELETE" });
-        await carregarDistribuicoes();
-      } catch (e) {
-        dist.erro = e.message;
-        pintarDistribuicoes();
-      }
-    }));
+    alvo.innerHTML = `
+      <div class="placar">
+        <div>
+          <div class="rotulo">Taxa de adesão</div>
+          <div class="n ${p.taxa !== null && p.taxa < 70 ? "baixo" : "alto"}">
+            ${p.taxa === null ? "—" : p.taxa + "%"}
+          </div>
+          <div class="apoio">dos pedidos já decididos</div>
+        </div>
+        <div>
+          <div class="rotulo">Pedidos recebidos</div>
+          <div class="n">${p.recebidos}</div>
+          <div class="apoio">nos últimos 6 meses</div>
+        </div>
+        <div>
+          <div class="rotulo">Viraram matrícula</div>
+          <div class="n">${p.confirmados}</div>
+          <div class="apoio">${p.pelosite} vieram do site</div>
+        </div>
+        <div>
+          <div class="rotulo">Ainda na fila</div>
+          <div class="n ${p.aguardando > 0 ? "baixo" : ""}">${p.aguardando}</div>
+          <div class="apoio">esperando confirmação</div>
+        </div>
+      </div>
+
+      <div class="aviso info" style="margin-top:14px">
+        <strong>Como esta taxa é contada:</strong> confirmados ÷ (confirmados + recusados).
+        Pedido que ainda espera o administrativo fica de fora da conta — senão a taxa do mês
+        corrente cairia todo mês, por construção. Se para vocês “adesão” é
+        <em>matriculados ÷ capacidade</em>, esse número está na aba Turmas, como ocupação.
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:2px"><strong>Taxa mês a mês</strong></div>
+        ${colunas(a.serie.map((m) => ({ ...m, valor: m.taxa ?? 0 })), (i) => i.valor, (v) => v + "%")}
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>Detalhe por mês</strong></div>
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Mês</th><th class="num">Recebidos</th><th class="num">Do site</th>
+                <th class="num">Confirmados</th><th class="num">Recusados</th>
+                <th class="num">Na fila</th><th class="num">Adesão</th></tr>
+            ${a.serie.slice().reverse().map((m) => `
+              <tr>
+                <td>${escapar(rotuloMes(m.mes))}${m.corrente ? ' <span class="meta">(em curso)</span>' : ""}</td>
+                <td class="num">${m.recebidos}</td>
+                <td class="num">${m.pelosite}</td>
+                <td class="num">${m.confirmados}</td>
+                <td class="num">${m.recusados}</td>
+                <td class="num">${m.aguardando}</td>
+                <td class="num"><strong>${m.taxa === null ? "—" : m.taxa + "%"}</strong></td>
+              </tr>`).join("")}
+          </table>
+        </div>
+      </div>`;
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
 }
 
 // =================================================================== início
