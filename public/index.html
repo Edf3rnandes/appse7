@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Portal do Responsável · SE7 Vôlei de Praia</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="topo">
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Portal</span></div>
+  <div class="espaco"></div>
+  <div class="usuario oculto" id="boxUsuario">
+    <img id="avatar" alt="" hidden>
+    <span class="nome" id="nomeUsuario"></span>
+    <button class="botao fantasma" id="btnSair" type="button">Sair</button>
+  </div>
+</header>
+
+<!-- ============================ ENTRAR ============================ -->
+<main class="centro" id="telaLogin" hidden>
+  <h1 style="font-size:26px">Acompanhe a matrícula do seu filho</h1>
+  <p style="color:var(--ink-2);margin:14px 0 28px">
+    Faturas, frequência e cadastro num lugar só. Entre com a sua conta Google —
+    no primeiro acesso vamos pedir o seu CPF para localizar o cadastro na escola.
+  </p>
+  <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
+  <div class="aviso erro oculto" id="erroLogin" style="margin-top:22px;text-align:left"></div>
+</main>
+
+<!-- ============================ VÍNCULO ============================ -->
+<main class="centro" id="telaVinculo" hidden>
+  <h1 style="font-size:24px">Qual é o seu CPF?</h1>
+  <p style="color:var(--ink-2);margin:14px 0 24px">
+    Use o CPF do responsável financeiro, o mesmo que está no cadastro da escola.
+    Ele serve só para ligar a sua conta ao cadastro — e você faz isso uma vez só.
+  </p>
+  <form class="pilha" id="formCpf" style="gap:16px">
+    <div class="campo">
+      <label class="rotulo" for="cpf">CPF do responsável</label>
+      <input id="cpf" name="cpf" inputmode="numeric" autocomplete="off"
+             placeholder="000.000.000-00" maxlength="14" required>
+    </div>
+    <button class="botao" type="submit" id="btnVincular">Continuar</button>
+  </form>
+  <div class="aviso erro oculto" id="erroVinculo" style="margin-top:18px;text-align:left"></div>
+  <button class="botao fantasma" type="button" id="btnSairVinculo" style="margin-top:22px">
+    Entrar com outra conta
+  </button>
+</main>
+
+<!-- ============================ PORTAL ============================ -->
+<main class="pagina" id="telaPortal" hidden>
+  <div class="abas" role="tablist">
+    <button class="aba" role="tab" id="abaAlunos"   aria-selected="true"  data-painel="painelAlunos">Alunos</button>
+    <button class="aba" role="tab" id="abaFaturas"  aria-selected="false" data-painel="painelFaturas">Faturas</button>
+    <button class="aba" role="tab" id="abaCadastro" aria-selected="false" data-painel="painelCadastro">Cadastro</button>
+  </div>
+
+  <section id="painelAlunos" role="tabpanel" aria-labelledby="abaAlunos">
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelFaturas" role="tabpanel" aria-labelledby="abaFaturas" hidden>
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelCadastro" role="tabpanel" aria-labelledby="abaCadastro" hidden>
+    <div class="carregando">Carregando…</div>
+  </section>
+</main>
+
+<script type="module">
+import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle } from "/app.js";
+
+const el = (id) => document.getElementById(id);
+const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
+
+function mostrar(nome) {
+  for (const [chave, node] of Object.entries(telas)) node.hidden = chave !== nome;
+  el("boxUsuario").classList.toggle("oculto", nome === "login");
+}
+
+function pintarUsuario() {
+  const u = Sessao.usuario;
+  if (!u) return;
+  el("nomeUsuario").textContent = u.nome || u.email || "";
+  const img = el("avatar");
+  if (u.avatarUrl) { img.src = u.avatarUrl; img.hidden = false; } else { img.hidden = true; }
+}
+
+function erro(node, mensagem) {
+  node.textContent = mensagem;
+  node.classList.remove("oculto");
+}
+
+function sair() {
+  Sessao.limpar();
+  mostrar("login");
+}
+
+// ------------------------------------------------------------------ entrar
+async function entrarComGoogle(idToken) {
+  try {
+    const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
+    Sessao.token = r.token;
+    Sessao.usuario = r.usuario;
+    pintarUsuario();
+    r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
+  } catch (e) {
+    erro(el("erroLogin"), e.message);
+  }
+}
+
+// ------------------------------------------------------------------ vínculo
+el("formCpf").addEventListener("submit", async (evento) => {
+  evento.preventDefault();
+  el("erroVinculo").classList.add("oculto");
+  el("btnVincular").disabled = true;
+  el("btnVincular").textContent = "Verificando…";
+
+  try {
+    const r = await api("/auth/vincular-cpf", {
+      method: "POST",
+      body: JSON.stringify({ cpf: el("cpf").value }),
+    });
+    Sessao.token = r.token;
+    const u = Sessao.usuario || {};
+    Sessao.usuario = { ...u, vinculoPendente: false };
+    abrirPortal();
+  } catch (e) {
+    erro(el("erroVinculo"), e.message);
+    if (e.status === 401) mostrar("login");
+  } finally {
+    el("btnVincular").disabled = false;
+    el("btnVincular").textContent = "Continuar";
+  }
+});
+
+el("cpf").addEventListener("input", (e) => { e.target.value = fmt.cpf(e.target.value); });
+el("btnSair").addEventListener("click", sair);
+el("btnSairVinculo").addEventListener("click", sair);
+
+// ------------------------------------------------------------------ abas
+const abas = [...document.querySelectorAll(".aba")];
+abas.forEach((aba) => aba.addEventListener("click", () => {
+  abas.forEach((outra) => {
+    const ativa = outra === aba;
+    outra.setAttribute("aria-selected", String(ativa));
+    el(outra.dataset.painel).hidden = !ativa;
+  });
+}));
+
+// ------------------------------------------------------------------ portal
+function abrirPortal() {
+  mostrar("portal");
+  pintarUsuario();
+  carregarAlunos();
+  carregarFaturas();
+  carregarCadastro();
+}
+
+/** Traduz a falha em algo que o responsável entenda, sem jargão de HTTP. */
+function painelErro(e) {
+  if (e instanceof ErroApi && e.status === 503) {
+    return `<div class="aviso alerta">${escapar(e.message)} Tente de novo em alguns minutos.</div>`;
+  }
+  return `<div class="aviso erro">${escapar(e.message)}</div>`;
+}
+
+const STATUS_MATRICULA = {
+  CONFIRMED: ["ok", "Confirmada"],
+  CREATED: ["neutra", "Criada"],
+  PAYMENT_PENDDING: ["alerta", "Pagamento pendente"],
+  CANCELED: ["erro", "Cancelada"],
+};
+
+async function carregarAlunos() {
+  const painel = el("painelAlunos");
+  try {
+    const alunos = await api("/portal/alunos");
+
+    if (!alunos.length) {
+      painel.innerHTML = `<div class="vazio">Nenhum aluno vinculado a este CPF.<br>
+        Se isso não parece certo, fale com a secretaria.</div>`;
+      return;
+    }
+
+    painel.innerHTML = `<div class="pilha">${alunos.map((a) => {
+      const m = a.matricula;
+      const [cor, texto] = m ? (STATUS_MATRICULA[m.status] || ["neutra", m.status]) : ["neutra", "Sem matrícula"];
+      return `
+        <article class="cartao">
+          <div class="linha">
+            <span class="aluno-nome">${escapar(a.nome)}</span>
+            <span class="pilula ${cor}">${escapar(texto)}</span>
+          </div>
+          ${m ? `<p class="meta" style="margin:8px 0 0">
+                   ${escapar(m.turma || "Turma não informada")}
+                   ${m.unidade ? " · " + escapar(m.unidade) : ""}
+                   ${m.plano ? " · " + escapar(m.plano) : ""}
+                 </p>
+                 ${m.expiraEm ? `<p class="meta" style="margin:4px 0 0">Vence em ${fmt.data(m.expiraEm)}</p>` : ""}`
+              : `<p class="meta" style="margin:8px 0 0">Este aluno ainda não tem matrícula ativa.</p>`}
+          <button class="botao fantasma" data-freq="${a.id}" style="margin-top:10px;padding-left:0">
+            Ver frequência
+          </button>
+          <div data-freq-alvo="${a.id}"></div>
+        </article>`;
+    }).join("")}</div>`;
+
+    painel.querySelectorAll("[data-freq]").forEach((botao) => {
+      botao.addEventListener("click", () => alternarFrequencia(botao));
+    });
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+async function alternarFrequencia(botao) {
+  const id = botao.dataset.freq;
+  const alvo = document.querySelector(`[data-freq-alvo="${id}"]`);
+
+  if (alvo.dataset.aberto === "1") {
+    alvo.innerHTML = "";
+    alvo.dataset.aberto = "0";
+    botao.textContent = "Ver frequência";
+    return;
+  }
+
+  alvo.dataset.aberto = "1";
+  botao.textContent = "Esconder frequência";
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
+  try {
+    const f = await api(`/portal/alunos/${id}/frequencia`);
+
+    if (!f.resumo.aulas) {
+      alvo.innerHTML = `<div class="vazio">Nenhuma presença registrada nos últimos 6 meses.</div>`;
+      return;
+    }
+
+    const pct = f.resumo.percentual ?? 0;
+    alvo.innerHTML = `
+      <div style="margin-top:14px;border-top:1px solid var(--rule);padding-top:14px">
+        <div class="linha"><span class="rotulo">Últimos 6 meses</span>
+          <span class="valor"><strong>${pct}%</strong> de presença</span></div>
+        <div class="barra" style="margin:8px 0 10px"><i style="width:${pct}%"></i></div>
+        <p class="meta" style="margin:0 0 12px">
+          ${f.resumo.presencas} presença${f.resumo.presencas === 1 ? "" : "s"} ·
+          ${f.resumo.faltas} falta${f.resumo.faltas === 1 ? "" : "s"} ·
+          ${f.resumo.aulas} aula${f.resumo.aulas === 1 ? "" : "s"}
+        </p>
+        <div>${f.registros.slice(0, 12).map((r) => `
+          <div class="item">
+            <div class="corpo">
+              <div class="titulo valor">${fmt.data(r.data)}</div>
+              <div class="detalhe">${escapar(r.turma || "—")}${r.professor ? " · " + escapar(r.professor) : ""}</div>
+            </div>
+            <div class="lado">
+              <span class="pilula ${r.presente ? "ok" : "erro"}">${r.presente ? "Presente" : "Falta"}</span>
+            </div>
+          </div>`).join("")}</div>
+      </div>`;
+  } catch (e) {
+    alvo.innerHTML = painelErro(e);
+  }
+}
+
+const STATUS_FATURA = {
+  RECEIVED: ["ok", "Paga"],
+  CONFIRMED: ["ok", "Confirmada"],
+  PENDING: ["alerta", "Em aberto"],
+  OVERDUE: ["erro", "Vencida"],
+  REFUNDED: ["neutra", "Estornada"],
+  DELETED: ["neutra", "Cancelada"],
+};
+
+async function carregarFaturas() {
+  const painel = el("painelFaturas");
+  try {
+    const r = await api("/portal/faturas");
+
+    if (r.aviso) {
+      painel.innerHTML = `<div class="aviso info">${escapar(r.aviso)}</div>`;
+      return;
+    }
+    if (!r.faturas.length) {
+      painel.innerHTML = `<div class="vazio">Nenhuma fatura encontrada.</div>`;
+      return;
+    }
+
+    // Cartões, não tabela: com cinco colunas o botão de 2ª via ficava fora da
+    // tela no celular, que é de onde quase todo responsável abre isto.
+    painel.innerHTML = `<div class="cartao">${r.faturas.map((f) => {
+      const [cor, texto] = STATUS_FATURA[f.status] || ["neutra", f.status];
+      const link = f.linkFatura || f.linkBoleto;
+      const aberta = f.status === "PENDING" || f.status === "OVERDUE";
+      return `<div class="item">
+        <div class="corpo">
+          <div class="titulo">${escapar(f.descricao || "Mensalidade")}</div>
+          <div class="detalhe">
+            ${aberta ? "Vence" : "Venceu"} em ${fmt.data(f.vencimento)} ·
+            <span class="valor">${fmt.moeda(f.valor)}</span>
+          </div>
+          <div style="margin-top:7px"><span class="pilula ${cor}">${escapar(texto)}</span></div>
+        </div>
+        ${link && aberta
+          ? `<div class="lado"><a class="link-botao" href="${escapar(link)}"
+               target="_blank" rel="noopener noreferrer">2ª via</a></div>`
+          : ""}
+      </div>`;
+    }).join("")}</div>`;
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+async function carregarCadastro() {
+  const painel = el("painelCadastro");
+  try {
+    const c = await api("/portal/perfil");
+
+    if (!c.encontrado) {
+      painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com a secretaria.</div>`;
+      return;
+    }
+
+    const e = c.endereco;
+    const partes = [e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado]
+      .filter(Boolean).map(escapar).join(", ");
+
+    painel.innerHTML = `
+      ${e.completo ? "" : `<div class="aviso alerta" style="margin-bottom:14px">
+        Faltam dados no seu endereço. Sem ele a escola não consegue emitir a nota fiscal —
+        avise a secretaria para completar.</div>`}
+      <div class="cartao pilha">
+        ${[["Nome", c.nome], ["E-mail", c.email], ["Telefone", c.telefone], ["CPF", c.cpf],
+           ["CEP", e.cep], ["Endereço", partes || null]]
+          .map(([rotulo, valor]) => `
+            <div class="linha">
+              <span class="rotulo">${rotulo}</span>
+              <span style="text-align:right">${valor ? escapar(valor) : "<span style='color:var(--ink-3)'>não informado</span>"}</span>
+            </div>`).join("")}
+      </div>
+      <p class="meta" style="margin-top:14px">
+        Para corrigir qualquer um destes dados, fale com a secretaria. Em breve a alteração
+        poderá ser feita por aqui.
+      </p>`;
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+// ------------------------------------------------------------------ início
+async function iniciar() {
+  if (Sessao.token && Sessao.usuario) {
+    pintarUsuario();
+    // Confia na sessão guardada, mas confirma com o servidor: o token pode ter
+    // expirado, ou o vínculo pode ter sido feito em outro aparelho.
+    try {
+      const eu = await api("/auth/eu");
+      if (eu.responsavelId) return abrirPortal();
+      return mostrar("vinculo");
+    } catch {
+      sair();
+    }
+  }
+
+  mostrar("login");
+  iniciarGoogle(el("botaoGoogle"), entrarComGoogle, (mensagem) => erro(el("erroLogin"), mensagem));
+}
+
+iniciar();
+</script>
+</body>
+</html>

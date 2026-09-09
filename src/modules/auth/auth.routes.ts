@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { PapelNome } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { googleConfigurado } from "../../config/env.js";
+import { env, googleConfigurado } from "../../config/env.js";
 import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
 import { GoogleNaoConfiguradoError, TokenGoogleInvalidoError, verificarIdToken } from "./google.js";
 import {
@@ -40,7 +40,14 @@ const conviteSchema = z.object({
 export async function authRoutes(app: FastifyInstance) {
   // Diz ao front o que esta ligado, para ele nao mostrar um botao do Google que
   // vai falhar. Unica rota de auth sem autenticacao alguma.
-  app.get("/auth/config", async () => ({ google: googleConfigurado }));
+  //
+  // O clientId sai daqui de proposito: ele e publico por definicao (aparece na
+  // URL do consentimento do Google), e assim o front nao precisa ser
+  // reconstruido quando o projeto do Google Cloud mudar.
+  app.get("/auth/config", async () => ({
+    google: googleConfigurado,
+    clientId: env.GOOGLE_CLIENT_ID,
+  }));
 
   app.post("/auth/google", async (request, reply) => {
     const body = googleSchema.parse(request.body);

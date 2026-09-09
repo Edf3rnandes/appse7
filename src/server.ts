@@ -1,5 +1,8 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import fstatic from "@fastify/static";
 import Fastify from "fastify";
 import { ZodError } from "zod";
 import { env, googleConfigurado, legadoConfigurado } from "./config/env.js";
@@ -8,6 +11,8 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { portalRoutes } from "./modules/escola/portal.routes.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -34,6 +39,16 @@ async function main() {
   await app.register(rateLimit, { max: 240, timeWindow: "1 minute" });
 
   await app.register(authPlugin);
+
+  // O portal e o app do professor sao paginas estaticas servidas pelo proprio
+  // Hub — sem build, sem framework. Cache desligado enquanto o front esta em
+  // desenvolvimento ativo: o navegador nao pode servir versao antiga a cada
+  // ajuste.
+  await app.register(fstatic, {
+    root: path.join(__dirname, "..", "public"),
+    cacheControl: false,
+    setHeaders: (res) => res.setHeader("Cache-Control", "no-store"),
+  });
 
   await app.register(async (escopo) => {
     await escopo.register(rateLimit, { max: 20, timeWindow: "1 minute" });

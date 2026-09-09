@@ -76,6 +76,20 @@ pertence, para não confirmar que o aluno existe.
 | `GET` | `/professor/turmas` | professor vinculado |
 | `GET` | `/escola/ocupacao` | ADMIN, SECRETARIA |
 
+## Telas
+
+Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build e sem framework.
+
+| Página | Para quem |
+|---|---|
+| `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
+| `/professor.html` | **Área do professor** — turmas agrupadas por unidade, com ocupação |
+
+O login é o botão do Google (GIS); no primeiro acesso o responsável informa o CPF e a partir daí
+o token guardado no navegador carrega o vínculo. Mobile primeiro: quase todo acesso do responsável
+vem do celular, então listas longas viram cartões em vez de tabelas — uma tabela de faturas com
+cinco colunas empurra o botão de 2ª via para fora da tela.
+
 `/auth/*` tem limite próprio de 20 req/min; o resto do app, 240 req/min.
 
 ## A ponte com o Laravel
@@ -131,4 +145,4 @@ Esta é a fundação: acesso, vínculo e leitura. Ainda não foram feitos:
 - lançamento de frequência pelo professor (substitui o app atual, que autentica
   com `secret` previsível em query string);
 - migração dos módulos da secretaria vindos do se7-inadimplencia;
-- front-end.
+- as telas de administração (hoje só portal e área do professor).
