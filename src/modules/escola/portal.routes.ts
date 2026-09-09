@@ -244,6 +244,45 @@ export async function portalRoutes(app: FastifyInstance) {
     };
   });
 
+  /**
+   * O responsável corrige o próprio endereço.
+   *
+   * Existe pelo mesmo motivo da foto: a secretaria não vai digitar o endereço
+   * de 570 famílias, e a base que vem do Laravel tem essas colunas quase todas
+   * vazias — nenhuma tela de lá as preenchia. Quem sabe o endereço é quem mora
+   * nele, e para ele é um formulário de trinta segundos.
+   *
+   * Mexe SÓ no endereço. Nome, CPF, e-mail e telefone são o que identifica a
+   * pessoa e para onde vai a cobrança; mudar isso é decisão da secretaria, não
+   * de quem está logado.
+   */
+  app.put("/portal/endereco", { preHandler: [app.exigirResponsavel] }, async (request) => {
+    const dados = z
+      .object({
+        cep: z
+          .string()
+          .transform((v) => v.replace(/\D/g, ""))
+          .refine((v) => v.length === 8, "CEP precisa ter 8 dígitos."),
+        logradouro: z.string().min(3, "Informe a rua.").max(200),
+        numero: z.string().min(1, "Informe o número.").max(20),
+        complemento: z.string().max(120).optional().or(z.literal("")),
+        bairro: z.string().min(2, "Informe o bairro.").max(120),
+        cidade: z.string().min(2, "Informe a cidade.").max(120),
+        estado: z
+          .string()
+          .transform((v) => v.trim().toUpperCase())
+          .refine((v) => /^[A-Z]{2}$/.test(v), "Estado em duas letras, como PB."),
+      })
+      .parse(request.body);
+
+    await prisma.responsavel.update({
+      where: { id: request.user.responsavelId! },
+      data: { ...dados, complemento: dados.complemento || null },
+    });
+
+    return { ...dados, completo: true };
+  });
+
   // Ocupação por unidade: quantas vagas a escola ainda tem, por onde. A
   // capacidade agora é um inteiro na turma, então a conta sai direto — no
   // sistema antigo ela era texto e ninguém conseguia somar.

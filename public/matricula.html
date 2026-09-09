@@ -75,6 +75,12 @@ const estado = {
   // O adulto se matricula sozinho; para menor, os dados são de quem paga.
   ehMenor: false,
   resp: { nome: "", cpf: "", telefone: "", email: "" },
+  // Endereço de quem paga. Fica fora de `aluno`/`resp` de propósito: ele é da
+  // mesma pessoa nos dois casos, e duplicar daria dois lugares para
+  // dessincronizar quando a caixa "é menor" é marcada.
+  endereco: { cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "" },
+  buscandoCep: false,
+  recadoCep: "",
   unidadeId: "",
   categoria: "",
   turmaId: "",
@@ -116,13 +122,26 @@ function passoValido() {
         estado.aluno.nascimento &&
         digitos(estado.aluno.telefone).length >= 10 &&
         digitos(p.cpf).length === 11 &&
-        (!estado.ehMenor || estado.resp.nome.trim().length > 2)
+        (!estado.ehMenor || estado.resp.nome.trim().length > 2) &&
+        enderecoValido()
       );
     case 1: return Boolean(estado.turmaId);
     case 2: return Boolean(estado.planoId);
     case 3: return estado.aceitou;
     default: return false;
   }
+}
+
+function enderecoValido() {
+  const e = estado.endereco;
+  return (
+    e.cep.replace(/\D/g, "").length === 8 &&
+    e.logradouro.trim().length > 2 &&
+    e.numero.trim().length > 0 &&
+    e.bairro.trim().length > 1 &&
+    e.cidade.trim().length > 1 &&
+    e.estado.trim().length === 2
+  );
 }
 
 function trilha() {
@@ -192,6 +211,68 @@ function passoAluno() {
             <input id="alCpf" data-aluno="cpf" inputmode="numeric" placeholder="000.000.000-00"
                    value="${escapar(a.cpf)}">
           </div>`}
+
+        ${blocoEndereco()}
+      </div>
+    </div>`;
+}
+
+/**
+ * Endereço, com busca pelo CEP.
+ *
+ * O CEP preenche rua, bairro, cidade e estado — restam número e complemento
+ * para digitar. Mas nenhum campo fica travado: se a busca falhar, ou o CEP for
+ * de uma rua nova que o serviço ainda não tem, a pessoa escreve por cima. Um
+ * serviço de CEP fora do ar não pode custar uma matrícula.
+ */
+function blocoEndereco() {
+  const e = estado.endereco;
+  return `
+    <div class="rotulo" style="margin-top:4px">Endereço de quem paga</div>
+
+    <div class="campo">
+      <label class="rotulo" for="endCep">CEP</label>
+      <div style="display:flex;gap:8px">
+        <input id="endCep" data-end="cep" inputmode="numeric" placeholder="58000-000"
+               maxlength="9" style="flex:1" value="${escapar(e.cep)}" autocomplete="postal-code">
+        <button class="botao fantasma" type="button" id="btnCep"
+                ${estado.buscandoCep ? "disabled" : ""}>
+          ${estado.buscandoCep ? "Buscando…" : "Buscar"}
+        </button>
+      </div>
+      ${estado.recadoCep ? `<span class="meta">${escapar(estado.recadoCep)}</span>` : ""}
+    </div>
+
+    <div class="campo">
+      <label class="rotulo" for="endRua">Rua</label>
+      <input id="endRua" data-end="logradouro" value="${escapar(e.logradouro)}" autocomplete="address-line1">
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <div class="campo" style="flex:1">
+        <label class="rotulo" for="endNum">Número</label>
+        <input id="endNum" data-end="numero" value="${escapar(e.numero)}">
+      </div>
+      <div class="campo" style="flex:2">
+        <label class="rotulo" for="endCompl">Complemento</label>
+        <input id="endCompl" data-end="complemento" placeholder="apto, bloco…"
+               value="${escapar(e.complemento)}">
+      </div>
+    </div>
+
+    <div class="campo">
+      <label class="rotulo" for="endBairro">Bairro</label>
+      <input id="endBairro" data-end="bairro" value="${escapar(e.bairro)}">
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <div class="campo" style="flex:3">
+        <label class="rotulo" for="endCidade">Cidade</label>
+        <input id="endCidade" data-end="cidade" value="${escapar(e.cidade)}">
+      </div>
+      <div class="campo" style="flex:1">
+        <label class="rotulo" for="endUf">UF</label>
+        <input id="endUf" data-end="estado" maxlength="2" value="${escapar(e.estado)}">
       </div>
     </div>`;
 }
@@ -330,6 +411,16 @@ function pintarRecibo() {
     </div>
 
     <div class="cartao" style="margin-top:14px">
+      <div class="rotulo" style="margin-bottom:8px">Acompanhe pelo portal</div>
+      <p class="meta" style="margin:0 0 10px">
+        Entre com o seu Gmail ou crie uma senha, e informe este mesmo CPF para
+        ligar a conta ao cadastro. Lá você vê a frequência, as faturas e envia a
+        foto do aluno.
+      </p>
+      <a class="link-botao" href="/index.html">Abrir o portal</a>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
       <div class="rotulo" style="margin-bottom:8px">O que foi matriculado</div>
       ${r.matriculas.map((m) => `
         <div class="registro">
@@ -366,6 +457,21 @@ function ligar() {
       estado.resp[e.target.dataset.resp] = e.target.value;
       atualizarAvancar();
     }));
+
+  document.querySelectorAll("[data-end]").forEach((c) =>
+    c.addEventListener("input", (e) => {
+      const campo = e.target.dataset.end;
+      estado.endereco[campo] = campo === "estado" ? e.target.value.toUpperCase() : e.target.value;
+      atualizarAvancar();
+      // Oito dígitos digitados: busca sozinho, uma vez por CEP. Sem isto a
+      // pessoa precisa perceber que existe um botão.
+      if (campo === "cep" && digitosDoCep() !== ultimoCepBuscado) buscarEndereco();
+    }));
+
+  el("btnCep")?.addEventListener("click", () => {
+    ultimoCepBuscado = "";
+    buscarEndereco();
+  });
 
   el("ehMenor")?.addEventListener("change", (e) => {
     estado.ehMenor = e.target.checked;
@@ -422,6 +528,44 @@ function ligar() {
   });
 }
 
+let ultimoCepBuscado = "";
+
+/**
+ * Preenche o endereço a partir do CEP.
+ *
+ * Só sobrescreve rua, bairro, cidade e estado — número e complemento são de
+ * quem mora lá, e o serviço não os conhece. Qualquer falha vira um recado e os
+ * campos seguem editáveis: a matrícula nunca depende deste serviço.
+ */
+async function buscarEndereco() {
+  const cep = digitosDoCep();
+  if (cep.length !== 8 || estado.buscandoCep) return;
+
+  ultimoCepBuscado = cep;
+  estado.buscandoCep = true;
+  estado.recadoCep = "";
+  pintar();
+
+  try {
+    const e = await api(`/publico/cep/${cep}`);
+    estado.endereco.logradouro = e.logradouro || estado.endereco.logradouro;
+    estado.endereco.bairro = e.bairro || estado.endereco.bairro;
+    estado.endereco.cidade = e.cidade || estado.endereco.cidade;
+    estado.endereco.estado = e.estado || estado.endereco.estado;
+    estado.recadoCep = e.logradouro ? "" : "Este CEP não tem rua definida. Escreva a rua.";
+  } catch (erro) {
+    estado.recadoCep = erro.message;
+  } finally {
+    estado.buscandoCep = false;
+    pintar();
+    // O próximo campo a preencher é sempre o número, e é o único que a busca
+    // não tem como saber.
+    el("endNum")?.focus();
+  }
+}
+
+const digitosDoCep = () => estado.endereco.cep.replace(/\D/g, "");
+
 function atualizarAvancar() {
   const botao = el("btnAvancar");
   if (botao) botao.disabled = !passoValido() || estado.enviando;
@@ -451,6 +595,15 @@ async function enviar() {
           cpf: p.cpf,
           telefone: p.telefone.trim(),
           email: (p.email || "").trim(),
+          endereco: {
+            cep: estado.endereco.cep.replace(/\D/g, ""),
+            logradouro: estado.endereco.logradouro.trim(),
+            numero: estado.endereco.numero.trim(),
+            complemento: estado.endereco.complemento.trim(),
+            bairro: estado.endereco.bairro.trim(),
+            cidade: estado.endereco.cidade.trim(),
+            estado: estado.endereco.estado.trim().toUpperCase(),
+          },
         },
         aceitouTermos: true,
       }),

@@ -7,6 +7,11 @@ import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
 import { mesesAFrente } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { lerConfig } from "../conteudo/conteudo.routes.js";
+import {
+  buscarCep,
+  CepIndisponivelError,
+  CepInvalidoError,
+} from "../../services/cep/cep.client.js";
 
 /**
  * Matrícula pelo site — o que a família preenche.
@@ -49,6 +54,30 @@ const alunoSchema = z.object({
   planoId: z.string().uuid("Escolha o plano."),
 });
 
+/**
+ * Endereço de quem paga.
+ *
+ * O sistema atual tem estas colunas em `customers` desde sempre, mas nenhuma
+ * tela as preenche — e uma delas, `address_number`, foi criada NOT NULL sem
+ * default numa tabela que já tinha linhas. Aqui o endereço é pedido de fato, e
+ * o complemento é o único campo que pode faltar: nem todo endereço tem um.
+ */
+const enderecoSchema = z.object({
+  cep: z
+    .string({ required_error: "Informe o CEP." })
+    .transform(somenteDigitos)
+    .refine((v) => v.length === 8, "CEP precisa ter 8 dígitos."),
+  logradouro: z.string({ required_error: "Informe a rua." }).min(3, "Informe a rua.").max(200),
+  numero: z.string({ required_error: "Informe o número." }).min(1, "Informe o número.").max(20),
+  complemento: z.string().max(120).optional().or(z.literal("")),
+  bairro: z.string({ required_error: "Informe o bairro." }).min(2, "Informe o bairro.").max(120),
+  cidade: z.string({ required_error: "Informe a cidade." }).min(2, "Informe a cidade.").max(120),
+  estado: z
+    .string({ required_error: "Informe o estado." })
+    .transform((v) => v.trim().toUpperCase())
+    .refine((v) => /^[A-Z]{2}$/.test(v), "Estado em duas letras, como PB."),
+});
+
 const matriculaDoSiteSchema = z.object({
   aluno: alunoSchema,
   // Irmãos matriculados no mesmo pedido — o "plano família" do site.
@@ -71,15 +100,46 @@ const matriculaDoSiteSchema = z.object({
       .refine(cpfValido, "CPF inválido."),
     email: z.string().email("E-mail inválido.").optional().or(z.literal("")),
     telefone: z.string().min(10, "Informe o telefone com DDD.").max(30),
+    endereco: enderecoSchema,
   }),
 });
 
 export async function publicoRoutes(app: FastifyInstance) {
-  app.setErrorHandler(tratadorDeErro());
+  app.setErrorHandler(
+    tratadorDeErro((erro) => {
+      if (erro instanceof CepInvalidoError) return { status: 400, mensagem: erro.message };
+      if (erro instanceof CepIndisponivelError) return { status: 503, mensagem: erro.message };
+      return undefined;
+    }),
+  );
 
   // Rota aberta na internet: um limite bem mais apertado que o do resto do
   // sistema. Não atrapalha um envio de boa-fé e corta o automatizado.
   await app.register(rateLimit, { max: 10, timeWindow: "10 minutes" });
+
+  /**
+   * Endereço a partir do CEP.
+   *
+   * Limite próprio, e mais folgado que o das outras rotas daqui: preencher o
+   * endereço custa uma consulta por CEP, e quem erra o número tenta de novo.
+   * Sem esta linha, três tentativas de CEP gastariam um terço da cota que
+   * existe para conter envio automatizado de matrícula.
+   *
+   * Falhar aqui nunca impede a matrícula: a tela deixa os campos editáveis.
+   */
+  app.get(
+    "/publico/cep/:cep",
+    { config: { rateLimit: { max: 40, timeWindow: "10 minutes" } } },
+    async (request, reply) => {
+      const { cep } = z.object({ cep: z.string() }).parse(request.params);
+      const endereco = await buscarCep(cep);
+
+      if (!endereco) {
+        return reply.code(404).send({ message: "CEP não encontrado. Confira o número." });
+      }
+      return endereco;
+    },
+  );
 
   /**
    * O catálogo que o site mostra: unidades, turmas com horário e vaga, e os
@@ -228,6 +288,27 @@ export async function publicoRoutes(app: FastifyInstance) {
       comparar("Nome", nomeDoResponsavel, existente.nome);
       comparar("E-mail", corpo.responsavel.email, existente.email);
       comparar("Telefone", corpo.responsavel.telefone, existente.telefone);
+
+      // O endereço segue a mesma regra do resto: quem já está no cadastro não
+      // é alterado por esta rota. Vale inclusive quando o cadastro veio do
+      // Laravel sem endereço nenhum — preencher um campo vazio parece
+      // inofensivo, mas é o mesmo caminho de quem só sabe o CPF de alguém, e é
+      // no endereço que o boleto impresso chega. A secretaria aplica.
+      const enderecoAtual = [
+        existente.cep, existente.logradouro, existente.numero,
+        existente.bairro, existente.cidade, existente.estado,
+      ].some((v) => (v ?? "").trim() !== "");
+
+      const e = corpo.responsavel.endereco;
+      const informado = [
+        e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado,
+      ].filter(Boolean).join(", ");
+
+      divergencias.push(
+        enderecoAtual
+          ? `Endereço informado no site: ${informado} (CEP ${e.cep}). O cadastro já tem endereço e NÃO foi alterado.`
+          : `Endereço informado no site: ${informado} (CEP ${e.cep}). O cadastro está sem endereço; confira e aplique.`,
+      );
     }
 
     const resultado = await prisma.$transaction(async (tx) => {
@@ -239,6 +320,13 @@ export async function publicoRoutes(app: FastifyInstance) {
             cpf: corpo.responsavel.cpf,
             email: corpo.responsavel.email || null,
             telefone: corpo.responsavel.telefone,
+            cep: corpo.responsavel.endereco.cep,
+            logradouro: corpo.responsavel.endereco.logradouro,
+            numero: corpo.responsavel.endereco.numero,
+            complemento: corpo.responsavel.endereco.complemento || null,
+            bairro: corpo.responsavel.endereco.bairro,
+            cidade: corpo.responsavel.endereco.cidade,
+            estado: corpo.responsavel.endereco.estado,
           },
         }));
 

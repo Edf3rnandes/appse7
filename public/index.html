@@ -428,40 +428,193 @@ async function carregarFaturas() {
   }
 }
 
+// Rascunho do endereço enquanto o responsável preenche. Fora do DOM porque o
+// painel é reescrito inteiro a cada busca de CEP.
+const cadastro = {
+  perfil: null,
+  editando: false,
+  rascunho: null,
+  buscandoCep: false,
+  recadoCep: "",
+  salvando: false,
+  erro: "",
+};
+
+const CAMPOS_ENDERECO = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"];
+
 async function carregarCadastro() {
   const painel = el("painelCadastro");
   try {
-    const c = await api("/portal/perfil");
-
-    if (!c.encontrado) {
-      painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com a secretaria.</div>`;
-      return;
-    }
-
-    const e = c.endereco;
-    const partes = [e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado]
-      .filter(Boolean).map(escapar).join(", ");
-
-    painel.innerHTML = `
-      ${e.completo ? "" : `<div class="aviso alerta" style="margin-bottom:14px">
-        Faltam dados no seu endereço. Sem ele a escola não consegue emitir a nota fiscal —
-        avise a secretaria para completar.</div>`}
-      <div class="cartao pilha">
-        ${[["Nome", c.nome], ["E-mail", c.email], ["Telefone", c.telefone], ["CPF", c.cpf],
-           ["CEP", e.cep], ["Endereço", partes || null]]
-          .map(([rotulo, valor]) => `
-            <div class="linha">
-              <span class="rotulo">${rotulo}</span>
-              <span style="text-align:right">${valor ? escapar(valor) : "<span style='color:var(--ink-3)'>não informado</span>"}</span>
-            </div>`).join("")}
-      </div>
-      <p class="meta" style="margin-top:14px">
-        Para corrigir qualquer um destes dados, fale com a secretaria. Em breve a alteração
-        poderá ser feita por aqui.
-      </p>`;
+    cadastro.perfil = await api("/portal/perfil");
+    pintarCadastro();
   } catch (e) {
     painel.innerHTML = painelErro(e);
   }
+}
+
+function pintarCadastro() {
+  const painel = el("painelCadastro");
+  const c = cadastro.perfil;
+
+  if (!c?.encontrado) {
+    painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com a secretaria.</div>`;
+    return;
+  }
+
+  const e = c.endereco;
+  const partes = [e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado]
+    .filter(Boolean).map(escapar).join(", ");
+
+  painel.innerHTML = `
+    ${e.completo ? "" : `<div class="aviso alerta" style="margin-bottom:14px">
+      Faltam dados no seu endereço. É por ele que a escola emite a nota fiscal e o boleto.
+      Você mesmo pode preencher aqui embaixo.</div>`}
+
+    <div class="cartao pilha">
+      ${[["Nome", c.nome], ["E-mail", c.email], ["Telefone", c.telefone], ["CPF", c.cpf]]
+        .map(([rotulo, valor]) => `
+          <div class="linha">
+            <span class="rotulo">${rotulo}</span>
+            <span style="text-align:right">${valor ? escapar(valor) : "<span style='color:var(--ink-3)'>não informado</span>"}</span>
+          </div>`).join("")}
+    </div>
+    <p class="meta" style="margin-top:10px">
+      Nome, CPF, e-mail e telefone só a secretaria altera — é por eles que a cobrança
+      encontra você.
+    </p>
+
+    ${cadastro.editando ? formularioEndereco() : `
+      <div class="cartao pilha" style="margin-top:14px">
+        <div class="linha"><span class="rotulo">CEP</span>
+          <span style="text-align:right">${e.cep ? escapar(e.cep) : "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
+        <div class="linha"><span class="rotulo">Endereço</span>
+          <span style="text-align:right">${partes || "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
+      </div>
+      <button class="botao fantasma" type="button" id="btnEditarEndereco" style="margin-top:8px;padding-left:0">
+        ${e.completo ? "Corrigir endereço" : "Preencher endereço"}
+      </button>`}`;
+
+  ligarCadastro();
+}
+
+function formularioEndereco() {
+  const r = cadastro.rascunho;
+  return `
+    <div class="cartao pilha" style="margin-top:14px;gap:12px">
+      <div class="rotulo">Endereço</div>
+
+      <div class="campo">
+        <label class="rotulo" for="cadCep">CEP</label>
+        <div style="display:flex;gap:8px">
+          <input id="cadCep" data-end="cep" inputmode="numeric" placeholder="58000-000"
+                 maxlength="9" style="flex:1" value="${escapar(r.cep)}" autocomplete="postal-code">
+          <button class="botao fantasma" type="button" id="btnCadCep" ${cadastro.buscandoCep ? "disabled" : ""}>
+            ${cadastro.buscandoCep ? "Buscando…" : "Buscar"}
+          </button>
+        </div>
+        ${cadastro.recadoCep ? `<span class="meta">${escapar(cadastro.recadoCep)}</span>` : ""}
+      </div>
+
+      <div class="campo"><label class="rotulo" for="cadRua">Rua</label>
+        <input id="cadRua" data-end="logradouro" value="${escapar(r.logradouro)}"></div>
+
+      <div style="display:flex;gap:10px">
+        <div class="campo" style="flex:1"><label class="rotulo" for="cadNum">Número</label>
+          <input id="cadNum" data-end="numero" value="${escapar(r.numero)}"></div>
+        <div class="campo" style="flex:2"><label class="rotulo" for="cadCompl">Complemento</label>
+          <input id="cadCompl" data-end="complemento" value="${escapar(r.complemento)}"></div>
+      </div>
+
+      <div class="campo"><label class="rotulo" for="cadBairro">Bairro</label>
+        <input id="cadBairro" data-end="bairro" value="${escapar(r.bairro)}"></div>
+
+      <div style="display:flex;gap:10px">
+        <div class="campo" style="flex:3"><label class="rotulo" for="cadCidade">Cidade</label>
+          <input id="cadCidade" data-end="cidade" value="${escapar(r.cidade)}"></div>
+        <div class="campo" style="flex:1"><label class="rotulo" for="cadUf">UF</label>
+          <input id="cadUf" data-end="estado" maxlength="2" value="${escapar(r.estado)}"></div>
+      </div>
+
+      <div class="aviso erro ${cadastro.erro ? "" : "oculto"}">${escapar(cadastro.erro)}</div>
+
+      <div class="barra-acoes">
+        <button class="botao" type="button" id="btnSalvarEndereco" ${cadastro.salvando ? "disabled" : ""}>
+          ${cadastro.salvando ? "Salvando…" : "Salvar endereço"}
+        </button>
+        <button class="botao fantasma" type="button" id="btnCancelarEndereco">Cancelar</button>
+      </div>
+    </div>`;
+}
+
+function ligarCadastro() {
+  el("btnEditarEndereco")?.addEventListener("click", () => {
+    const e = cadastro.perfil.endereco;
+    cadastro.rascunho = Object.fromEntries(CAMPOS_ENDERECO.map((k) => [k, e[k] ?? ""]));
+    cadastro.editando = true;
+    cadastro.erro = "";
+    cadastro.recadoCep = "";
+    pintarCadastro();
+  });
+
+  el("btnCancelarEndereco")?.addEventListener("click", () => {
+    cadastro.editando = false;
+    pintarCadastro();
+  });
+
+  // Cada tecla vai para o rascunho. Sem isto a busca de CEP, que redesenha o
+  // painel, devolveria os campos vazios.
+  document.querySelectorAll("[data-end]").forEach((c) =>
+    c.addEventListener("input", (ev) => {
+      const campo = ev.target.dataset.end;
+      cadastro.rascunho[campo] = campo === "estado" ? ev.target.value.toUpperCase() : ev.target.value;
+    }));
+
+  el("btnCadCep")?.addEventListener("click", async () => {
+    const cep = cadastro.rascunho.cep.replace(/\D/g, "");
+    if (cep.length !== 8) {
+      cadastro.recadoCep = "CEP precisa ter 8 dígitos.";
+      return pintarCadastro();
+    }
+
+    cadastro.buscandoCep = true;
+    cadastro.recadoCep = "";
+    pintarCadastro();
+
+    try {
+      const e = await api(`/publico/cep/${cep}`);
+      cadastro.rascunho.logradouro = e.logradouro || cadastro.rascunho.logradouro;
+      cadastro.rascunho.bairro = e.bairro || cadastro.rascunho.bairro;
+      cadastro.rascunho.cidade = e.cidade || cadastro.rascunho.cidade;
+      cadastro.rascunho.estado = e.estado || cadastro.rascunho.estado;
+      cadastro.recadoCep = e.logradouro ? "" : "Este CEP não tem rua definida. Escreva a rua.";
+    } catch (erro) {
+      cadastro.recadoCep = erro.message;
+    } finally {
+      cadastro.buscandoCep = false;
+      pintarCadastro();
+      el("cadNum")?.focus();
+    }
+  });
+
+  el("btnSalvarEndereco")?.addEventListener("click", async () => {
+    cadastro.salvando = true;
+    cadastro.erro = "";
+    pintarCadastro();
+
+    try {
+      const salvo = await api("/portal/endereco", {
+        method: "PUT",
+        body: JSON.stringify(cadastro.rascunho),
+      });
+      cadastro.perfil = { ...cadastro.perfil, endereco: salvo };
+      cadastro.editando = false;
+    } catch (e) {
+      cadastro.erro = e.message;
+    } finally {
+      cadastro.salvando = false;
+      pintarCadastro();
+    }
+  });
 }
 
 // ------------------------------------------------------------------ início

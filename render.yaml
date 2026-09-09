@@ -47,6 +47,12 @@ services:
       # no banco, desligada por padrao e ligada so por um ADMIN, pela tela.
       - key: ASAAS_API_KEY
         sync: false
+      # Busca de endereco por CEP. Nao precisa ser preenchida: sem ela o Hub
+      # usa o ViaCEP, que e gratuito e nao pede chave. Esta aqui para trocar de
+      # provedor sem mexer no codigo — e porque a matricula NUNCA depende dela:
+      # falhando a busca, a familia digita o endereco.
+      - key: CEP_BASE_URL
+        value: https://viacep.com.br/ws
       # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a
       # escola mora no Postgres do Hub. Estas variaveis servem so a importacao
       # unica dos alunos, quando ela acontecer — e podem ficar vazias ate la.
