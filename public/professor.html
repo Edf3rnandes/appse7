@@ -63,6 +63,11 @@
 <script type="module">
 import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao, gradeDoMes } from "/app.js";
 
+const DIAS = {
+  DOMINGO: "dom", SEGUNDA: "seg", TERCA: "ter", QUARTA: "qua",
+  QUINTA: "qui", SEXTA: "sex", SABADO: "sáb",
+};
+
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semVinculo: el("telaSemVinculo"), app: el("telaApp") };
 
@@ -163,7 +168,9 @@ async function carregarChamada() {
       <div id="listaChamada"></div>`;
 
     el("turma").addEventListener("change", (e) => {
-      chamada.turmaId = e.target.value ? Number(e.target.value) : null;
+      // Os ids são uuid. Number() aqui devolvia NaN, que é falso, e a lista
+      // de chamada simplesmente não carregava quando a turma era escolhida.
+      chamada.turmaId = e.target.value || null;
       chamada.turmaId ? carregarAlunos() : (el("listaChamada").innerHTML = "");
     });
   } catch (e) {
@@ -179,7 +186,10 @@ async function carregarAlunos() {
     const r = await api(`/professor/turmas/${chamada.turmaId}/alunos`);
     chamada.alunos = r.alunos;
     chamada.bloqueada = r.frequenciaJaLancadaHoje;
-    chamada.presentes = new Set();
+    // A lista abre já com o que está gravado hoje. Como reenviar corrige,
+    // abrir tudo desmarcado faria um toque em "Enviar" zerar a chamada da
+    // turma inteira.
+    chamada.presentes = new Set(r.alunos.filter((a) => a.presente).map((a) => a.id));
 
     if (!chamada.alunos.length) {
       alvo.innerHTML = `<div class="vazio">Nenhum aluno com matrícula confirmada nesta turma.</div>`;
@@ -192,8 +202,8 @@ async function carregarAlunos() {
 
     alvo.innerHTML = `
       ${chamada.bloqueada ? `<div class="aviso alerta" style="margin-bottom:14px">
-        A frequência desta turma já foi lançada hoje. O sistema aceita um lançamento por dia —
-        se precisar corrigir, fale com a secretaria.</div>` : ""}
+        A frequência desta turma já foi lançada hoje. Enviar de novo corrige o que
+        está marcado, sem duplicar o registro.</div>` : ""}
 
       <div class="cartao">
         <div class="linha" style="margin-bottom:12px">
@@ -232,6 +242,10 @@ async function carregarAlunos() {
     el("btnNenhum").addEventListener("click", () => marcarTodos(false));
     el("btnEnviar").addEventListener("click", enviarChamada);
     el("buscaAluno").addEventListener("input", filtrarAlunos);
+
+    // A lista pode abrir com gente já marcada (chamada refeita), então o
+    // contador precisa nascer certo, não em zero.
+    atualizarContador();
   } catch (e) {
     alvo.innerHTML = aviso(e);
   }
@@ -241,7 +255,7 @@ async function carregarAlunos() {
 // o mesmo aluno com a lista filtrada, que é como o professor chama em quadra.
 function linhaAluno(a) {
   return `
-    <button class="aluno" type="button" role="switch" aria-pressed="false"
+    <button class="aluno" type="button" role="switch" aria-pressed="${a.presente ? "true" : "false"}"
             data-id="${a.id}" data-nome="${escapar((a.nome || "").toLowerCase())}">
       <span class="num">${String(a.numero).padStart(2, "0")}</span>
       <span class="nome-aluno">${escapar(a.nome)}</span>
@@ -250,7 +264,7 @@ function linhaAluno(a) {
 }
 
 function alternarPresenca(botao) {
-  const id = Number(botao.dataset.id);
+  const id = botao.dataset.id;
   const marcado = botao.getAttribute("aria-pressed") === "true";
   botao.setAttribute("aria-pressed", String(!marcado));
   marcado ? chamada.presentes.delete(id) : chamada.presentes.add(id);
@@ -347,19 +361,26 @@ async function carregarTurmas() {
       <section style="margin-bottom:26px">
         <h2 class="rotulo" style="margin-bottom:10px">${escapar(unidade)}</h2>
         <div class="pilha">${lista.map((t) => {
-          const capacidade = t.matriculados + t.vagas;
-          const pct = capacidade > 0 ? Math.round((t.matriculados / capacidade) * 100) : 0;
+          // Turma sem capacidade declarada não tem "vagas": mostrar "0 vagas"
+          // ali seria dizer que está cheia, que é o contrário do que se sabe.
+          const capacidade = t.capacidade ?? null;
+          const vagas = capacidade === null ? null : Math.max(0, capacidade - t.matriculados);
+          const pct = capacidade ? Math.round((t.matriculados / capacidade) * 100) : 0;
+          const horarios = (t.horarios || [])
+            .map((h) => DIAS[h.dia] + " " + h.inicio)
+            .join(" · ");
           return `
             <article class="cartao">
               <div class="linha">
                 <span style="font-weight:700;font-size:17px">${escapar(t.nome)}</span>
-                <span class="pilula ${t.vagas === 0 ? "alerta" : "neutra"}">
-                  ${t.vagas === 0 ? "Turma cheia" : t.vagas + " vaga" + (t.vagas === 1 ? "" : "s")}
-                </span>
+                ${vagas === null ? "" : `<span class="pilula ${vagas === 0 ? "alerta" : "neutra"}">
+                  ${vagas === 0 ? "Turma cheia" : vagas + " vaga" + (vagas === 1 ? "" : "s")}
+                </span>`}
               </div>
-              ${t.categoria ? `<p class="meta" style="margin:6px 0 0">${escapar(CATEGORIAS[t.categoria] || t.categoria)}</p>` : ""}
-              <div class="barra" style="margin:12px 0 6px"><i style="width:${pct}%"></i></div>
-              <p class="meta" style="margin:0">
+              ${horarios ? `<p class="meta" style="margin:6px 0 0">${escapar(horarios)}</p>` : ""}
+              ${t.categoria ? `<p class="meta" style="margin:4px 0 0">${escapar(CATEGORIAS[t.categoria] || t.categoria)}</p>` : ""}
+              ${capacidade ? `<div class="barra" style="margin:12px 0 6px"><i style="width:${pct}%"></i></div>` : ""}
+              <p class="meta" style="margin:8px 0 0">
                 ${t.matriculados} matriculado${t.matriculados === 1 ? "" : "s"}${capacidade ? ` de ${capacidade}` : ""}
               </p>
             </article>`;
@@ -643,7 +664,7 @@ function ligarFormAviso() {
         method: "POST",
         body: JSON.stringify({
           tipo: tipo.value,
-          ...(turmaId ? { turmaId: Number(turmaId) } : {}),
+          ...(turmaId ? { turmaId } : {}),
           ...(alunoNome && PEDE_ALUNO.has(tipo.value) ? { alunoNome } : {}),
           descricao: el("avisoDescricao").value.trim(),
         }),

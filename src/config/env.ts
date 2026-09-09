@@ -43,7 +43,6 @@ const schema = z.object({
   // "so SELECT no legado" continua valendo e a checagem de frequencia
   // duplicada do Laravel continua sendo a unica fonte da verdade.
   // Ex.: https://sistema.se7volei.com.br
-  LEGACY_API_URL: z.string().default(""),
 
   // Contas que ganham ADMIN automaticamente no primeiro login com Google.
   // Serve para o bootstrap: sem isso nao existe ninguem para emitir o primeiro
@@ -62,7 +61,6 @@ export const legadoConfigurado =
 
 export const googleConfigurado = env.GOOGLE_CLIENT_ID !== "";
 
-export const legadoApiConfigurada = env.LEGACY_API_URL !== "";
 
 export const adminEmails = env.ADMIN_EMAILS.split(",")
   .map((e) => e.trim().toLowerCase())

@@ -1,13 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { StatusOcorrencia, TipoEvento } from "@prisma/client";
+import { StatusMatricula, StatusOcorrencia, TipoEvento } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { hoje, primeiroDiaDoMes, segundaDaSemana } from "../../lib/datas.js";
-import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
-import {
-  listarMatriculasRecentes,
-  obterNumerosDaEscola,
-} from "../../db/legacy/escola.repository.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import {
   CronogramaIndisponivelError,
@@ -104,12 +99,11 @@ export async function conteudoRoutes(app: FastifyInstance) {
   //
   // Duas metades, de propósito:
   //
-  //   - O que é do Hub (ocorrências, semana, eventos) responde sempre, porque
-  //     mora no Postgres daqui.
-  //   - O que é da escola (alunos, turmas, matrículas) vem do MySQL do
-  //     Laravel, que pode não estar configurado. Nesse caso o bloco devolve
-  //     `disponivel: false` e a tela mostra o motivo, em vez de a página
-  //     inteira falhar por causa de uma metade.
+  //   - O que pede ação de alguém (ocorrências, semana não publicada) vem
+  //     primeiro.
+  //   - Os números da escola vêm das tabelas do próprio Hub. Antes eram lidos
+  //     do MySQL do Laravel; desde que o domínio foi reconstruído aqui, a
+  //     escola é deste banco e a tela não depende mais de credencial nenhuma.
   app.get("/conteudo/painel", somenteEquipe, async () => {
     const agora = hoje();
     const segunda = segundaDaSemana(agora);
@@ -339,33 +333,45 @@ function montarEvento(corpo: z.infer<typeof eventoSchema>) {
 }
 
 /**
- * A metade do painel que vem do sistema atual.
+ * Os números da escola, das tabelas do Hub.
  *
- * Falhar aqui não pode derrubar a tela: enquanto a credencial de leitura do
- * MySQL não sair, `disponivel: false` é a resposta correta e esperada, não um
- * erro. O mesmo vale para uma queda momentânea daquele banco — a secretaria
- * continua enxergando ocorrências e eventos.
+ * São os mesmos cinco do topo do painel antigo do Laravel — de propósito: se a
+ * escola for contada de um jeito aqui e de outro lá, ninguém confia em
+ * nenhuma das duas telas durante a virada.
  */
 async function numerosDaEscola(inicioDoMes: Date, inicioDoProximoMes: Date) {
-  const iso = (d: Date) => `${d.toISOString().slice(0, 10)} 00:00:00`;
+  const [matriculasNoMes, alunos, turmas, planos, professores, matriculas] = await Promise.all([
+    prisma.matricula.count({
+      where: { arquivadoEm: null, criadoEm: { gte: inicioDoMes, lt: inicioDoProximoMes } },
+    }),
+    prisma.aluno.count({ where: { arquivadoEm: null } }),
+    prisma.turma.count({ where: { ativa: true } }),
+    prisma.plano.count({ where: { ativo: true } }),
+    prisma.professor.count({ where: { ativo: true } }),
+    prisma.matricula.findMany({
+      where: { arquivadoEm: null },
+      orderBy: { criadoEm: "desc" },
+      take: 20,
+      include: {
+        aluno: { select: { nome: true } },
+        turma: { select: { nome: true } },
+        unidade: { select: { nome: true } },
+        plano: { select: { nome: true } },
+      },
+    }),
+  ]);
 
-  try {
-    const [numeros, matriculas] = await Promise.all([
-      obterNumerosDaEscola(iso(inicioDoMes), iso(inicioDoProximoMes)),
-      listarMatriculasRecentes(20),
-    ]);
-    return { disponivel: true as const, numeros, matriculas };
-  } catch (erro) {
-    if (erro instanceof LegadoIndisponivelError) {
-      return {
-        disponivel: false as const,
-        motivo:
-          "Ainda sem acesso de leitura ao sistema atual. Os números da escola aparecem aqui assim que a credencial for liberada.",
-      };
-    }
-    return {
-      disponivel: false as const,
-      motivo: "Não foi possível ler o sistema atual agora. Tente de novo em instantes.",
-    };
-  }
+  return {
+    disponivel: true as const,
+    numeros: { matriculasNoMes, alunos, turmas, planos, professores },
+    matriculas: matriculas.map((m) => ({
+      id: m.id,
+      aluno: m.aluno.nome,
+      turma: m.turma.nome,
+      unidade: m.unidade.nome,
+      plano: m.plano.nome,
+      status: m.status,
+      criadaEm: m.criadoEm,
+    })),
+  };
 }

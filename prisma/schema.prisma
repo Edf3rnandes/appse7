@@ -1,9 +1,16 @@
 // SE7 Hub — banco NOVO e exclusivo do sistema unificado.
 //
 // Regra que vale para o projeto inteiro: esta DATABASE_URL NUNCA aponta para o
-// MySQL do sistema Laravel. Enquanto o Laravel continuar sendo o sistema de
-// registro de alunos/turmas/matriculas, ele e lido em modo somente leitura por
-// src/db/legacy/ — nunca escrito.
+// MySQL do sistema Laravel.
+//
+// O Hub e o sistema de registro da escola: alunos, responsaveis, turmas,
+// planos, matriculas e frequencia sao dele, nao mais lidos de outro lugar. O
+// domino abaixo foi reconstruido a partir das migrations do se7volei, com os
+// defeitos daquele schema corrigidos — ver o bloco "Escola" no fim do arquivo.
+//
+// O Laravel continua no ar ate a virada. A ponte de leitura em src/db/legacy/
+// existe agora para UMA coisa: a importacao unica que traz os dados de la para
+// ca. Ela nao alimenta mais nenhuma tela.
 //
 // As tabelas do Hub ficam no schema `hub`, separadas das do se7-inadimplencia,
 // que estao em `public`. E por isso que a tabela `usuarios` daqui nao colide
@@ -33,7 +40,7 @@ datasource db {
   // impede `prisma db push` de enxergar as tabelas do outro sistema e tentar
   // apagá-las por não estarem neste schema. A regra é estrutural, não
   // disciplinar — não dá para esquecer dela.
-  schemas   = ["hub"]
+  schemas = ["hub"]
 }
 
 // ---------------------------------------------------------------------------
@@ -54,9 +61,9 @@ model Usuario {
   criadoEm      DateTime  @default(now())
   atualizadoEm  DateTime  @updatedAt
 
-  identidades      Identidade[]
-  papeis           Papel[]
-  vinculos         Vinculo[]
+  identidades       Identidade[]
+  papeis            Papel[]
+  vinculos          Vinculo[]
   tentativasVinculo TentativaVinculo[]
 
   @@map("usuarios")
@@ -78,7 +85,7 @@ model Identidade {
   usuarioId   String
   usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   provedor    Provedor
-  provedorSub String   // 'sub' do Google, ou o proprio email quando provedor = SENHA
+  provedorSub String // 'sub' do Google, ou o proprio email quando provedor = SENHA
   senhaHash   String?
   criadoEm    DateTime @default(now())
 
@@ -111,7 +118,7 @@ model Papel {
 
 enum TipoVinculo {
   RESPONSAVEL // aponta para customers.id no Laravel
-  PROFESSOR   // aponta para teachers.id no Laravel
+  PROFESSOR // aponta para teachers.id no Laravel
 
   @@schema("hub")
 }
@@ -119,17 +126,27 @@ enum TipoVinculo {
 // Liga a conta Google a uma linha real do sistema Laravel. Sem vinculo, o
 // usuario esta autenticado mas nao "e" ninguem — nao ve dado de aluno nenhum.
 model Vinculo {
-  id           String      @id @default(uuid())
-  usuarioId    String
-  usuario      Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  tipo         TipoVinculo
-  legacyId     Int         // customers.id ou teachers.id no MySQL do Laravel
-  cpf          String?     // so digitos, so para RESPONSAVEL (professor nao tem CPF no legado)
-  confirmadoEm DateTime    @default(now())
+  id        String      @id @default(uuid())
+  usuarioId String
+  usuario   Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo      TipoVinculo
 
-  // Uma linha do legado pertence a uma conta so. Se duas pessoas tentarem
-  // reivindicar o mesmo CPF, a segunda e recusada e cai para atendimento.
-  @@unique([tipo, legacyId])
+  // A conta aponta para a pessoa dentro do Hub. Antes isto era um `legacyId`
+  // inteiro apontando para uma linha do MySQL do Laravel — o que so fazia
+  // sentido enquanto a escola morava la. Agora sao chaves estrangeiras de
+  // verdade: nao da para vincular uma conta a um professor que nao existe.
+  professorId   String?
+  professor     Professor?   @relation(fields: [professorId], references: [id])
+  responsavelId String?
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id])
+
+  cpf          String? // so digitos, so para RESPONSAVEL
+  confirmadoEm DateTime @default(now())
+
+  // Uma pessoa pertence a uma conta so. Se duas tentarem reivindicar o mesmo
+  // CPF, a segunda e recusada e cai para atendimento.
+  @@unique([professorId])
+  @@unique([responsavelId])
   @@index([usuarioId])
   @@map("vinculos")
   @@schema("hub")
@@ -159,14 +176,14 @@ model TentativaVinculo {
 // tabela `teachers` nao tem CPF nem email, entao nao ha como o proprio
 // professor provar quem e no primeiro acesso.
 model Convite {
-  id           String     @id @default(uuid())
-  email        String     @unique
-  papel        PapelNome
-  legacyId     Int?       // teachers.id, quando o convite e para um professor
-  criadoPorId  String?
-  expiraEm     DateTime
-  usadoEm      DateTime?
-  criadoEm     DateTime   @default(now())
+  id          String    @id @default(uuid())
+  email       String    @unique
+  papel       PapelNome
+  professorId String? // qual professor, quando o convite e para a area do professor
+  criadoPorId String?
+  expiraEm    DateTime
+  usadoEm     DateTime?
+  criadoEm    DateTime  @default(now())
 
   @@index([email])
   @@map("convites")
@@ -195,7 +212,7 @@ model Evento {
   tipo            TipoEvento @default(OUTRO)
   data            DateTime   @db.Date
   dataFim         DateTime?  @db.Date
-  horario         String?    // "08:00 às 11:00" — texto livre, o horário real varia
+  horario         String? // "08:00 às 11:00" — texto livre, o horário real varia
   local           String?
   unidadeIdLegacy Int?
   unidadeNome     String?
@@ -240,9 +257,9 @@ model Configuracao {
 // ---------------------------------------------------------------------------
 
 enum TipoOcorrencia {
-  TURMA_ERRADA        // aluno está numa turma que não é a dele
-  ALUNO_FALTANDO      // aluno deveria estar na lista da turma e não está
-  REGISTRO_TREINO     // o que aconteceu no treino (chuva, material, lesão)
+  TURMA_ERRADA // aluno está numa turma que não é a dele
+  ALUNO_FALTANDO // aluno deveria estar na lista da turma e não está
+  REGISTRO_TREINO // o que aconteceu no treino (chuva, material, lesão)
   OUTRO
 
   @@schema("hub")
@@ -256,31 +273,356 @@ enum StatusOcorrencia {
 }
 
 model Ocorrencia {
-  id                String           @id @default(uuid())
-  tipo              TipoOcorrencia
-  status            StatusOcorrencia @default(ABERTA)
+  id     String           @id @default(uuid())
+  tipo   TipoOcorrencia
+  status StatusOcorrencia @default(ABERTA)
 
-  // Quem avisou. O id do legado permite ligar ao professor; o nome fica
-  // gravado para o aviso continuar legível mesmo sem a ponte.
-  professorLegacyId Int
-  professorNome     String
+  // Quem avisou. O nome e o da turma ficam gravados junto da chave: o aviso
+  // precisa continuar legível daqui a um ano, mesmo que a turma seja
+  // renomeada ou o professor saia da escola.
+  professorId   String
+  professor     Professor @relation(fields: [professorId], references: [id])
+  professorNome String
 
-  turmaLegacyId     Int?
-  turmaNome         String?
-  alunoNome         String?
+  turmaId   String?
+  turma     Turma?  @relation(fields: [turmaId], references: [id])
+  turmaNome String?
+  alunoNome String?
 
-  descricao         String
+  descricao String
 
   // A resposta da secretaria fecha o ciclo: o professor vê o que foi feito.
-  resposta          String?
-  resolvidoPorId    String?
-  resolvidoEm       DateTime?
+  resposta       String?
+  resolvidoPorId String?
+  resolvidoEm    DateTime?
 
-  criadoEm          DateTime         @default(now())
-  atualizadoEm      DateTime         @updatedAt
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
 
   @@index([status, criadoEm])
-  @@index([professorLegacyId, criadoEm])
+  @@index([professorId, criadoEm])
   @@map("ocorrencias")
+  @@schema("hub")
+}
+
+// ===========================================================================
+// Escola — o domínio reconstruído a partir do sistema Laravel
+// ===========================================================================
+//
+// Estes modelos são a tradução das migrations do se7volei (units, courses,
+// course_schedules, students, customers, teachers, plans, enrollments,
+// attendances e os pivôs course_plan e course_teacher). O Hub deixa de ler a
+// escola do MySQL e passa a ser dono dela.
+//
+// Não é cópia: é o mesmo domínio com os defeitos do original corrigidos.
+// O que mudou, e por quê:
+//
+//   - `students.customer_id` era um `integer` solto, sem chave estrangeira.
+//     Dava para gravar um aluno apontando para um responsável inexistente.
+//     Agora é relação de verdade.
+//   - `courses.teachers` era um longText com os professores repetidos ao lado
+//     do pivô `course_teacher`. Duas fontes para o mesmo fato, que divergem
+//     sozinhas. Ficou só o pivô.
+//   - `courses.amount_students` (capacidade da turma) era `text`. Virou `Int`.
+//   - `customers.address_number` foi criado NOT NULL sem default, numa tabela
+//     que já tinha linhas. Aqui é opcional, como todo o resto do endereço.
+//   - O enum de status trazia PAYMENT_PENDDING, com dois D. O erro de digitação
+//     está no banco de produção desde 2023 e vazava para a tela. Aqui os nomes
+//     estão em português e corretos; a importação faz o de-para.
+//   - `students`, `customers` e `enrollments` tinham `deleted_at`, mas o
+//     Laravel importava a trait SoftDeletes e nunca a aplicava: cancelar uma
+//     matrícula apagava o cadastro em definitivo. Foi o que causou a perda de
+//     dados que o `recovery_customers.json` documenta. Aqui o "apagar" é um
+//     carimbo em `arquivadoEm`, e nada some.
+//   - `teachers.password` era MD5 sem sal. Professor entra pelo Google ou por
+//     convite; não existe mais senha na tabela.
+//
+// `legacyId` guarda o id que a linha tinha no MySQL. Ele não é usado em
+// lugar nenhum da aplicação — existe só para a importação saber o que já
+// trouxe e não duplicar se rodar duas vezes.
+
+model Unidade {
+  id        String  @id @default(uuid())
+  legacyId  Int?    @unique
+  nome      String
+  descricao String?
+  endereco  String?
+  ativa     Boolean @default(true)
+
+  turmas     Turma[]
+  matriculas Matricula[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@map("unidades")
+  @@schema("hub")
+}
+
+enum DiaDaSemana {
+  DOMINGO
+  SEGUNDA
+  TERCA
+  QUARTA
+  QUINTA
+  SEXTA
+  SABADO
+
+  @@schema("hub")
+}
+
+model Turma {
+  id                    String  @id @default(uuid())
+  legacyId              Int?    @unique
+  nome                  String
+  categoria             String?
+  descricao             String?
+  link                  String?
+  // Capacidade da turma. Era `text` no original, o que impedia qualquer conta
+  // de ocupação sem conversão no meio do caminho.
+  capacidade            Int?
+  ativa                 Boolean @default(true)
+  // Se aceita matrícula nova pelo site. No original: is_enabled_new_courses.
+  aceitaNovasMatriculas Boolean @default(true)
+
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id])
+
+  horarios    HorarioTurma[]
+  professores ProfessorTurma[]
+  planos      PlanoTurma[]
+  matriculas  Matricula[]
+  presencas   Presenca[]
+  ocorrencias Ocorrencia[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([unidadeId, ativa])
+  @@map("turmas")
+  @@schema("hub")
+}
+
+// Um horário por dia da semana. No original, `day`, `starts_at` e `ends_at`
+// eram strings livres — dava para gravar "segunda", "Segunda" e "seg" na mesma
+// coluna, e nenhuma consulta conseguia agrupar por dia.
+model HorarioTurma {
+  id      String      @id @default(uuid())
+  turmaId String
+  turma   Turma       @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+  dia     DiaDaSemana
+  // "18:00" — hora local da escola, sem fuso: é horário de parede, não instante.
+  inicio  String
+  fim     String
+
+  criadoEm DateTime @default(now())
+
+  @@index([turmaId])
+  @@map("horarios_turma")
+  @@schema("hub")
+}
+
+model Professor {
+  id       String  @id @default(uuid())
+  legacyId Int?    @unique
+  nome     String
+  // A tabela original não tinha e-mail nem CPF, só `username` e uma senha MD5.
+  // É por isso que professor não consegue se vincular sozinho por CPF e entra
+  // por convite. Com e-mail aqui, o convite passa a ser opcional.
+  email    String? @unique
+  telefone String?
+  ativo    Boolean @default(true)
+
+  turmas      ProfessorTurma[]
+  presencas   Presenca[]
+  ocorrencias Ocorrencia[]
+  vinculo     Vinculo?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@map("professores")
+  @@schema("hub")
+}
+
+model ProfessorTurma {
+  professorId String
+  turmaId     String
+  professor   Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  turma       Turma     @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  criadoEm DateTime @default(now())
+
+  @@id([professorId, turmaId])
+  @@map("professor_turma")
+  @@schema("hub")
+}
+
+model Plano {
+  id                  String  @id @default(uuid())
+  legacyId            Int?    @unique
+  nome                String
+  descricao           String?
+  valor               Decimal @db.Decimal(10, 2)
+  parcelas            Int     @default(1)
+  ativo               Boolean @default(true)
+  // Permite mais de uma matrícula no mesmo plano (plano família).
+  multiplasMatriculas Boolean @default(false)
+  descontoPercentual  Int     @default(0)
+  descontoAteDias     Int     @default(0)
+
+  turmas     PlanoTurma[]
+  matriculas Matricula[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@map("planos")
+  @@schema("hub")
+}
+
+model PlanoTurma {
+  planoId String
+  turmaId String
+  plano   Plano  @relation(fields: [planoId], references: [id], onDelete: Cascade)
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  criadoEm DateTime @default(now())
+
+  @@id([planoId, turmaId])
+  @@map("plano_turma")
+  @@schema("hub")
+}
+
+// O responsável financeiro — `customers` no original.
+model Responsavel {
+  id       String  @id @default(uuid())
+  legacyId Int?    @unique
+  nome     String
+  email    String?
+  telefone String?
+  cpf      String  @unique
+
+  cep         String?
+  logradouro  String?
+  numero      String?
+  complemento String?
+  bairro      String?
+  cidade      String?
+  estado      String?
+
+  asaasCustomer String?
+
+  alunos     Aluno[]
+  matriculas Matricula[]
+  vinculo    Vinculo?
+
+  // Nada é apagado: "excluir" carimba aqui. Ver o comentário no topo do bloco.
+  arquivadoEm  DateTime?
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@index([nome])
+  @@map("responsaveis")
+  @@schema("hub")
+}
+
+model Aluno {
+  id         String    @id @default(uuid())
+  legacyId   Int?      @unique
+  nome       String
+  fotoUrl    String?
+  nascimento DateTime? @db.Date
+  observacao String?
+
+  responsavelId String?
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id])
+
+  matriculas Matricula[]
+  presencas  Presenca[]
+
+  arquivadoEm  DateTime?
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@index([nome])
+  @@index([responsavelId])
+  @@map("alunos")
+  @@schema("hub")
+}
+
+enum StatusMatricula {
+  CRIADA
+  PAGAMENTO_PENDENTE
+  CONFIRMADA
+  CANCELADA
+
+  @@schema("hub")
+}
+
+model Matricula {
+  id       String          @id @default(uuid())
+  legacyId Int?            @unique
+  status   StatusMatricula @default(CRIADA)
+
+  alunoId       String
+  aluno         Aluno       @relation(fields: [alunoId], references: [id])
+  responsavelId String
+  responsavel   Responsavel @relation(fields: [responsavelId], references: [id])
+  turmaId       String
+  turma         Turma       @relation(fields: [turmaId], references: [id])
+  unidadeId     String
+  unidade       Unidade     @relation(fields: [unidadeId], references: [id])
+  planoId       String
+  plano         Plano       @relation(fields: [planoId], references: [id])
+
+  observacao String?
+  expiraEm   DateTime? @db.Date
+
+  // Cobrança. `asaasPayload` guarda a resposta crua da criação, que é o que
+  // permite reconstruir o que foi enviado quando uma cobrança diverge.
+  asaasReferencia String?
+  asaasPagamento  String?
+  linkPagamento   String?
+  asaasPayload    Json?
+
+  canceladaEm  DateTime?
+  arquivadoEm  DateTime?
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@index([status, criadoEm])
+  @@index([turmaId, status])
+  @@index([alunoId])
+  @@map("matriculas")
+  @@schema("hub")
+}
+
+// Uma linha por aluno por chamada. O original gravava `has_presence` false
+// para o ausente, mas a API só marcava presença quando a chave existia no
+// corpo — e é por isso que faltar e não ser citado viravam a mesma coisa.
+// Aqui presente é um booleano gravado sempre, e a ausência é um registro.
+model Presenca {
+  id String @id @default(uuid())
+
+  turmaId     String
+  turma       Turma     @relation(fields: [turmaId], references: [id])
+  alunoId     String
+  aluno       Aluno     @relation(fields: [alunoId], references: [id])
+  professorId String
+  professor   Professor @relation(fields: [professorId], references: [id])
+
+  data     DateTime @db.Date
+  presente Boolean
+
+  criadoEm DateTime @default(now())
+
+  // Uma chamada por aluno por turma por dia. O Laravel garantia isso com uma
+  // consulta antes de inserir, o que deixava a porta aberta para duas
+  // chamadas simultâneas. Aqui é o banco que garante.
+  @@unique([turmaId, alunoId, data])
+  @@index([turmaId, data])
+  @@index([alunoId, data])
+  @@map("presencas")
   @@schema("hub")
 }

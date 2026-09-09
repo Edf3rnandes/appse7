@@ -3,7 +3,6 @@ import { z } from "zod";
 import { PapelNome } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { env, googleConfigurado } from "../../config/env.js";
-import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
 import { GoogleNaoConfiguradoError, TokenGoogleInvalidoError, verificarIdToken } from "./google.js";
 import {
   ContaInativaError,
@@ -40,7 +39,8 @@ const cpfSchema = z.object({
 const conviteSchema = z.object({
   email: z.string().email("Email invalido."),
   papel: z.enum(["ADMIN", "SECRETARIA", "PROFESSOR"]),
-  legacyId: z.number().int().positive().optional(),
+  // Qual professor do cadastro essa conta vai representar.
+  professorId: z.string().uuid().optional(),
   validadeDias: z.number().int().min(1).max(90).default(14),
 });
 
@@ -154,11 +154,6 @@ export async function authRoutes(app: FastifyInstance) {
       if (err instanceof LimiteTentativasError) return reply.code(429).send({ message: err.message });
       if (err instanceof CpfNaoEncontradoError) return reply.code(404).send({ message: err.message });
       if (err instanceof CpfJaVinculadoError) return reply.code(409).send({ message: err.message });
-      if (err instanceof LegadoIndisponivelError) {
-        return reply.code(503).send({
-          message: "Cadastro indisponivel no momento. Tente novamente em alguns minutos.",
-        });
-      }
       throw err;
     }
   });
@@ -181,10 +176,45 @@ export async function authRoutes(app: FastifyInstance) {
       const body = conviteSchema.parse(request.body);
       const email = body.email.toLowerCase();
 
-      if (body.papel === "PROFESSOR" && body.legacyId === undefined) {
+      if (body.papel === "PROFESSOR" && body.professorId === undefined) {
         return reply.code(400).send({
-          message: "Convite de professor precisa do legacyId (id do professor no sistema atual).",
+          message: "Escolha qual professor do cadastro essa conta vai representar.",
         });
+      }
+
+      // Um professor por conta: sem esta checagem o convite seria aceito e
+      // falharia calado no login, deixando a pessoa em "aguardando" para
+      // sempre — foi exatamente assim que o primeiro convite não funcionou.
+      if (body.professorId) {
+        const professor = await prisma.professor.findUnique({
+          where: { id: body.professorId },
+          include: { vinculo: true },
+        });
+        if (!professor) {
+          return reply.code(404).send({ message: "Professor não encontrado no cadastro." });
+        }
+        if (professor.vinculo) {
+          return reply.code(409).send({
+            message: `${professor.nome} já está ligado a outra conta.`,
+          });
+        }
+
+        // Nem dois convites em aberto para o mesmo professor. Só o primeiro a
+        // entrar receberia o vínculo; o segundo ficaria "aguardando" para
+        // sempre, sem nada na tela explicando por quê.
+        const jaConvidado = await prisma.convite.findFirst({
+          where: {
+            professorId: body.professorId,
+            email: { not: email },
+            usadoEm: null,
+            expiraEm: { gt: new Date() },
+          },
+        });
+        if (jaConvidado) {
+          return reply.code(409).send({
+            message: `Já existe um convite em aberto para ${professor.nome}, enviado para ${jaConvidado.email}. Cancele aquele antes.`,
+          });
+        }
       }
 
       const expiraEm = new Date(Date.now() + body.validadeDias * 24 * 60 * 60 * 1000);
@@ -194,13 +224,13 @@ export async function authRoutes(app: FastifyInstance) {
         create: {
           email,
           papel: body.papel as PapelNome,
-          legacyId: body.legacyId ?? null,
+          professorId: body.professorId ?? null,
           criadoPorId: request.user.sub,
           expiraEm,
         },
         update: {
           papel: body.papel as PapelNome,
-          legacyId: body.legacyId ?? null,
+          professorId: body.professorId ?? null,
           criadoPorId: request.user.sub,
           expiraEm,
           usadoEm: null,
@@ -227,7 +257,7 @@ export async function authRoutes(app: FastifyInstance) {
           id: true,
           email: true,
           papel: true,
-          legacyId: true,
+          professorId: true,
           expiraEm: true,
           usadoEm: true,
           criadoEm: true,
@@ -262,7 +292,13 @@ export async function authRoutes(app: FastifyInstance) {
           ativo: true,
           ultimoLoginEm: true,
           papeis: { select: { nome: true } },
-          vinculos: { select: { tipo: true, legacyId: true } },
+          vinculos: {
+            select: {
+              tipo: true,
+              professor: { select: { id: true, nome: true } },
+              responsavel: { select: { id: true, nome: true } },
+            },
+          },
         },
       });
 
@@ -273,7 +309,12 @@ export async function authRoutes(app: FastifyInstance) {
         ativo: u.ativo,
         ultimoLoginEm: u.ultimoLoginEm,
         papeis: u.papeis.map((p) => p.nome),
-        vinculos: u.vinculos,
+        // A tela mostra o nome da pessoa ligada à conta, não um id: "Rafael
+        // Lima" diz o que "7" nunca disse.
+        vinculos: u.vinculos.map((v) => ({
+          tipo: v.tipo,
+          nome: v.professor?.nome ?? v.responsavel?.nome ?? null,
+        })),
       }));
     },
   );

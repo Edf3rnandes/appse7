@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { adminEmails, env } from "../../config/env.js";
 import { cpfValido, hashCpf, somenteDigitos } from "../../lib/cpf.js";
-import { buscarResponsavelPorCpf } from "../../db/legacy/escola.repository.js";
 import type { PerfilGoogle } from "./google.js";
 import type { PapelNomeToken, TokenHub } from "../../plugins/auth.js";
 
@@ -41,10 +40,10 @@ async function aplicarConvitePendente(usuarioId: string, email: string) {
   if (!convite) return;
 
   if (convite.papel === PapelNome.PROFESSOR) {
-    if (convite.legacyId == null) return;
+    if (convite.professorId == null) return;
 
     const jaVinculado = await prisma.vinculo.findUnique({
-      where: { tipo_legacyId: { tipo: TipoVinculo.PROFESSOR, legacyId: convite.legacyId } },
+      where: { professorId: convite.professorId },
     });
 
     // Aquele professor já pertence a outra conta: não roubamos o vínculo e
@@ -53,7 +52,7 @@ async function aplicarConvitePendente(usuarioId: string, email: string) {
 
     if (!jaVinculado) {
       await prisma.vinculo.create({
-        data: { usuarioId, tipo: TipoVinculo.PROFESSOR, legacyId: convite.legacyId },
+        data: { usuarioId, tipo: TipoVinculo.PROFESSOR, professorId: convite.professorId },
       });
     }
   }
@@ -190,12 +189,12 @@ export async function entrarComGoogle(perfil: PerfilGoogle) {
     // vinculo sai pronto — professor nao passa pelo caminho do CPF (a tabela
     // do Laravel nao tem CPF nem email).
     if (convite) {
-      if (convite.papel === PapelNome.PROFESSOR && convite.legacyId != null) {
+      if (convite.papel === PapelNome.PROFESSOR && convite.professorId != null) {
         await tx.vinculo.create({
           data: {
             usuarioId: usuario.id,
             tipo: TipoVinculo.PROFESSOR,
-            legacyId: convite.legacyId,
+            professorId: convite.professorId,
           },
         });
       }
@@ -237,7 +236,11 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
       data: { usuarioId, cpfHash: hashCpf(cpf), sucesso, ip },
     });
 
-  const responsavel = await buscarResponsavelPorCpf(cpf);
+  // O responsável agora é do Hub. Antes esta consulta ia ao MySQL do Laravel,
+  // que era onde a escola morava.
+  const responsavel = await prisma.responsavel.findFirst({
+    where: { cpf, arquivadoEm: null },
+  });
   if (!responsavel) {
     await registrar(false);
     throw new CpfNaoEncontradoError(
@@ -246,7 +249,7 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
   }
 
   const jaVinculado = await prisma.vinculo.findUnique({
-    where: { tipo_legacyId: { tipo: TipoVinculo.RESPONSAVEL, legacyId: responsavel.id } },
+    where: { responsavelId: responsavel.id },
   });
 
   if (jaVinculado && jaVinculado.usuarioId !== usuarioId) {
@@ -266,7 +269,7 @@ export async function vincularPorCpf(usuarioId: string, cpfBruto: string, ip: st
     data: {
       usuarioId,
       tipo: TipoVinculo.RESPONSAVEL,
-      legacyId: responsavel.id,
+      responsavelId: responsavel.id,
       cpf,
     },
   });
@@ -279,7 +282,7 @@ type UsuarioComRelacoes = {
   nome: string;
   email: string;
   papeis: { nome: PapelNome }[];
-  vinculos: { tipo: TipoVinculo; legacyId: number }[];
+  vinculos: { tipo: TipoVinculo; professorId: string | null; responsavelId: string | null }[];
 };
 
 export function montarToken(usuario: UsuarioComRelacoes): TokenHub {
@@ -291,7 +294,7 @@ export function montarToken(usuario: UsuarioComRelacoes): TokenHub {
     email: usuario.email,
     nome: usuario.nome,
     papeis: usuario.papeis.map((p) => p.nome as PapelNomeToken),
-    ...(responsavel ? { responsavelId: responsavel.legacyId } : {}),
-    ...(professor ? { professorId: professor.legacyId } : {}),
+    ...(responsavel?.responsavelId ? { responsavelId: responsavel.responsavelId } : {}),
+    ...(professor?.professorId ? { professorId: professor.professorId } : {}),
   };
 }

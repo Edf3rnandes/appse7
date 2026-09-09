@@ -26,6 +26,14 @@ const perfil = (email: string, sub: string) => ({
   avatarUrl: null,
 });
 
+/** O professor do cadastro a que os convites deste arquivo apontam. */
+const PROFESSOR_NOME = "Professor de Teste (convite)";
+
+async function professorDeTeste() {
+  const existente = await prisma.professor.findFirst({ where: { nome: PROFESSOR_NOME } });
+  return existente ?? prisma.professor.create({ data: { nome: PROFESSOR_NOME } });
+}
+
 async function limpar() {
   const emails = [EMAIL, EMAIL_OUTRO];
   const usuarios = await prisma.usuario.findMany({ where: { email: { in: emails } } });
@@ -38,14 +46,15 @@ async function limpar() {
     await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
   }
   await prisma.convite.deleteMany({ where: { email: { in: emails } } });
+  await prisma.professor.deleteMany({ where: { nome: PROFESSOR_NOME } });
 }
 
-async function convidarProfessor(email: string, legacyId: number, diasDeValidade = 14) {
+async function convidarProfessor(email: string, professorId: string, diasDeValidade = 14) {
   return prisma.convite.create({
     data: {
       email,
       papel: PapelNome.PROFESSOR,
-      legacyId,
+      professorId,
       expiraEm: new Date(Date.now() + diasDeValidade * 24 * 60 * 60 * 1000),
     },
   });
@@ -63,13 +72,14 @@ describe("convite de professor", () => {
     const antes = await entrarComGoogle(perfil(EMAIL, "sub-1"));
     assert.equal(antes.vinculos.length, 0, "não deveria nascer com vínculo");
 
-    const convite = await convidarProfessor(EMAIL, 42);
+    const professor = await professorDeTeste();
+    const convite = await convidarProfessor(EMAIL, professor.id);
 
     const depois = await entrarComGoogle(perfil(EMAIL, "sub-1"));
     const vinculo = depois.vinculos.find((v) => v.tipo === TipoVinculo.PROFESSOR);
 
     assert.ok(vinculo, "o vínculo de professor deveria ter sido criado");
-    assert.equal(vinculo.legacyId, 42);
+    assert.equal(vinculo.professorId, professor.id);
     assert.ok(
       depois.papeis.some((p) => p.nome === PapelNome.PROFESSOR),
       "o papel de professor deveria ter sido concedido",
@@ -90,8 +100,9 @@ describe("convite de professor", () => {
 
   it("não rouba um professor já vinculado a outra conta", async () => {
     await entrarComGoogle(perfil(EMAIL_OUTRO, "sub-2"));
-    // 42 já pertence à conta do primeiro teste
-    const convite = await convidarProfessor(EMAIL_OUTRO, 42);
+    // Esse professor já pertence à conta do primeiro teste.
+    const professor = await professorDeTeste();
+    const convite = await convidarProfessor(EMAIL_OUTRO, professor.id);
 
     const depois = await entrarComGoogle(perfil(EMAIL_OUTRO, "sub-2"));
 

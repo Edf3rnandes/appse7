@@ -1,19 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { TipoOcorrencia } from "@prisma/client";
+import { StatusMatricula, TipoOcorrencia } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
-import {
-  frequenciaJaLancadaHoje,
-  listarAlunosDaTurma,
-  listarTurmasDoProfessor,
-  turmaPertenceAoProfessor,
-} from "../../db/legacy/escola.repository.js";
-import {
-  FrequenciaRecusadaError,
-  LegadoApiIndisponivelError,
-  lancarFrequencia,
-} from "../../services/legado/frequencia.service.js";
 import { hoje, primeiroDiaDoMes, segundaDaSemana, somarDias, ultimoDiaDoMes } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import {
@@ -22,18 +10,18 @@ import {
   obterPublicadasComArte,
 } from "../../db/compartilhado/cronograma.repository.js";
 
-const turmaParams = z.object({ id: z.coerce.number().int().positive() });
+const turmaParams = z.object({ id: z.string().uuid() });
 
 const frequenciaSchema = z.object({
-  turmaId: z.number({ required_error: "Turma é obrigatória." }).int().positive(),
+  turmaId: z.string({ required_error: "Turma é obrigatória." }).uuid(),
   presencas: z
-    .array(z.object({ alunoId: z.number().int().positive(), presente: z.boolean() }))
+    .array(z.object({ alunoId: z.string().uuid(), presente: z.boolean() }))
     .min(1, "Marque a lista antes de enviar."),
 });
 
 const ocorrenciaSchema = z.object({
   tipo: z.nativeEnum(TipoOcorrencia),
-  turmaId: z.number().int().positive().optional(),
+  turmaId: z.string().uuid().optional(),
   alunoNome: z.string().max(200).optional(),
   descricao: z
     .string({ required_error: "Descreva o que aconteceu." })
@@ -48,28 +36,45 @@ const mesQuery = z.object({
 
 export async function professorRoutes(app: FastifyInstance) {
   app.setErrorHandler(
-    tratadorDeErro((erro) => {
-      // Mensagem de gente: a original cita LEGACY_MYSQL_* e nomes de tabela,
-      // que dizem tudo para quem opera o servidor e nada para o professor.
-      if (erro instanceof LegadoIndisponivelError) {
-        return {
-          status: 503,
-          mensagem: "Os dados de alunos e turmas estão indisponíveis no momento.",
-        };
-      }
-      if (erro instanceof LegadoApiIndisponivelError || erro instanceof CronogramaIndisponivelError) {
-        return { status: 503, mensagem: erro.message };
-      }
-      if (erro instanceof FrequenciaRecusadaError) {
-        return { status: 409, mensagem: erro.message };
-      }
-      return undefined;
-    }),
+    tratadorDeErro((erro) =>
+      erro instanceof CronogramaIndisponivelError
+        ? { status: 503, mensagem: erro.message }
+        : undefined,
+    ),
   );
 
-  app.get("/professor/turmas", { preHandler: [app.exigirProfessor] }, async (request) =>
-    listarTurmasDoProfessor(request.user.professorId!),
-  );
+  /** As turmas do professor logado. Usada como filtro em tudo daqui para baixo. */
+  async function turmaDoProfessor(turmaId: string, professorId: string) {
+    return prisma.turma.findFirst({
+      where: { id: turmaId, ativa: true, professores: { some: { professorId } } },
+      include: { unidade: { select: { nome: true } } },
+    });
+  }
+
+  app.get("/professor/turmas", { preHandler: [app.exigirProfessor] }, async (request) => {
+    const turmas = await prisma.turma.findMany({
+      where: { ativa: true, professores: { some: { professorId: request.user.professorId! } } },
+      orderBy: [{ unidade: { nome: "asc" } }, { nome: "asc" }],
+      include: {
+        unidade: { select: { id: true, nome: true } },
+        horarios: { orderBy: { inicio: "asc" } },
+        _count: {
+          select: { matriculas: { where: { status: StatusMatricula.CONFIRMADA, arquivadoEm: null } } },
+        },
+      },
+    });
+
+    return turmas.map((t) => ({
+      id: t.id,
+      nome: t.nome,
+      categoria: t.categoria,
+      unidadeId: t.unidade.id,
+      unidadeNome: t.unidade.nome,
+      capacidade: t.capacidade,
+      matriculados: t._count.matriculas,
+      horarios: t.horarios.map((h) => ({ dia: h.dia, inicio: h.inicio, fim: h.fim })),
+    }));
+  });
 
   // Lista de chamada: alfabética e numerada, do jeito que o professor confere
   // em campo. A numeração é posicional (1..N da lista de hoje) e vai junto da
@@ -80,25 +85,48 @@ export async function professorRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = turmaParams.parse(request.params);
 
-      if (!(await turmaPertenceAoProfessor(id, request.user.professorId!))) {
+      if (!(await turmaDoProfessor(id, request.user.professorId!))) {
         return reply.code(404).send({ message: "Turma não encontrada." });
       }
 
-      const [alunos, jaLancada] = await Promise.all([
-        listarAlunosDaTurma(id),
-        frequenciaJaLancadaHoje(id),
+      const [matriculas, jaLancadas] = await Promise.all([
+        prisma.matricula.findMany({
+          where: { turmaId: id, status: StatusMatricula.CONFIRMADA, arquivadoEm: null },
+          include: {
+            aluno: { select: { id: true, nome: true } },
+            responsavel: { select: { nome: true } },
+          },
+        }),
+        prisma.presenca.findMany({
+          where: { turmaId: id, data: hoje() },
+          select: { alunoId: true, presente: true },
+        }),
       ]);
 
+      // Ordem alfabética com acento no lugar certo: "Ávila" vem antes de
+      // "Bruno", não depois de "Zuleide". Ordenar por bytes no banco faria o
+      // contrário, e a lista de chamada é conferida na ordem do papel.
+      const ordenados = matriculas.sort((a, b) =>
+        a.aluno.nome.localeCompare(b.aluno.nome, "pt-BR"),
+      );
+      // Não basta saber QUE já foi lançada: a lista precisa abrir com as
+      // marcações de hoje. Sem isso ela apareceria toda vazia e um toque em
+      // "Enviar" gravaria falta para a turma inteira, por cima de uma chamada
+      // correta.
+      const lancados = new Map(jaLancadas.map((p) => [p.alunoId, p.presente]));
+
       return {
-        // Avisado aqui, e não só no envio: o Laravel recusa a segunda chamada
-        // do dia, e descobrir isso depois de preencher a lista inteira seria
-        // perder o trabalho.
-        frequenciaJaLancadaHoje: jaLancada,
-        alunos: alunos.map((a, i) => ({
+        // Avisado aqui, e não só no envio: refazer a chamada de hoje é
+        // permitido (o professor corrige um engano), mas ele precisa saber
+        // que está corrigindo, não lançando pela primeira vez.
+        frequenciaJaLancadaHoje: lancados.size > 0,
+        alunos: ordenados.map((m, i) => ({
           numero: i + 1,
-          id: a.id,
-          nome: a.nome,
-          responsavel: a.responsavel,
+          id: m.aluno.id,
+          nome: m.aluno.nome,
+          responsavel: m.responsavel.nome,
+          jaLancado: lancados.has(m.alunoId),
+          presente: lancados.get(m.alunoId) ?? false,
         })),
       };
     },
@@ -108,13 +136,20 @@ export async function professorRoutes(app: FastifyInstance) {
     const corpo = frequenciaSchema.parse(request.body);
     const professorId = request.user.professorId!;
 
-    if (!(await turmaPertenceAoProfessor(corpo.turmaId, professorId))) {
+    if (!(await turmaDoProfessor(corpo.turmaId, professorId))) {
       return reply.code(404).send({ message: "Turma não encontrada." });
     }
 
     // Só alunos que estão de fato na turma hoje: evita que uma lista velha
     // aberta no celular grave presença de quem já saiu.
-    const matriculados = new Set((await listarAlunosDaTurma(corpo.turmaId)).map((a) => a.id));
+    const matriculados = new Set(
+      (
+        await prisma.matricula.findMany({
+          where: { turmaId: corpo.turmaId, status: StatusMatricula.CONFIRMADA, arquivadoEm: null },
+          select: { alunoId: true },
+        })
+      ).map((m) => m.alunoId),
+    );
     const presencas = corpo.presencas.filter((p) => matriculados.has(p.alunoId));
 
     if (presencas.length === 0) {
@@ -123,10 +158,30 @@ export async function professorRoutes(app: FastifyInstance) {
       });
     }
 
-    await lancarFrequencia(professorId, corpo.turmaId, presencas);
+    const data = hoje();
+
+    // Refazer a chamada de hoje corrige, não duplica: a chave única
+    // (turma, aluno, dia) transforma o reenvio em atualização. O sistema
+    // antigo recusava a segunda chamada do dia, e um erro de marcação ficava
+    // gravado até alguém mexer no banco.
+    await prisma.$transaction(
+      presencas.map((p) =>
+        prisma.presenca.upsert({
+          where: { turmaId_alunoId_data: { turmaId: corpo.turmaId, alunoId: p.alunoId, data } },
+          create: {
+            turmaId: corpo.turmaId,
+            alunoId: p.alunoId,
+            professorId,
+            data,
+            presente: p.presente,
+          },
+          update: { presente: p.presente, professorId },
+        }),
+      ),
+    );
 
     return reply.code(201).send({
-      message: "Frequência enviada com sucesso!",
+      message: "Frequência registrada!",
       presentes: presencas.filter((p) => p.presente).length,
       total: presencas.length,
     });
@@ -141,29 +196,17 @@ export async function professorRoutes(app: FastifyInstance) {
 
     let turmaNome: string | null = null;
     if (corpo.turmaId !== undefined) {
-      try {
-        if (!(await turmaPertenceAoProfessor(corpo.turmaId, professorId))) {
-          return reply.code(404).send({ message: "Turma não encontrada." });
-        }
-        const turmas = await listarTurmasDoProfessor(professorId);
-        turmaNome = turmas.find((t) => t.id === corpo.turmaId)?.nome ?? null;
-      } catch (erro) {
-        // Com a ponte desligada não dá para conferir a turma — mas recusar o
-        // aviso por isso seria trocar um problema pequeno (contexto
-        // incompleto) por um grande (o professor sem como avisar). Guardamos
-        // o aviso; o id da turma fica sem nome e a secretaria entende pelo
-        // texto, que é o que ela lê de qualquer forma.
-        if (!(erro instanceof LegadoIndisponivelError)) throw erro;
-        request.log.warn("Aviso gravado sem conferir a turma: ponte com o legado desligada.");
-      }
+      const turma = await turmaDoProfessor(corpo.turmaId, professorId);
+      if (!turma) return reply.code(404).send({ message: "Turma não encontrada." });
+      turmaNome = turma.nome;
     }
 
     const ocorrencia = await prisma.ocorrencia.create({
       data: {
         tipo: corpo.tipo,
-        professorLegacyId: professorId,
+        professorId,
         professorNome: request.user.nome,
-        turmaLegacyId: corpo.turmaId ?? null,
+        turmaId: corpo.turmaId ?? null,
         turmaNome,
         alunoNome: corpo.alunoNome ?? null,
         descricao: corpo.descricao,
@@ -177,7 +220,7 @@ export async function professorRoutes(app: FastifyInstance) {
   // isso ele avisa no escuro e volta para o WhatsApp para saber se deu certo.
   app.get("/professor/ocorrencias", { preHandler: [app.exigirProfessor] }, async (request) =>
     prisma.ocorrencia.findMany({
-      where: { professorLegacyId: request.user.professorId! },
+      where: { professorId: request.user.professorId! },
       orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
       take: 50,
     }),

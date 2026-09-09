@@ -36,6 +36,7 @@ async function limpar() {
     await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
   }
   await prisma.convite.deleteMany({ where: { email: EMAIL } });
+  await prisma.professor.deleteMany({ where: { nome: "Professor de Teste (senha)" } });
 }
 
 async function criarContaComSenha(ativo = true) {
@@ -115,11 +116,15 @@ describe("entrada por e-mail e senha", () => {
   // Mesmo motivo do teste de convite: um convite emitido para quem já tem
   // conta precisa valer no login seguinte, seja ele pelo Google ou por senha.
   it("aplica convite pendente também no login por senha", async () => {
+    const professor = await prisma.professor.create({
+      data: { nome: "Professor de Teste (senha)" },
+    });
+
     await prisma.convite.create({
       data: {
         email: EMAIL,
         papel: PapelNome.PROFESSOR,
-        legacyId: 909091,
+        professorId: professor.id,
         expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
@@ -131,7 +136,9 @@ describe("entrada por e-mail e senha", () => {
       "o papel do convite deveria entrar já nesta sessão",
     );
     assert.ok(
-      usuario.vinculos.some((v) => v.tipo === TipoVinculo.PROFESSOR && v.legacyId === 909091),
+      usuario.vinculos.some(
+        (v) => v.tipo === TipoVinculo.PROFESSOR && v.professorId === professor.id,
+      ),
       "o vínculo de professor deveria sair pronto do convite",
     );
   });

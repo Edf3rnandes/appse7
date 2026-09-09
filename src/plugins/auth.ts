@@ -14,8 +14,8 @@ export interface TokenHub {
   // Vao no token de proposito: e o que permite autorizar uma leitura do legado
   // sem consultar o Postgres a cada requisicao — e o que impede o cliente de
   // escolher de qual responsavel quer ver os dados.
-  responsavelId?: number;
-  professorId?: number;
+  responsavelId?: string;
+  professorId?: string;
 }
 
 declare module "@fastify/jwt" {
@@ -78,7 +78,7 @@ export default fp(async function authPlugin(app: FastifyInstance) {
     } catch {
       return reply.code(401).send({ message: "Nao autenticado." });
     }
-    if (typeof request.user.responsavelId !== "number") {
+    if (typeof request.user.responsavelId !== "string") {
       return reply.code(409).send({
         message: "Conta ainda nao vinculada a um responsavel. Informe o CPF em /auth/vincular-cpf.",
         codigo: "VINCULO_PENDENTE",
@@ -92,7 +92,7 @@ export default fp(async function authPlugin(app: FastifyInstance) {
     } catch {
       return reply.code(401).send({ message: "Nao autenticado." });
     }
-    if (typeof request.user.professorId !== "number") {
+    if (typeof request.user.professorId !== "string") {
       return reply.code(409).send({
         message: "Conta sem vinculo de professor. Peca um convite a secretaria.",
         codigo: "VINCULO_PENDENTE",
