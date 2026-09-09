@@ -70,6 +70,17 @@ const CHAVE_CANVA = "cronograma.linkCanva";
 const CHAVE_TAXA = "matricula.taxa";
 const CHAVE_TERMOS = "matricula.linkTermos";
 
+// A chave que decide se o Hub pode EMITIR cobrança no Asaas. Desligada por
+// padrão, e de propósito: enquanto o Laravel continuar no ar, dois emissores
+// na mesma conta geram duas cobranças para o mesmo pai. Ela vira "sim" no dia
+// da virada, e só o ADMIN pode virá-la — ver a rota mais abaixo.
+const CHAVE_EMISSAO = "asaas.emissaoAtiva";
+
+// Dia de vencimento das mensalidades. As condições de todos os planos dizem
+// "DATA DE VENCIMENTO: Dia 10", mas isso é decisão comercial e muda sem
+// aviso, então mora aqui e não no código.
+const CHAVE_VENCIMENTO = "cobranca.diaVencimento";
+
 const configSchema = z.object({
   // String vazia apaga o link — é como a secretaria "remove" o documento.
   linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]).optional(),
@@ -79,6 +90,7 @@ const configSchema = z.object({
   // R$ 30 exige um deploy. Aqui a secretaria muda pela tela.
   taxaMatricula: z.number().min(0).max(10000).optional(),
   linkTermos: z.union([z.string().url("Link dos termos inválido.").max(500), z.literal("")]).optional(),
+  diaVencimento: z.number().int().min(1).max(28).optional(),
 });
 
 /**
@@ -180,12 +192,46 @@ export async function conteudoRoutes(app: FastifyInstance) {
     await gravar(CHAVE_CANVA, corpo.linkCanva);
     await gravar(CHAVE_TERMOS, corpo.linkTermos);
     await gravar(
+      CHAVE_VENCIMENTO,
+      corpo.diaVencimento === undefined ? undefined : String(corpo.diaVencimento),
+    );
+    await gravar(
       CHAVE_TAXA,
       corpo.taxaMatricula === undefined ? undefined : String(corpo.taxaMatricula),
     );
 
     return lerConfig();
   });
+
+  /**
+   * Liga e desliga a emissão de cobrança no Asaas.
+   *
+   * Rota própria e só para ADMIN, separada do resto das configurações. Não é
+   * zelo excessivo: virar esta chave faz o sistema começar a criar cobrança
+   * de verdade na conta da escola, e enquanto o Laravel estiver no ar isso
+   * significa dois sistemas cobrando o mesmo pai. É uma decisão de quem
+   * responde pela escola, não de quem está no balcão.
+   */
+  app.put(
+    "/conteudo/config/emissao",
+    { preHandler: [app.exigirPapel("ADMIN")] },
+    async (request) => {
+      const { ativa } = z.object({ ativa: z.boolean() }).parse(request.body);
+
+      await prisma.configuracao.upsert({
+        where: { chave: CHAVE_EMISSAO },
+        create: { chave: CHAVE_EMISSAO, valor: String(ativa) },
+        update: { valor: String(ativa) },
+      });
+
+      request.log.warn(
+        { ativa, por: request.user.email },
+        "emissão de cobrança no Asaas alterada",
+      );
+
+      return lerConfig();
+    },
+  );
 
   // ------------------------------------------------------- cronograma
   app.get("/conteudo/cronograma", somenteEquipe, async (request) => {
@@ -397,7 +443,11 @@ async function numerosDaEscola(inicioDoMes: Date, inicioDoProximoMes: Date) {
  */
 export async function lerConfig() {
   const registros = await prisma.configuracao
-    .findMany({ where: { chave: { in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS] } } })
+    .findMany({
+      where: {
+        chave: { in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS, CHAVE_EMISSAO, CHAVE_VENCIMENTO] },
+      },
+    })
     .catch(() => []);
 
   const valor = (chave: string) => registros.find((r) => r.chave === chave)?.valor;
@@ -406,5 +456,9 @@ export async function lerConfig() {
     linkCanva: valor(CHAVE_CANVA) ?? "",
     linkTermos: valor(CHAVE_TERMOS) ?? "",
     taxaMatricula: Number(valor(CHAVE_TAXA) ?? 25),
+    diaVencimento: Number(valor(CHAVE_VENCIMENTO) ?? 10),
+    // Só a string exata "true" liga. Qualquer outra coisa — ausente, vazio,
+    // lixo — deixa desligado: o padrão seguro é não cobrar.
+    emissaoAtiva: valor(CHAVE_EMISSAO) === "true",
   };
 }

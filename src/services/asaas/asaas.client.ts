@@ -71,3 +71,132 @@ export async function listarFaturasDoCliente(asaasCustomerId: string): Promise<F
   );
   return resposta.data ?? [];
 }
+
+// ---------------------------------------------------------------------------
+// Escrita — criar cliente e cobrança
+// ---------------------------------------------------------------------------
+//
+// Tudo daqui para baixo MOVIMENTA DINHEIRO na conta da escola, e por isso não
+// depende só da chave de API estar presente: quem decide se o Hub pode emitir
+// é uma configuração no banco, desligada por padrão (ver `emissaoAtiva` em
+// src/modules/financeiro). Enquanto os dois sistemas estiverem no ar, dois
+// emissores na mesma conta do Asaas geram duas cobranças para o mesmo pai.
+//
+// Não há retentativa aqui, de propósito. Repetir um POST /payments que talvez
+// tenha dado certo cria cobrança duplicada — o mesmo motivo pelo qual o
+// AsaasClient do patch do Laravel também não repete.
+
+async function post<T>(caminho: string, corpo: unknown): Promise<T> {
+  if (!asaasConfigurado) {
+    throw new AsaasIndisponivelError("Integracao com o Asaas nao configurada (ASAAS_API_KEY).");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), cfg.ASAAS_TIMEOUT_MS);
+
+  try {
+    const resposta = await fetch(`${cfg.ASAAS_BASE_URL}${caminho}`, {
+      method: "POST",
+      headers: { access_token: cfg.ASAAS_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+      signal: controller.signal,
+    });
+
+    const dados = (await resposta.json().catch(() => ({}))) as {
+      errors?: { description?: string }[];
+    };
+
+    if (!resposta.ok) {
+      // O Asaas explica a recusa em `errors[].description` — "CPF inválido",
+      // "cliente já existe". Repassar isso é a diferença entre a secretaria
+      // resolver sozinha e abrir um chamado.
+      const motivo = dados.errors?.[0]?.description;
+      throw new AsaasIndisponivelError(
+        motivo ? `Asaas recusou: ${motivo}` : `Asaas respondeu ${resposta.status}.`,
+      );
+    }
+
+    return dados as T;
+  } catch (err) {
+    if (err instanceof AsaasIndisponivelError) throw err;
+    throw new AsaasIndisponivelError("Nao foi possivel falar com o Asaas.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface ClienteAsaas {
+  id: string;
+  name: string;
+  cpfCnpj: string;
+}
+
+/** Cria o cliente no Asaas. O id devolvido é gravado no responsável do Hub. */
+export async function criarCliente(dados: {
+  nome: string;
+  cpf: string;
+  email?: string | null;
+  telefone?: string | null;
+}): Promise<ClienteAsaas> {
+  return post<ClienteAsaas>("/customers", {
+    name: dados.nome,
+    cpfCnpj: dados.cpf,
+    ...(dados.email ? { email: dados.email } : {}),
+    ...(dados.telefone ? { mobilePhone: dados.telefone.replace(/\D/g, "") } : {}),
+  });
+}
+
+export interface CobrancaAsaas extends FaturaAsaas {
+  externalReference: string | null;
+  customer: string;
+}
+
+/**
+ * Cria uma cobrança.
+ *
+ * `billingType: "UNDEFINED"` deixa o pagador escolher entre PIX e boleto na
+ * própria fatura — que é o que as condições dos planos prometem.
+ *
+ * `externalReference` leva o id da matrícula. É o que permite reencontrar a
+ * cobrança depois e, principalmente, saber que ela já existe: sem isso, dois
+ * cliques no botão viram duas cobranças para o mesmo pai.
+ */
+export async function criarCobranca(dados: {
+  clienteAsaas: string;
+  valor: number;
+  vencimento: string;
+  descricao: string;
+  referencia: string;
+  descontoPercentual?: number;
+}): Promise<CobrancaAsaas> {
+  return post<CobrancaAsaas>("/payments", {
+    customer: dados.clienteAsaas,
+    billingType: "UNDEFINED",
+    value: dados.valor,
+    dueDate: dados.vencimento,
+    description: dados.descricao,
+    externalReference: dados.referencia,
+    ...(dados.descontoPercentual
+      ? {
+          // Desconto até o vencimento, como as condições do plano dizem.
+          discount: { value: dados.descontoPercentual, dueDateLimitDays: 0, type: "PERCENTAGE" },
+        }
+      : {}),
+  });
+}
+
+/** Cobranças de uma matrícula, achadas pela referência que gravamos nelas. */
+export async function listarCobrancasDaMatricula(matriculaId: string): Promise<CobrancaAsaas[]> {
+  const resposta = await get<ListaAsaas<CobrancaAsaas>>(
+    `/payments?externalReference=${encodeURIComponent(matriculaId)}&limit=50&order=desc`,
+  );
+  return resposta.data ?? [];
+}
+
+/** Todas as cobranças vencidas da escola — a tela Financeiro > Cobranças vencidas. */
+export async function listarVencidas(limite = 100): Promise<CobrancaAsaas[]> {
+  const resposta = await get<ListaAsaas<CobrancaAsaas>>(
+    `/payments?status=OVERDUE&limit=${limite}&order=asc`,
+  );
+  return resposta.data ?? [];
+}

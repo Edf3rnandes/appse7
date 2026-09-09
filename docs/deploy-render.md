@@ -55,8 +55,15 @@ Cada uma destrava um pedaço; sem elas as telas correspondentes dizem
 
 | Variável | Destrava |
 |---|---|
-| `ASAAS_API_KEY` | faturas no portal do responsável |
+| `ASAAS_API_KEY` | faturas no portal do responsável e a tela de cobranças vencidas |
 | `LEGACY_MYSQL_HOST` `_USER` `_PASSWORD` `_DATABASE` | só a importação única dos alunos do Laravel |
+
+**A chave do Asaas sozinha não faz o sistema cobrar.** Com ela, o Hub apenas
+_consulta_ — faturas do responsável e cobranças vencidas —, o que é inofensivo
+com os dois sistemas no ar, já que a conta é a mesma. Emitir cobrança depende
+de uma segunda chave, `asaas.emissaoAtiva`, que fica no banco, nasce desligada
+e só um ADMIN liga, pela tela de Cobranças vencidas. É o que impede os dois
+sistemas de cobrarem o mesmo pai durante a transição.
 
 As variáveis `LEGACY_MYSQL_*` **não** são mais necessárias para o sistema
 funcionar: alunos, turmas e matrículas moram no Postgres do Hub. Elas servem

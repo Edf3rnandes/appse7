@@ -41,6 +41,10 @@ services:
       # e-mail e senha alem do Google. Sem Google configurado, e a unica porta.
       - key: SEED_ADMIN_SENHA
         sync: false
+      # Asaas. A chave sozinha NAO faz o sistema cobrar: com ela, o Hub apenas
+      # consulta faturas e cobrancas vencidas — leitura, inofensiva com os dois
+      # sistemas no ar. Quem autoriza EMITIR e a configuracao `asaas.emissaoAtiva`
+      # no banco, desligada por padrao e ligada so por um ADMIN, pela tela.
       - key: ASAAS_API_KEY
         sync: false
       # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a
