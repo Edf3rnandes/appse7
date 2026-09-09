@@ -141,6 +141,68 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 }
 .link-botao:hover { background: var(--accent-suave); }
 
+/* ---------------- chamada ---------------- */
+/* Linha de aluno: o número fica fixo à esquerda em largura própria para a
+   coluna não dançar entre 1 e 10, e o alvo de toque é a linha inteira. */
+.chamada { display: flex; flex-direction: column; }
+.aluno {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 10px; border: 0; border-top: 1px solid var(--rule);
+  background: none; color: inherit; text-align: left; cursor: pointer;
+}
+.aluno:first-child { border-top: 0; }
+.aluno:hover { background: var(--surface-2); }
+.aluno .num {
+  flex: none; width: 30px; font-variant-numeric: tabular-nums; font-weight: 700;
+  color: var(--ink-3); font-size: 14px;
+}
+.aluno .nome-aluno { flex: 1; min-width: 0; font-weight: 500; }
+.aluno .marca-presenca {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--rule-forte); display: grid; place-items: center;
+  color: transparent; font-size: 15px; font-weight: 700;
+}
+.aluno[aria-pressed="true"] { background: var(--ok-suave); }
+.aluno[aria-pressed="true"] .marca-presenca {
+  background: var(--ok); border-color: var(--ok); color: #fff;
+}
+.aluno[aria-pressed="true"] .num { color: var(--ok); }
+
+.barra-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.contador { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; }
+
+.selecao {
+  font: inherit; padding: 11px 13px; border-radius: 8px; width: 100%;
+  background: var(--surface); border: 1px solid var(--rule-forte); color: var(--ink);
+}
+.busca {
+  font: inherit; padding: 10px 13px; border-radius: 8px; width: 100%;
+  background: var(--surface); border: 1px solid var(--rule); color: var(--ink);
+}
+
+/* Barra fixa no rodapé: em turma de 16 alunos o botão de enviar sairia da
+   tela, e o professor teria de rolar de volta para concluir a chamada. */
+/* Opaca, não em gradiente: com fundo translúcido a linha do aluno aparecia
+   por baixo do botão e dava a impressão de que a lista estava quebrada. */
+.rodape-fixo {
+  position: sticky; bottom: 0; z-index: 5; margin-top: 14px;
+  padding: 12px 0 calc(10px + env(safe-area-inset-bottom));
+  background: var(--ground);
+  box-shadow: 0 -10px 16px -12px rgba(16, 38, 46, .5);
+}
+/* Folga no fim da lista para o último aluno nunca ficar rente ao botão. */
+.chamada { padding-bottom: 10px; }
+
+.evento { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid var(--rule); }
+.evento:first-child { border-top: 0; }
+.evento .dia {
+  flex: none; width: 54px; text-align: center; border-radius: 8px;
+  background: var(--accent-suave); color: var(--accent); padding: 6px 0;
+}
+.evento .dia .d { font-size: 19px; font-weight: 800; line-height: 1; }
+.evento .dia .m { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.bloco-texto { white-space: pre-wrap; }
+
 @media (max-width: 420px) {
   .usuario .nome { display: none; }
 }

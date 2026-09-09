@@ -37,22 +37,32 @@
   <button class="botao fantasma" type="button" id="btnTrocar">Entrar com outra conta</button>
 </main>
 
-<main class="pagina" id="telaTurmas" hidden>
-  <h1 style="font-size:22px;margin-bottom:16px">Minhas turmas</h1>
-  <div id="turmas"><div class="carregando">Carregando…</div></div>
+<main class="pagina" id="telaApp" hidden>
+  <div class="abas" role="tablist">
+    <button class="aba" role="tab" id="abaChamada" aria-selected="true"  data-painel="painelChamada">Chamada</button>
+    <button class="aba" role="tab" id="abaTurmas"  aria-selected="false" data-painel="painelTurmas">Turmas</button>
+    <button class="aba" role="tab" id="abaSemana"  aria-selected="false" data-painel="painelSemana">Semana</button>
+    <button class="aba" role="tab" id="abaMes"     aria-selected="false" data-painel="painelMes">Mês</button>
+  </div>
+
+  <section id="painelChamada" role="tabpanel" aria-labelledby="abaChamada">
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelTurmas" role="tabpanel" aria-labelledby="abaTurmas" hidden></section>
+  <section id="painelSemana" role="tabpanel" aria-labelledby="abaSemana" hidden></section>
+  <section id="painelMes"    role="tabpanel" aria-labelledby="abaMes"    hidden></section>
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, escapar, iniciarGoogle } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle } from "/app.js";
 
 const el = (id) => document.getElementById(id);
-const telas = { login: el("telaLogin"), semVinculo: el("telaSemVinculo"), turmas: el("telaTurmas") };
+const telas = { login: el("telaLogin"), semVinculo: el("telaSemVinculo"), app: el("telaApp") };
 
 function mostrar(nome) {
   for (const [chave, node] of Object.entries(telas)) node.hidden = chave !== nome;
   el("boxUsuario").classList.toggle("oculto", nome === "login");
 }
-
 function pintarUsuario() {
   const u = Sessao.usuario;
   if (!u) return;
@@ -60,11 +70,22 @@ function pintarUsuario() {
   const img = el("avatar");
   if (u.avatarUrl) { img.src = u.avatarUrl; img.hidden = false; } else { img.hidden = true; }
 }
-
 function sair() { Sessao.limpar(); mostrar("login"); }
 el("btnSair").addEventListener("click", sair);
 el("btnTrocar").addEventListener("click", sair);
 
+function aviso(e) {
+  const classe = e instanceof ErroApi && (e.status === 503 || e.status === 409) ? "alerta" : "erro";
+  return `<div class="aviso ${classe}">${escapar(e.message)}</div>`;
+}
+
+const CATEGORIAS = { kids: "Kids", teens: "Teens", adult: "Adulto", competitive: "Competitivo" };
+const TIPOS_EVENTO = {
+  TREINO_ESPECIAL: "Treino especial", CAMPEONATO: "Campeonato", FESTIVAL: "Festival",
+  REUNIAO: "Reunião", AVALIACAO: "Avaliação", FERIADO: "Feriado", OUTRO: "Evento",
+};
+
+// ------------------------------------------------------------------ entrar
 async function entrarComGoogle(idToken) {
   try {
     const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
@@ -85,27 +106,225 @@ async function decidirTela() {
       el("emailSemVinculo").textContent = eu.email || "";
       return mostrar("semVinculo");
     }
-    mostrar("turmas");
+    mostrar("app");
+    pintarUsuario();
+    carregarChamada();
     carregarTurmas();
+    carregarSemana();
+    carregarMes();
   } catch {
     sair();
   }
 }
 
-// Mesmos rótulos de Course::COURSE_CATEGORY no sistema atual.
-const CATEGORIAS = { kids: "Kids", teens: "Teens", adult: "Adulto", competitive: "Competitivo" };
+const abas = [...document.querySelectorAll(".aba")];
+abas.forEach((aba) => aba.addEventListener("click", () => {
+  abas.forEach((outra) => {
+    const ativa = outra === aba;
+    outra.setAttribute("aria-selected", String(ativa));
+    el(outra.dataset.painel).hidden = !ativa;
+  });
+}));
 
-async function carregarTurmas() {
-  const alvo = el("turmas");
+// ================================================================== CHAMADA
+const chamada = { turmas: [], turmaId: null, alunos: [], presentes: new Set(), bloqueada: false };
+
+async function carregarChamada() {
+  const painel = el("painelChamada");
   try {
-    const turmas = await api("/professor/turmas");
+    if (!chamada.turmas.length) chamada.turmas = await api("/professor/turmas");
+
+    if (!chamada.turmas.length) {
+      painel.innerHTML = `<div class="vazio">Você ainda não tem turma ativa vinculada.</div>`;
+      return;
+    }
+
+    painel.innerHTML = `
+      <div class="campo" style="margin-bottom:16px">
+        <label class="rotulo" for="turma">Turma de hoje</label>
+        <select class="selecao" id="turma">
+          <option value="">Escolha a turma…</option>
+          ${chamada.turmas.map((t) => `
+            <option value="${t.id}">${escapar(t.nome)} · ${escapar(t.unidadeNome)}</option>`).join("")}
+        </select>
+      </div>
+      <div id="listaChamada"></div>`;
+
+    el("turma").addEventListener("change", (e) => {
+      chamada.turmaId = e.target.value ? Number(e.target.value) : null;
+      chamada.turmaId ? carregarAlunos() : (el("listaChamada").innerHTML = "");
+    });
+  } catch (e) {
+    painel.innerHTML = aviso(e);
+  }
+}
+
+async function carregarAlunos() {
+  const alvo = el("listaChamada");
+  alvo.innerHTML = `<div class="carregando">Carregando a lista…</div>`;
+
+  try {
+    const r = await api(`/professor/turmas/${chamada.turmaId}/alunos`);
+    chamada.alunos = r.alunos;
+    chamada.bloqueada = r.frequenciaJaLancadaHoje;
+    chamada.presentes = new Set();
+
+    if (!chamada.alunos.length) {
+      alvo.innerHTML = `<div class="vazio">Nenhum aluno com matrícula confirmada nesta turma.</div>`;
+      return;
+    }
+
+    const hoje = new Date().toLocaleDateString("pt-BR", {
+      weekday: "long", day: "2-digit", month: "long",
+    });
+
+    alvo.innerHTML = `
+      ${chamada.bloqueada ? `<div class="aviso alerta" style="margin-bottom:14px">
+        A frequência desta turma já foi lançada hoje. O sistema aceita um lançamento por dia —
+        se precisar corrigir, fale com a secretaria.</div>` : ""}
+
+      <div class="cartao">
+        <div class="linha" style="margin-bottom:12px">
+          <div>
+            <div class="rotulo">Chamada</div>
+            <div style="font-size:15px;color:var(--ink-2)">${escapar(hoje)}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="contador"><span id="qtdPresentes">0</span>/${chamada.alunos.length}</div>
+            <div class="rotulo">presentes</div>
+          </div>
+        </div>
+
+        <input class="busca" id="buscaAluno" type="search" placeholder="Buscar aluno pelo nome…"
+               autocomplete="off" aria-label="Buscar aluno pelo nome">
+
+        <div class="barra-acoes" style="margin:12px 0">
+          <button class="botao fantasma" type="button" id="btnTodos">Marcar todos</button>
+          <button class="botao fantasma" type="button" id="btnNenhum">Limpar</button>
+        </div>
+
+        <div class="chamada" id="listaAlunos">${chamada.alunos.map(linhaAluno).join("")}</div>
+      </div>
+
+      <div class="rodape-fixo">
+        <button class="botao" type="button" id="btnEnviar" style="width:100%"
+          ${chamada.bloqueada ? "disabled" : ""}>Enviar frequência</button>
+        <div class="aviso erro oculto" id="erroEnvio" style="margin-top:10px"></div>
+      </div>`;
+
+    el("listaAlunos").addEventListener("click", (evento) => {
+      const botao = evento.target.closest(".aluno");
+      if (botao) alternarPresenca(botao);
+    });
+    el("btnTodos").addEventListener("click", () => marcarTodos(true));
+    el("btnNenhum").addEventListener("click", () => marcarTodos(false));
+    el("btnEnviar").addEventListener("click", enviarChamada);
+    el("buscaAluno").addEventListener("input", filtrarAlunos);
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+// A numeração vem do servidor e não muda com a busca: o número 7 continua sendo
+// o mesmo aluno com a lista filtrada, que é como o professor chama em quadra.
+function linhaAluno(a) {
+  return `
+    <button class="aluno" type="button" role="switch" aria-pressed="false"
+            data-id="${a.id}" data-nome="${escapar((a.nome || "").toLowerCase())}">
+      <span class="num">${String(a.numero).padStart(2, "0")}</span>
+      <span class="nome-aluno">${escapar(a.nome)}</span>
+      <span class="marca-presenca" aria-hidden="true">✓</span>
+    </button>`;
+}
+
+function alternarPresenca(botao) {
+  const id = Number(botao.dataset.id);
+  const marcado = botao.getAttribute("aria-pressed") === "true";
+  botao.setAttribute("aria-pressed", String(!marcado));
+  marcado ? chamada.presentes.delete(id) : chamada.presentes.add(id);
+  atualizarContador();
+}
+
+function marcarTodos(valor) {
+  chamada.presentes = valor ? new Set(chamada.alunos.map((a) => a.id)) : new Set();
+  document.querySelectorAll("#listaAlunos .aluno").forEach((b) => {
+    b.setAttribute("aria-pressed", String(valor));
+  });
+  atualizarContador();
+}
+
+function atualizarContador() {
+  el("qtdPresentes").textContent = String(chamada.presentes.size);
+}
+
+function filtrarAlunos(evento) {
+  const termo = evento.target.value.trim().toLowerCase();
+  document.querySelectorAll("#listaAlunos .aluno").forEach((b) => {
+    b.hidden = termo !== "" && !b.dataset.nome.includes(termo);
+  });
+}
+
+async function enviarChamada() {
+  const botao = el("btnEnviar");
+  const erro = el("erroEnvio");
+  erro.classList.add("oculto");
+
+  const faltas = chamada.alunos.length - chamada.presentes.size;
+  if (faltas > 0) {
+    const ok = confirm(
+      `${chamada.presentes.size} presente(s) e ${faltas} falta(s). Enviar assim?`,
+    );
+    if (!ok) return;
+  }
+
+  botao.disabled = true;
+  botao.textContent = "Enviando…";
+
+  try {
+    const r = await api("/professor/frequencia", {
+      method: "POST",
+      body: JSON.stringify({
+        turmaId: chamada.turmaId,
+        presencas: chamada.alunos.map((a) => ({
+          alunoId: a.id,
+          presente: chamada.presentes.has(a.id),
+        })),
+      }),
+    });
+
+    el("listaChamada").innerHTML = `
+      <div class="cartao" style="text-align:center">
+        <div style="font-size:38px;line-height:1">✓</div>
+        <h2 style="margin:10px 0 6px;font-size:19px">${escapar(r.message)}</h2>
+        <p class="meta">${r.presentes} de ${r.total} presentes.</p>
+        <button class="botao fantasma" type="button" id="btnOutra" style="margin-top:12px">
+          Fazer chamada de outra turma
+        </button>
+      </div>`;
+    el("btnOutra").addEventListener("click", () => {
+      el("turma").value = "";
+      el("listaChamada").innerHTML = "";
+    });
+  } catch (e) {
+    erro.textContent = e.message;
+    erro.classList.remove("oculto");
+    botao.disabled = false;
+    botao.textContent = "Enviar frequência";
+  }
+}
+
+// ================================================================== TURMAS
+async function carregarTurmas() {
+  const alvo = el("painelTurmas");
+  try {
+    const turmas = chamada.turmas.length ? chamada.turmas : await api("/professor/turmas");
+    chamada.turmas = turmas;
 
     if (!turmas.length) {
       alvo.innerHTML = `<div class="vazio">Nenhuma turma ativa vinculada a você.</div>`;
       return;
     }
 
-    // Agrupa por unidade: o professor pensa por praia, não por lista corrida.
     const porUnidade = new Map();
     for (const t of turmas) {
       if (!porUnidade.has(t.unidadeNome)) porUnidade.set(t.unidadeNome, []);
@@ -135,11 +354,127 @@ async function carregarTurmas() {
         }).join("")}</div>
       </section>`).join("");
   } catch (e) {
-    const classe = e instanceof ErroApi && e.status === 503 ? "alerta" : "erro";
-    alvo.innerHTML = `<div class="aviso ${classe}">${escapar(e.message)}</div>`;
+    alvo.innerHTML = aviso(e);
   }
 }
 
+// ================================================================== SEMANA
+function blocoSemana(titulo, s) {
+  if (!s) {
+    return `<article class="cartao">
+      <div class="rotulo">${titulo}</div>
+      <p class="meta" style="margin:8px 0 0">Programação ainda não publicada.</p>
+    </article>`;
+  }
+
+  const campos = [
+    ["Tema", s.tema], ["Fundamentos", s.fundamentos],
+    ["Exercícios", s.exercicios], ["Observações", s.observacoes],
+  ].filter(([, v]) => v);
+
+  return `<article class="cartao">
+    <div class="linha" style="margin-bottom:10px">
+      <span class="rotulo">${titulo}</span>
+      <span class="meta">semana de ${fmt.data(s.semana)}</span>
+    </div>
+    ${campos.length
+      ? campos.map(([rotulo, valor]) => `
+          <div style="margin-top:12px">
+            <div class="rotulo" style="margin-bottom:3px">${rotulo}</div>
+            <div class="bloco-texto">${escapar(valor)}</div>
+          </div>`).join("")
+      : `<p class="meta" style="margin:0">Sem conteúdo preenchido para esta semana.</p>`}
+  </article>`;
+}
+
+async function carregarSemana() {
+  const alvo = el("painelSemana");
+  try {
+    const r = await api("/professor/semana");
+    alvo.innerHTML = `<div class="pilha">
+      ${blocoSemana("Esta semana", r.atual)}
+      ${blocoSemana("Próxima semana", r.proxima)}
+    </div>`;
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+// ================================================================== MÊS
+const agenda = { mes: new Date().getMonth() + 1, ano: new Date().getFullYear() };
+
+const maiusculaInicial = (texto) => texto.charAt(0).toUpperCase() + texto.slice(1);
+
+async function carregarMes() {
+  const alvo = el("painelMes");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
+  try {
+    const r = await api(`/professor/agenda?mes=${agenda.mes}&ano=${agenda.ano}`);
+    const hoje = fmt.hojeIso();
+
+    alvo.innerHTML = `
+      <div class="linha" style="margin-bottom:16px">
+        <button class="botao fantasma" type="button" id="mesAnterior" aria-label="Mês anterior">←</button>
+        <strong>${escapar(maiusculaInicial(fmt.mesAno(r.ano, r.mes)))}</strong>
+        <button class="botao fantasma" type="button" id="mesSeguinte" aria-label="Próximo mês">→</button>
+      </div>
+
+      <div class="cartao">
+        <div class="rotulo" style="margin-bottom:10px">Eventos do mês</div>
+        ${r.eventos.length ? [...r.eventos]
+          .sort((a, b) => String(a.data).localeCompare(String(b.data)))
+          .map((ev) => {
+          const [ano, mes, dia] = String(ev.data).slice(0, 10).split("-");
+          const passou = String(ev.data).slice(0, 10) < hoje;
+          return `<div class="evento" ${passou ? 'style="opacity:.55"' : ""}>
+            <div class="dia">
+              <div class="d">${dia}</div>
+              <div class="m">${escapar(fmt.mesAno(Number(ano), Number(mes)).slice(0, 3))}</div>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div class="linha">
+                <strong>${escapar(ev.titulo)}</strong>
+                <span class="pilula neutra">${escapar(TIPOS_EVENTO[ev.tipo] || "Evento")}</span>
+              </div>
+              <div class="meta" style="margin-top:3px">
+                ${[ev.dataFim ? `até ${fmt.data(ev.dataFim)}` : null, ev.horario, ev.local,
+                   ev.unidadeNome || "Todas as unidades"]
+                  .filter(Boolean).map(escapar).join(" · ")}
+              </div>
+              ${ev.descricao ? `<div class="meta bloco-texto" style="margin-top:6px">${escapar(ev.descricao)}</div>` : ""}
+            </div>
+          </div>`;
+        }).join("") : `<p class="meta" style="margin:0">Nenhum evento publicado para este mês.</p>`}
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <div class="rotulo" style="margin-bottom:10px">Programação das semanas</div>
+        ${r.semanas.length ? r.semanas.map((s) => `
+          <div class="item">
+            <div class="corpo">
+              <div class="titulo">${escapar(s.tema || "Sem tema definido")}</div>
+              <div class="detalhe">semana de ${fmt.diaCurto(s.semana)}</div>
+            </div>
+          </div>`).join("")
+          : `<p class="meta" style="margin:0">Nenhuma semana publicada neste mês.</p>`}
+      </div>`;
+
+    el("mesAnterior").addEventListener("click", () => mudarMes(-1));
+    el("mesSeguinte").addEventListener("click", () => mudarMes(1));
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+function mudarMes(passo) {
+  const d = new Date(agenda.ano, agenda.mes - 1 + passo, 1);
+  agenda.mes = d.getMonth() + 1;
+  agenda.ano = d.getFullYear();
+  carregarMes();
+}
+
+// ------------------------------------------------------------------ início
 async function iniciar() {
   if (Sessao.token && Sessao.usuario) {
     pintarUsuario();

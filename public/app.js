@@ -54,6 +54,23 @@ export const fmt = {
     if (!ano || !mes || !dia) return "—";
     return new Date(ano, mes - 1, dia).toLocaleDateString("pt-BR");
   },
+  mesAno(ano, mes) {
+    return new Date(ano, mes - 1, 1)
+      .toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  },
+  // "seg, 09/09" — o professor se orienta pelo dia da semana, não pela data.
+  diaCurto(valor) {
+    if (!valor) return "—";
+    const [ano, mes, dia] = String(valor).slice(0, 10).split("-").map(Number);
+    if (!ano) return "—";
+    const d = new Date(ano, mes - 1, dia);
+    const semana = d.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+    return `${semana}, ${String(dia).padStart(2, "0")}/${String(mes).padStart(2, "0")}`;
+  },
+  hojeIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  },
   cpf(valor) {
     const d = String(valor).replace(/\D/g, "").slice(0, 11);
     return d

@@ -5,7 +5,6 @@ import {
   alunoPertenceAoResponsavel,
   listarAlunosDoResponsavel,
   listarPresencasDoAluno,
-  listarTurmasDoProfessor,
   obterOcupacaoPorUnidade,
 } from "../../db/legacy/escola.repository.js";
 import { readOnlyQuery } from "../../db/legacy/pool.js";
@@ -171,10 +170,6 @@ export async function portalRoutes(app: FastifyInstance) {
       },
     };
   });
-
-  app.get("/professor/turmas", { preHandler: [app.exigirProfessor] }, async (request) =>
-    listarTurmasDoProfessor(request.user.professorId!),
-  );
 
   app.get(
     "/escola/ocupacao",

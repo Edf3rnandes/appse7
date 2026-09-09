@@ -74,6 +74,12 @@ pertence, para não confirmar que o aluno existe.
 | `GET` | `/portal/faturas` | responsável vinculado |
 | `GET` | `/portal/perfil` | responsável vinculado |
 | `GET` | `/professor/turmas` | professor vinculado |
+| `GET` | `/professor/turmas/:id/alunos` | professor vinculado (dono da turma) |
+| `POST` | `/professor/frequencia` | professor vinculado |
+| `GET` | `/professor/semana` | professor vinculado |
+| `GET` | `/professor/agenda` | professor vinculado |
+| `GET` `PUT` `DELETE` | `/conteudo/semanas` | ADMIN, SECRETARIA |
+| `GET` `POST` `PUT` `DELETE` | `/conteudo/eventos` | ADMIN, SECRETARIA |
 | `GET` | `/escola/ocupacao` | ADMIN, SECRETARIA |
 
 ## Telas
@@ -83,7 +89,7 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 | Página | Para quem |
 |---|---|
 | `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
-| `/professor.html` | **Área do professor** — turmas agrupadas por unidade, com ocupação |
+| `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
 
 O login é o botão do Google (GIS); no primeiro acesso o responsável informa o CPF e a partir daí
 o token guardado no navegador carrega o vínculo. Mobile primeiro: quase todo acesso do responsável
@@ -122,6 +128,23 @@ Duas particularidades do legado valem para todas as consultas:
 
 Sem `LEGACY_MYSQL_*` preenchido, o Hub **sobe do mesmo jeito** e as rotas que
 dependem do legado respondem 503 com mensagem clara.
+
+## Lançamento de frequência
+
+É a única escrita do Hub que toca dados da escola, e ela **não passa pela ponte de leitura**.
+O Hub chama o `POST /api/attendances` do próprio Laravel, com o `secret` do professor lido do
+MySQL e enviado em header `Authorization`. Assim:
+
+- a regra "só `SELECT` no legado" continua valendo, sem exceção;
+- a frequência cai onde os relatórios da escola já leem, então nada de dado partido em dois lugares;
+- a checagem de "já lançou hoje" continua sendo do Laravel, uma fonte da verdade só.
+
+Uma sutileza do contrato de lá que precisa ser respeitada ao pé da letra: a presença é decidida
+por `isset($student['selecionado'])`. Como `isset` é verdadeiro para `false`, mandar
+`selecionado: false` marcaria **presente** — para registrar falta, a chave tem de estar ausente
+do objeto. Isso está isolado em `src/services/legado/frequencia.service.ts`.
+
+Sem `LEGACY_API_URL` o resto do app funciona normalmente e só o envio da chamada responde 503.
 
 ## Rodando
 

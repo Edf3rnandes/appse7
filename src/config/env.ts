@@ -23,6 +23,18 @@ const schema = z.object({
   LEGACY_MYSQL_PASSWORD: z.string().default(""),
   LEGACY_MYSQL_DATABASE: z.string().default(""),
 
+  // API do proprio Laravel, usada so para GRAVAR frequencia.
+  //
+  // A ponte com o MySQL e e continua somente leitura. Para o lancamento de
+  // frequencia funcionar de verdade hoje, ele precisa cair onde os relatorios
+  // da escola leem — a tabela `attendances` do Laravel. Em vez de abrir a
+  // conexao para escrita, o Hub chama o endpoint que o proprio Laravel ja
+  // expoe (POST /api/attendances), com o token do professor. Assim a regra
+  // "so SELECT no legado" continua valendo e a checagem de frequencia
+  // duplicada do Laravel continua sendo a unica fonte da verdade.
+  // Ex.: https://sistema.se7volei.com.br
+  LEGACY_API_URL: z.string().default(""),
+
   // Contas que ganham ADMIN automaticamente no primeiro login com Google.
   // Serve para o bootstrap: sem isso nao existe ninguem para emitir o primeiro
   // convite. Lista separada por virgula.
@@ -39,6 +51,8 @@ export const legadoConfigurado =
   env.LEGACY_MYSQL_HOST !== "" && env.LEGACY_MYSQL_DATABASE !== "";
 
 export const googleConfigurado = env.GOOGLE_CLIENT_ID !== "";
+
+export const legadoApiConfigurada = env.LEGACY_API_URL !== "";
 
 export const adminEmails = env.ADMIN_EMAILS.split(",")
   .map((e) => e.trim().toLowerCase())

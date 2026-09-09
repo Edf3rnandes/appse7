@@ -147,3 +147,63 @@ model Convite {
   @@index([email])
   @@map("hub_convites")
 }
+
+// ---------------------------------------------------------------------------
+// Conteúdo que o professor consulta
+//
+// O se7-inadimplencia já tem um CronogramaSemana, mas voltado para a
+// secretaria (arte de divulgação, Canva, postagens do Instagram) e sem login
+// de professor. Aqui a mesma semana aparece do lado de quem dá a aula: tema,
+// fundamentos e exercícios. Quando os módulos da secretaria migrarem para o
+// Hub (Fase 3), as duas visões passam a ler a mesma linha.
+// ---------------------------------------------------------------------------
+
+model ProgramacaoSemana {
+  id           String   @id @default(uuid())
+  // Segunda-feira da semana. Chave natural: uma linha por semana.
+  semana       DateTime @unique @db.Date
+  tema         String?
+  fundamentos  String?
+  exercicios   String?
+  observacoes  String?
+  // Rascunho não aparece para o professor — deixa a secretaria preparar o mês
+  // inteiro com antecedência sem publicar pela metade.
+  publicado    Boolean  @default(false)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([semana, publicado])
+  @@map("hub_programacao_semanas")
+}
+
+enum TipoEvento {
+  TREINO_ESPECIAL
+  CAMPEONATO
+  FESTIVAL
+  REUNIAO
+  AVALIACAO
+  FERIADO
+  OUTRO
+}
+
+// Eventos do mês: campeonato, festival, aulão, reunião, avaliação, feriado.
+// `unidadeIdLegacy` nulo significa "vale para todas as unidades" — é o caso
+// mais comum (feriado, campeonato), então nulo é o padrão útil.
+model Evento {
+  id              String     @id @default(uuid())
+  titulo          String
+  descricao       String?
+  tipo            TipoEvento @default(OUTRO)
+  data            DateTime   @db.Date
+  dataFim         DateTime?  @db.Date
+  horario         String?    // "08:00 às 11:00" — texto livre, o horário real varia
+  local           String?
+  unidadeIdLegacy Int?
+  unidadeNome     String?
+  publicado       Boolean    @default(false)
+  criadoEm        DateTime   @default(now())
+  atualizadoEm    DateTime   @updatedAt
+
+  @@index([data, publicado])
+  @@map("hub_eventos")
+}

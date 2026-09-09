@@ -280,3 +280,78 @@ const SQL_OCUPACAO_POR_UNIDADE = `
 export async function obterOcupacaoPorUnidade(): Promise<OcupacaoUnidade[]> {
   return readOnlyQuery<OcupacaoUnidade>(SQL_OCUPACAO_POR_UNIDADE);
 }
+
+export interface AlunoDaTurma {
+  id: number;
+  nome: string;
+  foto: string | null;
+  responsavel: string | null;
+}
+
+// Alunos com matrícula confirmada numa turma, em ordem alfabética — a mesma
+// ordem em que o professor faz a chamada.
+//
+// COLLATE utf8mb4_unicode_ci no ORDER BY: sem isso o MySQL ordena por bytes e
+// nomes acentuados ("Ávila") caem depois de "Zuleide".
+const SQL_ALUNOS_DA_TURMA = `
+  SELECT
+    s.id   AS id,
+    s.name AS nome,
+    s.photo AS foto,
+    c.name AS responsavel
+  FROM enrollments e
+  JOIN students s  ON s.id = e.student_id
+  LEFT JOIN customers c ON c.id = e.customer_id
+  WHERE e.course_id = :turmaId
+    AND e.status = 'CONFIRMED'
+    AND e.deleted_at IS NULL
+    AND s.deleted_at IS NULL
+  ORDER BY s.name COLLATE utf8mb4_unicode_ci
+`;
+
+export async function listarAlunosDaTurma(turmaId: number): Promise<AlunoDaTurma[]> {
+  return readOnlyQuery<AlunoDaTurma>(SQL_ALUNOS_DA_TURMA, { turmaId });
+}
+
+// O Laravel recusa uma segunda chamada no mesmo dia para a mesma turma. Saber
+// disso ANTES de o professor preencher a lista inteira evita que ele perca o
+// trabalho e receba a recusa só no envio.
+const SQL_FREQUENCIA_DE_HOJE = `
+  SELECT COUNT(*) AS total
+  FROM attendances
+  WHERE course_id = :turmaId
+    AND DATE(attendance_date) = CURDATE()
+`;
+
+export async function frequenciaJaLancadaHoje(turmaId: number): Promise<boolean> {
+  const linhas = await readOnlyQuery<{ total: number }>(SQL_FREQUENCIA_DE_HOJE, { turmaId });
+  return (linhas[0]?.total ?? 0) > 0;
+}
+
+const SQL_PROFESSOR_DA_TURMA = `
+  SELECT COUNT(*) AS total
+  FROM course_teacher
+  WHERE course_id = :turmaId AND teacher_id = :professorId
+`;
+
+export async function turmaPertenceAoProfessor(
+  turmaId: number,
+  professorId: number,
+): Promise<boolean> {
+  const linhas = await readOnlyQuery<{ total: number }>(SQL_PROFESSOR_DA_TURMA, {
+    turmaId,
+    professorId,
+  });
+  return (linhas[0]?.total ?? 0) > 0;
+}
+
+// O `secret` é o token que o Laravel espera no POST /api/attendances. Ele nunca
+// sai do servidor: é lido aqui e usado na chamada de máquina para máquina.
+const SQL_SECRET_DO_PROFESSOR = `
+  SELECT secret FROM teachers WHERE id = :id AND active = 1 LIMIT 1
+`;
+
+export async function obterSecretDoProfessor(id: number): Promise<string | null> {
+  const linhas = await readOnlyQuery<{ secret: string | null }>(SQL_SECRET_DO_PROFESSOR, { id });
+  return linhas[0]?.secret ?? null;
+}
