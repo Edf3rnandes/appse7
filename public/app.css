@@ -362,3 +362,66 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .registro { padding: 14px 0; border-top: 1px solid var(--rule); }
 .registro:first-child { border-top: 0; }
 .registro .titulo { font-weight: 600; }
+
+/* ==========================================================================
+   Menu lateral da secretaria
+
+   Segue os grupos do sistema atual (Administrativo, Clientes, Configurações),
+   porque são treze destinos e as abas planas já não cabiam — a sexta aba
+   estava saindo da tela. No desktop é uma coluna fixa; abaixo de 860px vira
+   gaveta atrás do ☰, que é o único formato que funciona num celular.
+   ========================================================================== */
+.layout {
+  display: flex; gap: 26px; align-items: flex-start;
+  max-width: 1080px; margin: 0 auto; padding: 22px 16px 64px;
+}
+.menu { flex: 0 0 208px; position: sticky; top: 22px; display: flex; flex-direction: column; gap: 3px; }
+.conteudo { flex: 1; min-width: 0; }
+
+.titulo-secao { font-size: 21px; margin: 0 0 16px; }
+
+.menu .grupo { margin-top: 16px; display: flex; flex-direction: column; gap: 3px; }
+.menu .grupo-titulo {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700; padding: 0 10px 5px;
+}
+.item-menu {
+  border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 14.5px;
+  text-align: left; padding: 9px 11px; border-radius: 8px; cursor: pointer; width: 100%;
+}
+.item-menu:hover { background: var(--surface-2); color: var(--ink); }
+.item-menu[aria-current="true"] {
+  background: var(--accent-suave); color: var(--accent); font-weight: 600;
+}
+
+.hamburguer {
+  border: 0; background: none; color: var(--ink); font-size: 21px; line-height: 1;
+  padding: 6px 10px; margin-right: 4px; border-radius: 8px; cursor: pointer;
+}
+.hamburguer:hover { background: var(--surface-2); }
+
+@media (max-width: 860px) {
+  .hamburguer.oculto { display: block !important; }
+  .layout { display: block; padding: 16px 14px 64px; }
+  .menu {
+    position: fixed; top: 0; bottom: 0; left: 0; width: 250px; z-index: 40;
+    background: var(--surface); border-right: 1px solid var(--rule);
+    padding: 18px 12px; overflow-y: auto;
+    transform: translateX(-100%); transition: transform .18s ease-out;
+  }
+  .menu[data-aberto="true"] { transform: none; }
+  .veu { position: fixed; inset: 0; background: rgba(0, 0, 0, .38); z-index: 35; }
+}
+
+/* Caixa de marcação com rótulo clicável — o alvo de toque é a linha toda. */
+.marcavel { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 15px; }
+.marcavel input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+
+/* Botão de dia da semana no editor de horário da turma. */
+.dia {
+  border: 1px solid var(--rule-forte); background: var(--surface); color: var(--ink-2);
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  padding: 7px 11px; border-radius: 8px; cursor: pointer; min-width: 44px;
+}
+.dia:hover { border-color: var(--accent); color: var(--accent); }
+.dia.escolhido { background: var(--accent); border-color: var(--accent); color: #fff; }

@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 
 /**
@@ -33,6 +34,19 @@ export function tratadorDeErro(
         })
         .join("; ");
       return reply.code(400).send({ message: mensagem || "Dados invalidos." });
+    }
+
+    // Banco fora do ar não é defeito do sistema, e dizer "Erro interno" faz
+    // parecer que é — a pessoa fica tentando de novo achando que errou algo.
+    // 503 com texto claro diz o que está acontecendo e que vale esperar.
+    if (
+      err instanceof Prisma.PrismaClientInitializationError ||
+      err instanceof Prisma.PrismaClientRustPanicError
+    ) {
+      request.log.error(err);
+      return reply.code(503).send({
+        message: "O sistema está sem conexão com o banco de dados. Tente de novo em instantes.",
+      });
     }
 
     const conhecido = especificos?.(err);
