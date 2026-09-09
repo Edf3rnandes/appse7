@@ -111,14 +111,34 @@ Dividir banco entre dois sistemas tem um risco óbvio, e ele está resolvido de 
   SQL explícito em `src/db/compartilhado/`, mesmo padrão da ponte com o MySQL: um arquivo só,
   nenhum outro módulo escreve o nome de uma tabela vizinha.
 
-Preparo do banco, uma vez só, com a `DIRECT_URL` (porta 5432, não o pooler):
+### Instalação, uma vez só
+
+O banco do se7-inadimplencia pode estar em outra conta Supabase, sem CLI à mão. Por isso o
+preparo inteiro cabe num arquivo para colar no **SQL Editor** do Supabase daquele projeto:
+
+**`prisma/instalar-no-supabase.sql`** — cria o schema `hub`, acrescenta a coluna `observacoes`
+ao cronograma e cria as tabelas do Hub. Não pede terminal nem expõe a senha do banco.
+
+Quem tiver a `DIRECT_URL` em mãos (porta 5432, nunca o pooler de transação) pode fazer o mesmo
+pelo terminal:
 
 ```bash
-psql "$DIRECT_URL" -f prisma/compartilhado.sql   # cria o schema hub + a coluna observacoes
-npx prisma db push                               # cria as tabelas do Hub dentro de hub
+psql "$DIRECT_URL" -f prisma/instalar-no-supabase.sql
 ```
 
-Ambos os passos são aditivos — nada existente é alterado ou removido.
+O script é **aditivo e idempotente**: só `CREATE ... IF NOT EXISTS` e `ADD COLUMN IF NOT EXISTS`,
+nenhum `DROP`, `DELETE` ou alteração de coluna existente. Rodar duas vezes apenas imprime avisos
+de "already exists, skipping".
+
+Conferência depois de rodar:
+
+```sql
+select table_schema, table_name from information_schema.tables
+where table_schema in ('hub','public') order by 1, 2;
+```
+
+`prisma/compartilhado.sql` continua no repositório como a versão mínima (só schema + coluna), para
+quem preferir criar as tabelas do Hub com `npx prisma db push`.
 
 ## Cronograma
 
