@@ -125,3 +125,41 @@ export async function iniciarGoogle(alvo, aoEntrar, aoFalhar) {
     width: 280,
   });
 }
+
+/**
+ * Reduz e recomprime a arte da semana no navegador, antes de enviar.
+ *
+ * A imagem é gravada como data URL na própria linha do cronograma (é ~1 por
+ * semana, não justifica bucket). Uma foto crua de celular passa de 5 MB e
+ * viraria uma linha gigante no banco e uma tela lenta no celular do professor.
+ * 1400px no maior lado e JPEG 0.82 deixam a arte legível em qualquer aparelho
+ * e o arquivo bem abaixo do limite do servidor.
+ */
+export async function prepararImagem(arquivo, ladoMaximo = 1400, qualidade = 0.82) {
+  if (!arquivo.type.startsWith("image/")) {
+    throw new Error("O arquivo precisa ser uma imagem.");
+  }
+
+  const bitmap = await createImageBitmap(arquivo);
+  const escala = Math.min(1, ladoMaximo / Math.max(bitmap.width, bitmap.height));
+  const largura = Math.round(bitmap.width * escala);
+  const altura = Math.round(bitmap.height * escala);
+
+  const tela = document.createElement("canvas");
+  tela.width = largura;
+  tela.height = altura;
+
+  const ctx = tela.getContext("2d");
+  // PNG com transparência ficaria com fundo preto ao virar JPEG.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, largura, altura);
+  ctx.drawImage(bitmap, 0, 0, largura, altura);
+  bitmap.close?.();
+
+  return {
+    dataUrl: tela.toDataURL("image/jpeg", qualidade),
+    nome: arquivo.name,
+    largura,
+    altura,
+  };
+}

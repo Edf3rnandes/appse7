@@ -364,13 +364,13 @@ function blocoSemana(titulo, s) {
   if (!s) {
     return `<article class="cartao">
       <div class="rotulo">${titulo}</div>
-      <p class="meta" style="margin:8px 0 0">Programação ainda não publicada.</p>
+      <p class="meta" style="margin:8px 0 0">Cronograma ainda não publicado.</p>
     </article>`;
   }
 
   const campos = [
     ["Tema", s.tema], ["Fundamentos", s.fundamentos],
-    ["Exercícios", s.exercicios], ["Observações", s.observacoes],
+    ["Exercícios", s.exerciciosSugeridos], ["Observações", s.observacoes],
   ].filter(([, v]) => v);
 
   return `<article class="cartao">
@@ -378,6 +378,13 @@ function blocoSemana(titulo, s) {
       <span class="rotulo">${titulo}</span>
       <span class="meta">semana de ${fmt.data(s.semana)}</span>
     </div>
+
+    ${s.imagemBase64
+      ? `<div class="arte-professor" style="margin-bottom:14px">
+           <img src="${escapar(s.imagemBase64)}" alt="Arte da semana${s.tema ? ": " + escapar(s.tema) : ""}">
+         </div>`
+      : ""}
+
     ${campos.length
       ? campos.map(([rotulo, valor]) => `
           <div style="margin-top:12px">
@@ -385,6 +392,17 @@ function blocoSemana(titulo, s) {
             <div class="bloco-texto">${escapar(valor)}</div>
           </div>`).join("")
       : `<p class="meta" style="margin:0">Sem conteúdo preenchido para esta semana.</p>`}
+
+    ${s.textoDivulgacao
+      ? `<div style="margin-top:16px;border-top:1px solid var(--rule);padding-top:14px">
+           <div class="linha" style="margin-bottom:6px">
+             <span class="rotulo">Texto de divulgação</span>
+             <button class="botao fantasma pequeno" type="button"
+                     data-copiar="${escapar(s.id)}">Copiar</button>
+           </div>
+           <div class="bloco-texto" id="divulgacao-${escapar(s.id)}">${escapar(s.textoDivulgacao)}</div>
+         </div>`
+      : ""}
   </article>`;
 }
 
@@ -396,6 +414,21 @@ async function carregarSemana() {
       ${blocoSemana("Esta semana", r.atual)}
       ${blocoSemana("Próxima semana", r.proxima)}
     </div>`;
+
+    // Copiar o texto pronto é o que o professor faz de fato: ele cola no
+    // grupo do WhatsApp junto com a arte.
+    alvo.querySelectorAll("[data-copiar]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const texto = el(`divulgacao-${b.dataset.copiar}`)?.textContent ?? "";
+        try {
+          await navigator.clipboard.writeText(texto);
+          b.textContent = "Copiado!";
+          setTimeout(() => { b.textContent = "Copiar"; }, 1800);
+        } catch {
+          b.textContent = "Não deu para copiar";
+        }
+      });
+    });
   } catch (e) {
     alvo.innerHTML = aviso(e);
   }
@@ -450,13 +483,14 @@ async function carregarMes() {
       </div>
 
       <div class="cartao" style="margin-top:14px">
-        <div class="rotulo" style="margin-bottom:10px">Programação das semanas</div>
+        <div class="rotulo" style="margin-bottom:10px">Cronograma das semanas</div>
         ${r.semanas.length ? r.semanas.map((s) => `
           <div class="item">
             <div class="corpo">
               <div class="titulo">${escapar(s.tema || "Sem tema definido")}</div>
               <div class="detalhe">semana de ${fmt.diaCurto(s.semana)}</div>
             </div>
+            ${s.temArte ? `<div class="lado"><span class="selo-arte">com arte</span></div>` : ""}
           </div>`).join("")
           : `<p class="meta" style="margin:0">Nenhuma semana publicada neste mês.</p>`}
       </div>`;

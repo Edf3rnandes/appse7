@@ -149,31 +149,50 @@ model Convite {
 }
 
 // ---------------------------------------------------------------------------
-// Conteúdo que o professor consulta
+// Cronograma — a MESMA coisa que o `CronogramaSemana` do se7-inadimplencia.
 //
-// O se7-inadimplencia já tem um CronogramaSemana, mas voltado para a
-// secretaria (arte de divulgação, Canva, postagens do Instagram) e sem login
-// de professor. Aqui a mesma semana aparece do lado de quem dá a aula: tema,
-// fundamentos e exercícios. Quando os módulos da secretaria migrarem para o
-// Hub (Fase 3), as duas visões passam a ler a mesma linha.
+// Os nomes de campo aqui são deliberadamente iguais aos de lá (semana, tema,
+// fundamentos, exerciciosSugeridos, postagensPlanejadas, textoDivulgacao,
+// linkCanva, imagemBase64, imagemNome, status). Não é repetição por descuido:
+// é para que a fusão da Fase 3 seja uma cópia de linhas, e não uma
+// reconciliação de dois modelos parecidos. `observacoes` é o único campo novo,
+// e é aditivo — nasce da visão do professor, que o cronograma da secretaria
+// não tinha (maré, quadra, material).
+//
+// A imagem fica como data URL na própria coluna, mesma decisão do sistema de
+// origem: é ~1 arte por semana, não justifica bucket nem CDN. O navegador
+// reduz e recomprime antes de enviar, e a rota que grava declara um bodyLimit
+// próprio — o padrão de 1 MB do Fastify não caberia uma foto de celular.
 // ---------------------------------------------------------------------------
 
-model ProgramacaoSemana {
-  id           String   @id @default(uuid())
+model CronogramaSemana {
+  id                  String   @id @default(uuid())
   // Segunda-feira da semana. Chave natural: uma linha por semana.
-  semana       DateTime @unique @db.Date
-  tema         String?
-  fundamentos  String?
-  exercicios   String?
-  observacoes  String?
-  // Rascunho não aparece para o professor — deixa a secretaria preparar o mês
-  // inteiro com antecedência sem publicar pela metade.
-  publicado    Boolean  @default(false)
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  semana              DateTime @unique @db.Date
+  tema                String?
+  fundamentos         String?
+  exerciciosSugeridos String?
+  observacoes         String?
 
-  @@index([semana, publicado])
-  @@map("hub_programacao_semanas")
+  // Divulgação: o que vai para os grupos e para o Instagram.
+  postagensPlanejadas String?
+  textoDivulgacao     String?
+  // Documento editável no Canva. Uso interno da equipe — não vai para o app
+  // do professor.
+  linkCanva           String?
+
+  imagemBase64        String?  // data URL completo (data:image/jpeg;base64,...)
+  imagemNome          String?
+
+  // planejado -> pronto -> publicado. O professor só enxerga "publicado",
+  // então dá para montar a temporada inteira antes de liberar.
+  status              String   @default("planejado")
+
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  @@index([semana, status])
+  @@map("hub_cronograma_semanas")
 }
 
 enum TipoEvento {

@@ -78,7 +78,7 @@ pertence, para não confirmar que o aluno existe.
 | `POST` | `/professor/frequencia` | professor vinculado |
 | `GET` | `/professor/semana` | professor vinculado |
 | `GET` | `/professor/agenda` | professor vinculado |
-| `GET` `PUT` `DELETE` | `/conteudo/semanas` | ADMIN, SECRETARIA |
+| `GET` `PUT` `DELETE` | `/conteudo/cronograma` | ADMIN, SECRETARIA |
 | `GET` `POST` `PUT` `DELETE` | `/conteudo/eventos` | ADMIN, SECRETARIA |
 | `GET` | `/escola/ocupacao` | ADMIN, SECRETARIA |
 
@@ -90,12 +90,40 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 |---|---|
 | `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
 | `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
-| `/secretaria.html` | **Secretaria** — cadastra a programação das semanas e os eventos que o professor vê |
+| `/secretaria.html` | **Secretaria** — cadastra o cronograma das semanas e os eventos que o professor vê |
 
-A semana é sempre identificada pela **segunda-feira**: a secretaria escolhe qualquer dia e o
-servidor normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. Nada
-aparece para o professor enquanto estiver como rascunho — dá para montar o mês inteiro antes de
-publicar.
+## Cronograma
+
+É **o mesmo cronograma** que já existe no se7-inadimplencia, não um segundo. Os nomes de campo
+foram copiados de lá de propósito — `semana`, `tema`, `fundamentos`, `exerciciosSugeridos`,
+`postagensPlanejadas`, `textoDivulgacao`, `linkCanva`, `imagemBase64`, `imagemNome`, `status` —
+para que a fusão da Fase 3 seja uma cópia de linhas e não uma reconciliação de dois modelos
+parecidos. `observacoes` é o único campo novo, e é aditivo: nasce da visão do professor (maré,
+quadra, material), que o cronograma da secretaria não tinha.
+
+A semana é identificada pela **segunda-feira**: a secretaria escolhe qualquer dia e o servidor
+normaliza, então salvar duas vezes a mesma semana corrige em vez de duplicar. O ciclo é
+`planejado → pronto → publicado`, e só "publicado" chega ao professor — dá para montar a
+temporada inteira antes de liberar.
+
+A arte da semana fica como data URL na própria linha, mesma decisão do sistema de origem (é ~1
+imagem por semana, não justifica bucket nem CDN). O navegador reduz para 1400px e recomprime em
+JPEG antes de enviar — uma foto de celular sai de vários MB para dezenas de KB — e a rota que
+grava declara um `bodyLimit` próprio, já que o padrão de 1 MB do Fastify não caberia a original.
+
+Quem vê o quê:
+
+| | Secretaria | Professor |
+|---|---|---|
+| Tema, fundamentos, exercícios, observações | sim | sim |
+| Arte da semana | sim | sim (com botão de copiar o texto) |
+| Texto de divulgação | sim | sim |
+| Postagens planejadas | sim | não |
+| **Link do Canva** | sim | **não** — é o documento editável da equipe |
+
+Listagens nunca carregam a arte: a visão do mês manda só `temArte`, e o data URL vem apenas na
+semana aberta. Sem isso, um mês com cinco semanas viraria uma resposta de megabytes no celular
+do professor em rede móvel.
 
 O login é o botão do Google (GIS); no primeiro acesso o responsável informa o CPF e a partir daí
 o token guardado no navegador carrega o vínculo. Mobile primeiro: quase todo acesso do responsável

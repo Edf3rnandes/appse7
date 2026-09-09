@@ -109,15 +109,23 @@ export async function professorRoutes(app: FastifyInstance) {
     });
   });
 
-  // Programação da semana atual e da próxima — o professor planeja a aula de
-  // hoje e já vê o que vem.
+  // Cronograma da semana atual e da próxima — o professor planeja a aula de
+  // hoje e já vê o que vem. Aqui a arte VAI junto: são duas semanas, e é a
+  // imagem que ele repassa para o grupo.
+  //
+  // O link do Canva fica de fora de propósito: é o documento editável da
+  // equipe, uso interno da secretaria.
   app.get("/professor/semana", { preHandler: [app.exigirProfessor] }, async () => {
     const estaSemana = segundaDaSemana(new Date());
     const proximaSemana = somarDias(estaSemana, 7);
 
-    const semanas = await prisma.programacaoSemana.findMany({
-      where: { publicado: true, semana: { in: [estaSemana, proximaSemana] } },
+    const semanas = await prisma.cronogramaSemana.findMany({
+      where: { status: "publicado", semana: { in: [estaSemana, proximaSemana] } },
       orderBy: { semana: "asc" },
+      select: {
+        id: true, semana: true, tema: true, fundamentos: true, exerciciosSugeridos: true,
+        observacoes: true, textoDivulgacao: true, imagemBase64: true, imagemNome: true,
+      },
     });
 
     const achar = (data: Date) =>
@@ -141,9 +149,18 @@ export async function professorRoutes(app: FastifyInstance) {
         where: { publicado: true, data: { gte: inicio, lte: fim } },
         orderBy: { data: "asc" },
       }),
-      prisma.programacaoSemana.findMany({
-        where: { publicado: true, semana: { gte: somarDias(inicio, -6), lte: fim } },
+      // Sem a arte: a visão do mês lista várias semanas, e mandar o data URL
+      // de cada uma deixaria a resposta na casa dos megabytes num celular em
+      // rede móvel. `temArte` diz que existe, e a semana inteira vem em
+      // /professor/semana.
+      prisma.cronogramaSemana.findMany({
+        where: { status: "publicado", semana: { gte: somarDias(inicio, -6), lte: fim } },
         orderBy: { semana: "asc" },
+        select: {
+          id: true, semana: true, tema: true, fundamentos: true,
+          exerciciosSugeridos: true, observacoes: true, textoDivulgacao: true,
+          imagemNome: true,
+        },
       }),
     ]);
 
@@ -151,7 +168,7 @@ export async function professorRoutes(app: FastifyInstance) {
       mes: referencia.getMonth() + 1,
       ano: referencia.getFullYear(),
       eventos,
-      semanas,
+      semanas: semanas.map(({ imagemNome, ...s }) => ({ ...s, temArte: imagemNome !== null })),
     };
   });
 }
