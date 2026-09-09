@@ -67,10 +67,18 @@ const idParams = z.object({ id: z.string().uuid() });
 // Chaves permitidas, uma a uma. Uma tabela chave/valor sem lista fechada vira
 // depósito de qualquer coisa que o cliente resolva mandar.
 const CHAVE_CANVA = "cronograma.linkCanva";
+const CHAVE_TAXA = "matricula.taxa";
+const CHAVE_TERMOS = "matricula.linkTermos";
 
 const configSchema = z.object({
   // String vazia apaga o link — é como a secretaria "remove" o documento.
-  linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]),
+  linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]).optional(),
+  // Taxa de matrícula: um valor da escola, cobrado uma vez, separado da
+  // mensalidade do plano. No sistema atual ele mora no arquivo de
+  // configuração (plan_enrollment_base_amount), então mudar de R$ 25 para
+  // R$ 30 exige um deploy. Aqui a secretaria muda pela tela.
+  taxaMatricula: z.number().min(0).max(10000).optional(),
+  linkTermos: z.union([z.string().url("Link dos termos inválido.").max(500), z.literal("")]).optional(),
 });
 
 /**
@@ -150,29 +158,33 @@ export async function conteudoRoutes(app: FastifyInstance) {
   //
   // O link do Canva é UM documento que rege todas as semanas, não um por
   // semana — por isso mora aqui, e não em cada linha do cronograma.
-  app.get("/conteudo/config", somenteEquipe, async () => {
-    const registro = await prisma.configuracao
-      .findUnique({ where: { chave: CHAVE_CANVA } })
-      .catch(() => null);
-
-    return { linkCanva: registro?.valor ?? "" };
-  });
+  app.get("/conteudo/config", somenteEquipe, async () => lerConfig());
 
   app.put("/conteudo/config", somenteEquipe, async (request) => {
-    const { linkCanva } = configSchema.parse(request.body);
+    const corpo = configSchema.parse(request.body);
 
-    if (linkCanva === "") {
-      await prisma.configuracao.deleteMany({ where: { chave: CHAVE_CANVA } });
-      return { linkCanva: "" };
-    }
+    const gravar = async (chave: string, valor: string | undefined) => {
+      if (valor === undefined) return;
+      // String vazia apaga a chave — é como a tela "remove" um valor.
+      if (valor === "") {
+        await prisma.configuracao.deleteMany({ where: { chave } });
+        return;
+      }
+      await prisma.configuracao.upsert({
+        where: { chave },
+        create: { chave, valor },
+        update: { valor },
+      });
+    };
 
-    const registro = await prisma.configuracao.upsert({
-      where: { chave: CHAVE_CANVA },
-      create: { chave: CHAVE_CANVA, valor: linkCanva },
-      update: { valor: linkCanva },
-    });
+    await gravar(CHAVE_CANVA, corpo.linkCanva);
+    await gravar(CHAVE_TERMOS, corpo.linkTermos);
+    await gravar(
+      CHAVE_TAXA,
+      corpo.taxaMatricula === undefined ? undefined : String(corpo.taxaMatricula),
+    );
 
-    return { linkCanva: registro.valor };
+    return lerConfig();
   });
 
   // ------------------------------------------------------- cronograma
@@ -373,5 +385,26 @@ async function numerosDaEscola(inicioDoMes: Date, inicioDoProximoMes: Date) {
       status: m.status,
       criadaEm: m.criadoEm,
     })),
+  };
+}
+
+/**
+ * As configurações da escola, com os valores padrão.
+ *
+ * A taxa de matrícula nasce em 25, que é o valor que o site cobra hoje. Ter
+ * um padrão evita que a tela pública fique sem número no dia em que a
+ * configuração ainda não foi salva.
+ */
+export async function lerConfig() {
+  const registros = await prisma.configuracao
+    .findMany({ where: { chave: { in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS] } } })
+    .catch(() => []);
+
+  const valor = (chave: string) => registros.find((r) => r.chave === chave)?.valor;
+
+  return {
+    linkCanva: valor(CHAVE_CANVA) ?? "",
+    linkTermos: valor(CHAVE_TERMOS) ?? "",
+    taxaMatricula: Number(valor(CHAVE_TAXA) ?? 25),
   };
 }

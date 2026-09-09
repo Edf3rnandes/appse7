@@ -425,3 +425,47 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 }
 .dia:hover { border-color: var(--accent); color: var(--accent); }
 .dia.escolhido { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ==========================================================================
+   Matrícula pelo site — passo a passo
+
+   Uma pergunta por tela, com Voltar sempre à mão. É o formato do site atual e
+   é o certo para quem preenche em pé, no celular, na saída do trabalho.
+   ========================================================================== */
+.trilha { display: flex; gap: 4px; margin-bottom: 22px; }
+.trilha .etapa { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.trilha .bolha {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 700;
+  background: var(--surface-2); color: var(--ink-3);
+}
+.trilha .nome { font-size: 11.5px; color: var(--ink-3); text-align: center; }
+.trilha .etapa.agora .bolha { background: var(--accent); color: #fff; }
+.trilha .etapa.agora .nome { color: var(--ink); font-weight: 600; }
+.trilha .etapa.feita .bolha { background: var(--ok-suave); color: var(--ok); }
+
+.titulo-passo { font-size: 23px; text-align: center; margin: 0 0 6px; }
+
+/* Cartão de escolha: turma ou plano. O alvo de toque é o bloco inteiro. */
+.escolha {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1.5px solid var(--rule-forte);
+  border-radius: var(--raio); padding: 15px; margin-bottom: 10px; font: inherit;
+}
+.escolha:hover { border-color: var(--accent); }
+.escolha.escolhida { border-color: var(--accent); background: var(--accent-suave); }
+.escolha-titulo { display: block; font-weight: 700; font-size: 16px; color: var(--ink); }
+.escolha-linha { display: block; margin-top: 6px; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+.escolha-meta { display: block; margin-top: 8px; font-size: 14px; font-weight: 600; color: var(--accent); }
+
+.linha-confirma {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 10px 0; border-top: 1px solid var(--rule);
+}
+.linha-confirma:first-child { border-top: 0; }
+
+/* Os botões ficam colados ao fim do conteúdo, não flutuando: numa tela curta
+   um rodapé fixo cobriria justamente o último campo do formulário. */
+.barra-passos { display: flex; gap: 10px; margin-top: 20px; }
+.barra-passos .botao { flex: 1; }
+.barra-passos .botao.fantasma { flex: 0 0 auto; }

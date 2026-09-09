@@ -22,15 +22,20 @@
 import { api, ErroApi, fmt, escapar } from "/app.js";
 
 /**
- * Matrícula pelo site — a página que a família preenche.
+ * Matrícula pelo site.
  *
- * Ela é pública e não pede login: quem chega aqui ainda não tem conta. A
- * matrícula nasce registrada e aguardando a confirmação do administrativo;
- * os boletos do plano são lançados depois.
+ * O passo a passo é o mesmo do site atual, na mesma ordem: dados do aluno,
+ * turma, plano, confirmação. Não copiei por copiar — a ordem tem razão de
+ * ser: quem chega pelo Instagram já sabe que quer treinar e digita o nome
+ * sem pensar; a decisão difícil (qual turma cabe na minha semana) vem depois,
+ * quando a pessoa já investiu trinta segundos e não desiste à toa.
  *
- * A ordem das perguntas é a da conversa no balcão: primeiro onde e quando a
- * pessoa quer treinar, depois quem ela é. Perguntar CPF antes de mostrar
- * horário faz a família desistir sem saber se existe turma no dia dela.
+ * Uma pergunta por tela, com Voltar sempre disponível. É como a tela de
+ * vocês funciona no celular, e é o formato certo para quem preenche em pé,
+ * na saída do trabalho.
+ *
+ * A matrícula nasce registrada e o administrativo confirma. Os boletos do
+ * plano são lançados depois.
  */
 
 const el = (id) => document.getElementById(id);
@@ -41,27 +46,46 @@ const DIAS = {
 };
 const ORDEM = Object.keys(DIAS);
 
+/**
+ * "Seg/Qua 17:00 às 18:30 e Sex 17:00 às 19:00".
+ *
+ * Os dias que compartilham o mesmo horário são agrupados. O SE7+90 treina
+ * 1h30 na segunda e quarta e 2h na sexta: listar dia a dia repetiria o mesmo
+ * horário duas vezes e ainda esconderia que a sexta é diferente.
+ */
 function horarioLegivel(horarios) {
   if (!horarios.length) return "";
-  const ordenados = [...horarios].sort((a, b) => ORDEM.indexOf(a.dia) - ORDEM.indexOf(b.dia));
-  const dias = ordenados.map((h) => DIAS[h.dia]).join("/");
-  const iguais = new Set(ordenados.map((h) => h.inicio + h.fim)).size === 1;
-  return iguais
-    ? `${dias} · ${ordenados[0].inicio} às ${ordenados[0].fim}`
-    : ordenados.map((h) => `${DIAS[h.dia]} ${h.inicio}`).join(" · ");
+
+  const blocos = new Map();
+  for (const h of [...horarios].sort((a, b) => ORDEM.indexOf(a.dia) - ORDEM.indexOf(b.dia))) {
+    const chave = `${h.inicio}|${h.fim}`;
+    if (!blocos.has(chave)) blocos.set(chave, { dias: [], inicio: h.inicio, fim: h.fim });
+    blocos.get(chave).dias.push(DIAS[h.dia]);
+  }
+
+  return [...blocos.values()]
+    .map((b) => `${b.dias.join("/")} ${b.inicio} às ${b.fim}`)
+    .join(" e ");
 }
 
 const estado = {
-  catalogo: [],
+  passo: 0,
+  catalogo: null,
+  aluno: { nome: "", nascimento: "", telefone: "", email: "", cpf: "" },
+  // O adulto se matricula sozinho; para menor, os dados são de quem paga.
+  ehMenor: false,
+  resp: { nome: "", cpf: "", telefone: "", email: "" },
   unidadeId: "",
-  // Um por aluno: o primeiro é quem está se matriculando, os outros são irmãos.
-  alunos: [{ nome: "", nascimento: "", turmaId: "", planoId: "" }],
-  responsavelEhOAluno: false,
-  resp: { nome: "", cpf: "", email: "", telefone: "" },
+  categoria: "",
+  turmaId: "",
+  planoId: "",
+  aceitou: false,
   erro: "",
   enviando: false,
   recibo: null,
 };
+
+const PASSOS = ["Aluno", "Turma", "Plano", "Confirmação"];
 
 async function iniciar() {
   try {
@@ -72,132 +96,223 @@ async function iniciar() {
   }
 }
 
-function turmasDaUnidade() {
-  return estado.catalogo.find((u) => u.id === estado.unidadeId)?.turmas ?? [];
+const unidade = () => estado.catalogo.unidades.find((u) => u.id === estado.unidadeId);
+const turma = () => unidade()?.turmas.find((t) => t.id === estado.turmaId);
+const plano = () => turma()?.planos.find((p) => p.id === estado.planoId);
+
+/** Quem paga: o próprio aluno, ou o responsável quando ele é menor. */
+const pagante = () =>
+  estado.ehMenor
+    ? estado.resp
+    : { nome: estado.aluno.nome, cpf: estado.aluno.cpf, telefone: estado.aluno.telefone, email: estado.aluno.email };
+
+function passoValido() {
+  const p = pagante();
+  const digitos = (v) => v.replace(/\D/g, "");
+  switch (estado.passo) {
+    case 0:
+      return (
+        estado.aluno.nome.trim().length > 2 &&
+        estado.aluno.nascimento &&
+        digitos(estado.aluno.telefone).length >= 10 &&
+        digitos(p.cpf).length === 11 &&
+        (!estado.ehMenor || estado.resp.nome.trim().length > 2)
+      );
+    case 1: return Boolean(estado.turmaId);
+    case 2: return Boolean(estado.planoId);
+    case 3: return estado.aceitou;
+    default: return false;
+  }
 }
 
-function blocoAluno(a, indice) {
-  const turmas = turmasDaUnidade();
-  const turma = turmas.find((t) => t.id === a.turmaId);
-
+function trilha() {
   return `
-    <div class="cartao" style="margin-bottom:14px">
-      <div class="linha" style="margin-bottom:12px">
-        <strong>${indice === 0 ? "Aluno" : `Irmão ${indice}`}</strong>
-        ${indice > 0 ? `<button class="botao fantasma" type="button" data-tirar="${indice}">Remover</button>` : ""}
-      </div>
-      <div class="pilha" style="gap:12px">
+    <div class="trilha">
+      ${PASSOS.map((nome, i) => `
+        <div class="etapa ${i === estado.passo ? "agora" : i < estado.passo ? "feita" : ""}">
+          <span class="bolha">${i < estado.passo ? "✓" : i + 1}</span>
+          <span class="nome">${nome}</span>
+        </div>`).join("")}
+    </div>`;
+}
+
+// ------------------------------------------------------------ passo 1
+function passoAluno() {
+  const a = estado.aluno;
+  return `
+    <h1 class="titulo-passo">Seja bem-vindo</h1>
+    <p class="meta" style="text-align:center;margin:0 0 20px">Preencha os dados do aluno</p>
+
+    <div class="cartao">
+      <div class="pilha" style="gap:14px">
         <div class="campo">
-          <label class="rotulo" for="nome${indice}">Nome completo</label>
-          <input id="nome${indice}" data-campo="nome" data-i="${indice}" value="${escapar(a.nome)}">
+          <label class="rotulo" for="alNome">Nome completo do aluno</label>
+          <input id="alNome" data-aluno="nome" value="${escapar(a.nome)}" autocomplete="name">
         </div>
         <div class="campo">
-          <label class="rotulo" for="nasc${indice}">Data de nascimento</label>
-          <input id="nasc${indice}" type="date" data-campo="nascimento" data-i="${indice}" value="${a.nascimento}">
+          <label class="rotulo" for="alNasc">Data de nascimento</label>
+          <input id="alNasc" type="date" data-aluno="nascimento" value="${a.nascimento}">
         </div>
         <div class="campo">
-          <label class="rotulo" for="turma${indice}">Turma</label>
-          <select class="selecao" id="turma${indice}" data-campo="turmaId" data-i="${indice}">
-            <option value="">Escolha a turma…</option>
-            ${turmas.map((t) => `
-              <option value="${t.id}" ${t.id === a.turmaId ? "selected" : ""}>
-                ${escapar(t.nome)}${t.horarios.length ? " · " + escapar(horarioLegivel(t.horarios)) : ""}${
-                  t.vagas === null ? "" : ` · ${t.vagas} vaga${t.vagas === 1 ? "" : "s"}`}
-              </option>`).join("")}
-          </select>
+          <label class="rotulo" for="alTel">WhatsApp</label>
+          <input id="alTel" data-aluno="telefone" inputmode="tel" placeholder="(83) 99999-0000"
+                 value="${escapar(a.telefone)}" autocomplete="tel">
         </div>
-        ${turma ? `
+        <div class="campo">
+          <label class="rotulo" for="alEmail">E-mail</label>
+          <input id="alEmail" type="email" data-aluno="email" value="${escapar(a.email)}" autocomplete="email">
+        </div>
+
+        <label class="marcavel">
+          <input type="checkbox" id="ehMenor" ${estado.ehMenor ? "checked" : ""}>
+          <span>O aluno é menor de 18 anos</span>
+        </label>
+
+        ${estado.ehMenor ? `
+          <div class="rotulo" style="margin-top:4px">Responsável financeiro</div>
           <div class="campo">
-            <label class="rotulo" for="plano${indice}">Plano</label>
-            <select class="selecao" id="plano${indice}" data-campo="planoId" data-i="${indice}">
-              <option value="">Escolha o plano…</option>
-              ${turma.planos.map((p) => `
-                <option value="${p.id}" ${p.id === a.planoId ? "selected" : ""}>
-                  ${escapar(p.nome)} · ${fmt.moeda(p.valor)} em ${p.parcelas}x
-                </option>`).join("")}
-            </select>
-          </div>` : ""}
+            <label class="rotulo" for="rNome">Nome do responsável</label>
+            <input id="rNome" data-resp="nome" value="${escapar(estado.resp.nome)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="rCpf">CPF do responsável</label>
+            <input id="rCpf" data-resp="cpf" inputmode="numeric" placeholder="000.000.000-00"
+                   value="${escapar(estado.resp.cpf)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="rTel">WhatsApp do responsável</label>
+            <input id="rTel" data-resp="telefone" inputmode="tel" value="${escapar(estado.resp.telefone)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="rEmail">E-mail do responsável</label>
+            <input id="rEmail" type="email" data-resp="email" value="${escapar(estado.resp.email)}">
+          </div>` : `
+          <div class="campo">
+            <label class="rotulo" for="alCpf">CPF</label>
+            <input id="alCpf" data-aluno="cpf" inputmode="numeric" placeholder="000.000.000-00"
+                   value="${escapar(a.cpf)}">
+          </div>`}
       </div>
     </div>`;
+}
+
+// ------------------------------------------------------------ passo 2
+function passoTurma() {
+  const u = unidade();
+  const visiveis = (u?.turmas ?? []).filter(
+    (t) => !estado.categoria || t.categoria === estado.categoria,
+  );
+
+  return `
+    <h1 class="titulo-passo">Selecione uma turma</h1>
+    <p class="meta" style="text-align:center;margin:0 0 20px">Escolha a unidade e a categoria</p>
+
+    <div class="cartao" style="margin-bottom:14px">
+      <div class="pilha" style="gap:14px">
+        <div class="campo">
+          <label class="rotulo" for="selUnidade">Unidade</label>
+          <select class="selecao" id="selUnidade">
+            <option value="">Selecione…</option>
+            ${estado.catalogo.unidades.map((x) => `
+              <option value="${x.id}" ${x.id === estado.unidadeId ? "selected" : ""}>${escapar(x.nome)}</option>`).join("")}
+          </select>
+          ${u?.endereco ? `<span class="meta">${escapar(u.endereco)}</span>` : ""}
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="selCategoria">Categoria</label>
+          <select class="selecao" id="selCategoria">
+            <option value="">Todas</option>
+            ${estado.catalogo.categorias.map((c) => `
+              <option value="${escapar(c)}" ${c === estado.categoria ? "selected" : ""}>${escapar(c)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    ${!estado.unidadeId ? "" : visiveis.length === 0
+      ? `<div class="cartao"><div class="vazio">Nenhuma turma com vaga nessa combinação.</div></div>`
+      : visiveis.map((t) => `
+          <button class="escolha ${t.id === estado.turmaId ? "escolhida" : ""}" type="button" data-turma="${t.id}">
+            <span class="escolha-titulo">${escapar(t.nome)}</span>
+            <span class="escolha-linha">${escapar(horarioLegivel(t.horarios))}</span>
+            ${t.vagas === null ? "" : `<span class="escolha-meta">${t.vagas} vaga${t.vagas === 1 ? "" : "s"}</span>`}
+          </button>`).join("")}`;
+}
+
+// ------------------------------------------------------------ passo 3
+function passoPlano() {
+  const t = turma();
+  return `
+    <h1 class="titulo-passo">Selecione um plano</h1>
+    <p class="meta" style="text-align:center;margin:0 0 20px">${escapar(t.nome)}</p>
+
+    ${t.planos.map((p) => `
+      <button class="escolha ${p.id === estado.planoId ? "escolhida" : ""}" type="button" data-plano="${p.id}">
+        <span class="escolha-titulo">${escapar(p.nome)}</span>
+        ${p.descricao ? `<span class="escolha-linha">${escapar(p.descricao)}</span>` : ""}
+        <span class="escolha-meta">
+          ${fmt.moeda(p.valor)} por mês · ${p.parcelas} ${p.parcelas === 1 ? "mês" : "meses"}
+          ${p.desconto ? ` · ${p.desconto}% de desconto até o vencimento` : ""}
+        </span>
+      </button>`).join("")}`;
+}
+
+// ------------------------------------------------------------ passo 4
+function passoConfirmacao() {
+  const p = pagante();
+  const t = turma();
+  const pl = plano();
+  const taxa = estado.catalogo.taxaMatricula;
+  const termos = estado.catalogo.linkTermos;
+
+  const linha = (rotulo, valor) => `
+    <div class="linha-confirma">
+      <span class="meta">${rotulo}</span>
+      <strong style="text-align:right">${escapar(String(valor))}</strong>
+    </div>`;
+
+  return `
+    <h1 class="titulo-passo">Quase lá</h1>
+    <p class="meta" style="text-align:center;margin:0 0 20px">Confira seus dados de matrícula</p>
+
+    <div class="cartao">
+      ${linha("Aluno", estado.aluno.nome)}
+      ${linha("Data nasc.", fmt.data(estado.aluno.nascimento))}
+      ${estado.ehMenor ? linha("Responsável", estado.resp.nome) : ""}
+      ${linha("Telefone", p.telefone)}
+      ${linha("E-mail", p.email || "não informado")}
+      ${linha("CPF", fmt.cpf(p.cpf))}
+      ${linha("Unidade", t.unidadeNome ?? unidade().nome)}
+      ${linha("Turma", t.nome)}
+      ${linha("Plano", pl.nome)}
+      ${linha("Taxa de matrícula", fmt.moeda(taxa))}
+      ${linha("Mensalidade", fmt.moeda(pl.valor))}
+    </div>
+
+    <label class="marcavel" style="margin:18px 4px 0">
+      <input type="checkbox" id="aceite" ${estado.aceitou ? "checked" : ""}>
+      <span>Li e aceito ${termos
+        ? `os <a href="${escapar(termos)}" target="_blank" rel="noopener">termos de uso</a>`
+        : "os termos de uso"} e as condições do plano.</span>
+    </label>`;
 }
 
 function pintar() {
   if (estado.recibo) return pintarRecibo();
 
-  const primeiro = estado.alunos[0];
-  const podeEnviar =
-    estado.alunos.every((a) => a.nome.trim().length > 2 && a.nascimento && a.turmaId && a.planoId) &&
-    estado.resp.cpf.replace(/\D/g, "").length === 11 &&
-    estado.resp.telefone.trim().length >= 10 &&
-    (estado.responsavelEhOAluno || estado.resp.nome.trim().length > 2);
+  const corpo = [passoAluno, passoTurma, passoPlano, passoConfirmacao][estado.passo]();
+  const ultimo = estado.passo === PASSOS.length - 1;
 
   el("tela").innerHTML = `
-    <h1 style="font-size:24px;margin:0 0 6px">Matrícula</h1>
-    <p class="meta" style="margin:0 0 20px">
-      Escolha a turma e preencha seus dados. Os boletos do plano são lançados
-      depois da confirmação.
-    </p>
-
-    <div class="cartao" style="margin-bottom:14px">
-      <div class="campo">
-        <label class="rotulo" for="unidade">Onde você quer treinar</label>
-        <select class="selecao" id="unidade">
-          <option value="">Escolha a unidade…</option>
-          ${estado.catalogo.map((u) => `
-            <option value="${u.id}" ${u.id === estado.unidadeId ? "selected" : ""}>${escapar(u.nome)}</option>`).join("")}
-        </select>
-        ${estado.unidadeId
-          ? `<span class="meta">${escapar(estado.catalogo.find((u) => u.id === estado.unidadeId)?.endereco ?? "")}</span>`
-          : ""}
-      </div>
-    </div>
-
-    ${!estado.unidadeId ? "" : `
-      ${estado.alunos.map(blocoAluno).join("")}
-
-      <div class="barra-acoes" style="margin-bottom:18px">
-        <button class="botao fantasma" type="button" id="btnIrmao">+ matricular um irmão junto</button>
-      </div>
-
-      <div class="cartao" style="margin-bottom:14px">
-        <div class="linha" style="margin-bottom:12px"><strong>Responsável financeiro</strong></div>
-        <div class="pilha" style="gap:12px">
-          <label class="marcavel">
-            <input type="checkbox" id="ehOAluno" ${estado.responsavelEhOAluno ? "checked" : ""}>
-            <span>Sou eu mesmo (tenho 18 anos ou mais)</span>
-          </label>
-          ${estado.responsavelEhOAluno ? `
-            <p class="meta">Usaremos o nome <strong>${escapar(primeiro.nome || "do aluno")}</strong>.</p>` : `
-            <div class="campo">
-              <label class="rotulo" for="respNome">Nome do responsável</label>
-              <input id="respNome" data-resp="nome" value="${escapar(estado.resp.nome)}">
-            </div>`}
-          <div class="campo">
-            <label class="rotulo" for="respCpf">CPF</label>
-            <input id="respCpf" data-resp="cpf" inputmode="numeric" placeholder="000.000.000-00"
-                   value="${escapar(estado.resp.cpf)}">
-          </div>
-          <div class="campo">
-            <label class="rotulo" for="respTel">WhatsApp</label>
-            <input id="respTel" data-resp="telefone" inputmode="tel" placeholder="(83) 99999-0000"
-                   value="${escapar(estado.resp.telefone)}">
-          </div>
-          <div class="campo">
-            <label class="rotulo" for="respEmail">E-mail</label>
-            <input id="respEmail" data-resp="email" type="email" value="${escapar(estado.resp.email)}">
-          </div>
-        </div>
-      </div>
-
-      <div class="aviso erro ${estado.erro ? "" : "oculto"}" style="margin-bottom:14px">${escapar(estado.erro)}</div>
-
-      <button class="botao" type="button" id="btnEnviar" ${podeEnviar && !estado.enviando ? "" : "disabled"}
-              style="width:100%">
-        ${estado.enviando ? "Enviando…" : "Fazer matrícula"}
+    ${trilha()}
+    ${corpo}
+    <div class="aviso erro ${estado.erro ? "" : "oculto"}" style="margin-top:14px">${escapar(estado.erro)}</div>
+    <div class="barra-passos">
+      ${estado.passo > 0 ? `<button class="botao fantasma" type="button" id="btnVoltar">Voltar</button>` : ""}
+      <button class="botao" type="button" id="btnAvancar" ${passoValido() && !estado.enviando ? "" : "disabled"}>
+        ${estado.enviando ? "Enviando…" : ultimo ? "Confirmar matrícula" : "Avançar"}
       </button>
-      <p class="meta" style="text-align:center;margin-top:12px">
-        Seus dados vão só para a secretaria da SE7.
-      </p>`}`;
+    </div>`;
 
   ligar();
 }
@@ -238,63 +353,78 @@ function pintarRecibo() {
 }
 
 function ligar() {
-  el("unidade")?.addEventListener("change", (e) => {
-    estado.unidadeId = e.target.value;
-    // Turma e plano pertencem à unidade: trocar de unidade tem de zerar as
-    // escolhas, senão sobra uma turma de outro bairro na matrícula.
-    for (const a of estado.alunos) { a.turmaId = ""; a.planoId = ""; }
-    pintar();
-  });
-
-  // Os campos vão para o estado a cada tecla: a tela se redesenha quando a
-  // turma muda (para trocar a lista de planos), e sem isto o que foi digitado
-  // se perderia.
-  document.querySelectorAll("[data-campo]").forEach((campo) => {
-    const evento = campo.tagName === "SELECT" ? "change" : "input";
-    campo.addEventListener(evento, (e) => {
-      const aluno = estado.alunos[Number(e.target.dataset.i)];
-      aluno[e.target.dataset.campo] = e.target.value;
-      if (e.target.dataset.campo === "turmaId") aluno.planoId = "";
-      if (evento === "change") return pintar();
-      atualizarBotao();
-    });
-  });
-
-  document.querySelectorAll("[data-resp]").forEach((campo) =>
-    campo.addEventListener("input", (e) => {
-      estado.resp[e.target.dataset.resp] = e.target.value;
-      atualizarBotao();
+  // Os campos vão para o estado a cada tecla; só o botão Avançar é atualizado,
+  // porque redesenhar a tela inteira tiraria o foco de quem está digitando.
+  document.querySelectorAll("[data-aluno]").forEach((c) =>
+    c.addEventListener("input", (e) => {
+      estado.aluno[e.target.dataset.aluno] = e.target.value;
+      atualizarAvancar();
     }));
 
-  el("ehOAluno")?.addEventListener("change", (e) => {
-    estado.responsavelEhOAluno = e.target.checked;
+  document.querySelectorAll("[data-resp]").forEach((c) =>
+    c.addEventListener("input", (e) => {
+      estado.resp[e.target.dataset.resp] = e.target.value;
+      atualizarAvancar();
+    }));
+
+  el("ehMenor")?.addEventListener("change", (e) => {
+    estado.ehMenor = e.target.checked;
     pintar();
   });
 
-  el("btnIrmao")?.addEventListener("click", () => {
-    estado.alunos.push({ nome: "", nascimento: "", turmaId: "", planoId: "" });
+  el("selUnidade")?.addEventListener("change", (e) => {
+    estado.unidadeId = e.target.value;
+    // Turma e plano pertencem à unidade: trocar de unidade zera a escolha,
+    // senão sobra uma turma de outro bairro na matrícula.
+    estado.turmaId = "";
+    estado.planoId = "";
     pintar();
   });
 
-  document.querySelectorAll("[data-tirar]").forEach((b) =>
+  el("selCategoria")?.addEventListener("change", (e) => {
+    estado.categoria = e.target.value;
+    estado.turmaId = "";
+    estado.planoId = "";
+    pintar();
+  });
+
+  document.querySelectorAll("[data-turma]").forEach((b) =>
     b.addEventListener("click", () => {
-      estado.alunos.splice(Number(b.dataset.tirar), 1);
+      estado.turmaId = b.dataset.turma;
+      estado.planoId = "";
       pintar();
     }));
 
-  el("btnEnviar")?.addEventListener("click", enviar);
+  document.querySelectorAll("[data-plano]").forEach((b) =>
+    b.addEventListener("click", () => {
+      estado.planoId = b.dataset.plano;
+      pintar();
+    }));
+
+  el("aceite")?.addEventListener("change", (e) => {
+    estado.aceitou = e.target.checked;
+    atualizarAvancar();
+  });
+
+  el("btnVoltar")?.addEventListener("click", () => {
+    estado.passo -= 1;
+    estado.erro = "";
+    pintar();
+    window.scrollTo({ top: 0 });
+  });
+
+  el("btnAvancar")?.addEventListener("click", () => {
+    if (estado.passo === PASSOS.length - 1) return enviar();
+    estado.passo += 1;
+    estado.erro = "";
+    pintar();
+    window.scrollTo({ top: 0 });
+  });
 }
 
-/** Só o botão muda enquanto se digita: redesenhar a cada tecla tiraria o foco. */
-function atualizarBotao() {
-  const botao = el("btnEnviar");
-  if (!botao) return;
-  const ok =
-    estado.alunos.every((a) => a.nome.trim().length > 2 && a.nascimento && a.turmaId && a.planoId) &&
-    estado.resp.cpf.replace(/\D/g, "").length === 11 &&
-    estado.resp.telefone.trim().length >= 10 &&
-    (estado.responsavelEhOAluno || estado.resp.nome.trim().length > 2);
-  botao.disabled = !ok || estado.enviando;
+function atualizarAvancar() {
+  const botao = el("btnAvancar");
+  if (botao) botao.disabled = !passoValido() || estado.enviando;
 }
 
 async function enviar() {
@@ -302,21 +432,27 @@ async function enviar() {
   estado.erro = "";
   pintar();
 
-  const [aluno, ...irmaos] = estado.alunos;
+  const p = pagante();
 
   try {
     estado.recibo = await api("/publico/matricula", {
       method: "POST",
       body: JSON.stringify({
-        aluno,
-        irmaos,
-        responsavelEhOAluno: estado.responsavelEhOAluno,
-        responsavel: {
-          nome: estado.responsavelEhOAluno ? undefined : estado.resp.nome.trim(),
-          cpf: estado.resp.cpf,
-          email: estado.resp.email.trim(),
-          telefone: estado.resp.telefone.trim(),
+        aluno: {
+          nome: estado.aluno.nome.trim(),
+          nascimento: estado.aluno.nascimento,
+          turmaId: estado.turmaId,
+          planoId: estado.planoId,
         },
+        irmaos: [],
+        responsavelEhOAluno: !estado.ehMenor,
+        responsavel: {
+          nome: estado.ehMenor ? estado.resp.nome.trim() : undefined,
+          cpf: p.cpf,
+          telefone: p.telefone.trim(),
+          email: (p.email || "").trim(),
+        },
+        aceitouTermos: true,
       }),
     });
   } catch (e) {
@@ -327,6 +463,7 @@ async function enviar() {
   } finally {
     estado.enviando = false;
     pintar();
+    window.scrollTo({ top: 0 });
   }
 }
 

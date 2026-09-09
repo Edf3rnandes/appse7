@@ -6,6 +6,7 @@ import { prisma } from "../../lib/prisma.js";
 import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
 import { mesesAFrente } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
+import { lerConfig } from "../conteudo/conteudo.routes.js";
 
 /**
  * Matrícula pelo site — o que a família preenche.
@@ -56,6 +57,12 @@ const matriculaDoSiteSchema = z.object({
   // O aluno adulto é o próprio responsável. No sistema atual isso é o
   // `isMenor`, e decide de qual conjunto de campos o CPF é lido.
   responsavelEhOAluno: z.boolean().default(false),
+  // O aceite não é enfeite de tela: é o registro de que a família viu as
+  // condições do plano — vencimento, multa de cancelamento — antes de
+  // contratar. Por isso é exigido aqui, no servidor, e não só no botão.
+  aceitouTermos: z.literal(true, {
+    errorMap: () => ({ message: "É preciso aceitar os termos para concluir a matrícula." }),
+  }),
   responsavel: z.object({
     nome: z.string().max(160).optional(),
     cpf: z
@@ -83,6 +90,8 @@ export async function publicoRoutes(app: FastifyInstance) {
    * — é o vazamento que o patch de segurança fecha.
    */
   app.get("/publico/catalogo", async () => {
+    const config = await lerConfig();
+
     const unidades = await prisma.unidade.findMany({
       where: { ativa: true },
       orderBy: { nome: "asc" },
@@ -94,7 +103,17 @@ export async function publicoRoutes(app: FastifyInstance) {
             horarios: { orderBy: { inicio: "asc" } },
             planos: {
               include: {
-                plano: { select: { id: true, nome: true, valor: true, parcelas: true, ativo: true } },
+                plano: {
+                  select: {
+                    id: true, nome: true, valor: true, parcelas: true, ativo: true,
+                    // A descrição é o contrato em miniatura: vencimento, formas
+                    // de pagamento, desconto, duração e multa. É o que a
+                    // família lê antes de escolher, e no sistema atual ela já
+                    // aparece assim no site.
+                    descricao: true,
+                    descontoPercentual: true,
+                  },
+                },
               },
             },
             _count: {
@@ -105,7 +124,7 @@ export async function publicoRoutes(app: FastifyInstance) {
       },
     });
 
-    return unidades
+    const ofertas = unidades
       .map((u) => ({
         id: u.id,
         nome: u.nome,
@@ -126,6 +145,8 @@ export async function publicoRoutes(app: FastifyInstance) {
                   nome: p.plano.nome,
                   valor: p.plano.valor,
                   parcelas: p.plano.parcelas,
+                  descricao: p.plano.descricao,
+                  desconto: p.plano.descontoPercentual,
                 })),
             };
           })
@@ -134,6 +155,17 @@ export async function publicoRoutes(app: FastifyInstance) {
           .filter((t) => t.planos.length > 0 && (t.vagas === null || t.vagas > 0)),
       }))
       .filter((u) => u.turmas.length > 0);
+
+    return {
+      unidades: ofertas,
+      // As categorias que existem de verdade na oferta — é o segundo filtro
+      // da tela, ao lado da unidade.
+      categorias: [
+        ...new Set(ofertas.flatMap((u) => u.turmas.map((t) => t.categoria)).filter(Boolean)),
+      ].sort(),
+      taxaMatricula: config.taxaMatricula,
+      linkTermos: config.linkTermos,
+    };
   });
 
   app.post("/publico/matricula", async (request, reply) => {
@@ -237,7 +269,7 @@ export async function publicoRoutes(app: FastifyInstance) {
               principal: indice === 0,
               expiraEm: mesesAFrente(plano.parcelas),
               observacao: [
-                "Matrícula feita pelo site.",
+                `Matrícula feita pelo site, com aceite dos termos em ${new Date().toLocaleDateString("pt-BR")}.`,
                 ...(existente ? ["Responsável já cadastrado; os dados do site NÃO foram aplicados."] : []),
                 ...divergencias,
               ].join(" "),
