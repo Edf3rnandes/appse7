@@ -3,8 +3,10 @@
 # Servico NOVO e separado: nao mexe no `se7-cobrancas` (se7-inadimplencia) nem
 # na hospedagem do Laravel. Os tres rodam ao mesmo tempo durante a transicao.
 #
-# O banco nao esta descrito aqui de proposito — o Postgres gratuito do Render
-# expira em 30 dias. O banco do Hub fica no Supabase, igual ao do se7-cobrancas.
+# O banco nao esta descrito aqui de proposito: o Hub usa O MESMO Postgres do
+# Supabase que o se7-cobrancas ja usa — DATABASE_URL e DIRECT_URL recebem
+# exatamente os mesmos valores daquele servico. As tabelas do Hub ficam no
+# schema `hub`, criadas por prisma/instalar-no-supabase.sql.
 services:
   - type: web
     name: se7-hub
@@ -31,6 +33,11 @@ services:
       - key: ADMIN_EMAILS
         sync: false
       - key: ASAAS_API_KEY
+        sync: false
+      # Endereco do sistema Laravel, usado so para GRAVAR frequencia
+      # (ex.: https://sistema.se7volei.com.br). Sem isso o app sobe e apenas o
+      # envio da chamada responde 503.
+      - key: LEGACY_API_URL
         sync: false
       # Liberar so quando o usuario somente-leitura do MySQL existir.
       - key: LEGACY_MYSQL_HOST
