@@ -13,6 +13,7 @@
 <header class="topo">
   <div class="marca"><span class="se7">SE7</span><span class="sub">Professor</span></div>
   <div class="espaco"></div>
+  <nav class="areas" id="areas" hidden></nav>
   <div class="usuario oculto" id="boxUsuario">
     <img id="avatar" alt="" hidden>
     <span class="nome" id="nomeUsuario"></span>
@@ -33,9 +34,12 @@
   <h1 style="font-size:22px">Conta ainda sem acesso de professor</h1>
   <p style="color:var(--ink-2);margin:14px 0 24px">
     Você entrou como <strong id="emailSemVinculo"></strong>, mas essa conta ainda não está
-    ligada a um professor. Peça à secretaria um convite para este e-mail.
+    ligada a um professor.
   </p>
-  <button class="botao fantasma" type="button" id="btnTrocar">Entrar com outra conta</button>
+  <div id="saidaSemVinculo" class="pilha" style="align-items:center"></div>
+  <button class="botao fantasma" type="button" id="btnTrocar" style="margin-top:18px">
+    Entrar com outra conta
+  </button>
 </main>
 
 <main class="pagina" id="telaApp" hidden>
@@ -55,7 +59,7 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle, pintarNavegacao } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semVinculo: el("telaSemVinculo"), app: el("telaApp") };
@@ -103,8 +107,18 @@ async function entrarComGoogle(idToken) {
 async function decidirTela() {
   try {
     const eu = await api("/auth/eu");
+    pintarNavegacao(el("areas"), eu, "professor");
+
     if (eu.professorId == null) {
       el("emailSemVinculo").textContent = eu.email || "";
+      const equipe = eu.papeis.includes("ADMIN") || eu.papeis.includes("SECRETARIA");
+      // Quem é da equipe não tem a quem pedir convite: é ele quem emite.
+      const saida = el("saidaSemVinculo");
+      if (saida) saida.innerHTML = equipe
+        ? `<a class="botao" href="/secretaria.html" style="text-decoration:none">Ir para a Secretaria</a>
+           <p class="meta" style="max-width:34ch">Sua conta é da equipe. Para também usar a área do
+           professor, emita um convite de professor para este mesmo e-mail na aba Acessos.</p>`
+        : `<p class="meta" style="max-width:34ch">Peça à secretaria um convite para este e-mail.</p>`;
       return mostrar("semVinculo");
     }
     mostrar("app");

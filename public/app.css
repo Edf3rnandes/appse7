@@ -54,6 +54,12 @@ button { font: inherit; }
 .marca .se7 { color: var(--accent); font-size: 20px; }
 .marca .sub { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .topo .espaco { flex: 1; }
+.areas { display: flex; gap: 4px; }
+.link-area {
+  text-decoration: none; color: var(--accent); font-size: 14px; font-weight: 600;
+  padding: 6px 10px; border-radius: 7px;
+}
+.link-area:hover { background: var(--accent-suave); }
 .usuario { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .usuario img { width: 30px; height: 30px; border-radius: 50%; flex: none; }
 .usuario .nome { font-size: 13.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 26vw; }

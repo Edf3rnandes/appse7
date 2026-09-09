@@ -13,6 +13,7 @@
 <header class="topo">
   <div class="marca"><span class="se7">SE7</span><span class="sub">Portal</span></div>
   <div class="espaco"></div>
+  <nav class="areas" id="areas" hidden></nav>
   <div class="usuario oculto" id="boxUsuario">
     <img id="avatar" alt="" hidden>
     <span class="nome" id="nomeUsuario"></span>
@@ -72,7 +73,7 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, iniciarGoogle, pintarNavegacao } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
@@ -361,6 +362,7 @@ async function iniciar() {
     // expirado, ou o vínculo pode ter sido feito em outro aparelho.
     try {
       const eu = await api("/auth/eu");
+      pintarNavegacao(el("areas"), eu, "portal");
       if (eu.responsavelId) return abrirPortal();
       return mostrar("vinculo");
     } catch {

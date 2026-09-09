@@ -163,3 +163,38 @@ export async function prepararImagem(arquivo, ladoMaximo = 1400, qualidade = 0.8
     altura,
   };
 }
+
+/**
+ * Links para as outras áreas a que a pessoa tem acesso.
+ *
+ * Sem isso cada página é um beco sem saída: um administrador que abre a área
+ * do professor por engano lê "peça um convite à secretaria" — sendo ele a
+ * secretaria — e não tem como chegar onde queria a não ser digitando a URL.
+ *
+ * `eu` é a resposta de /auth/eu.
+ */
+export function areasDisponiveis(eu, atual) {
+  const papeis = eu?.papeis || [];
+  const areas = [];
+
+  if (papeis.includes("ADMIN") || papeis.includes("SECRETARIA")) {
+    areas.push({ chave: "secretaria", nome: "Secretaria", href: "/secretaria.html" });
+  }
+  if (eu?.professorId != null) {
+    areas.push({ chave: "professor", nome: "Professor", href: "/professor.html" });
+  }
+  if (eu?.responsavelId != null) {
+    areas.push({ chave: "portal", nome: "Portal", href: "/" });
+  }
+
+  return areas.filter((a) => a.chave !== atual);
+}
+
+export function pintarNavegacao(alvo, eu, atual) {
+  if (!alvo) return;
+  const areas = areasDisponiveis(eu, atual);
+  alvo.innerHTML = areas
+    .map((a) => `<a class="link-area" href="${a.href}">${a.nome}</a>`)
+    .join("");
+  alvo.hidden = areas.length === 0;
+}
