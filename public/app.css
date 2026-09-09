@@ -313,3 +313,33 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   margin: 0 auto;
   font-size: 13px;
 }
+
+/* --------------------------------------------------------------------------
+   Tabela que vira cartões no celular.
+
+   Uma tabela de 4 colunas a 430px espreme o nome a uma palavra por linha e
+   corta a última coluna. Abaixo de 560px cada linha vira um bloco, e o
+   cabeçalho de cada célula volta pelo data-rotulo — mesma solução das faturas
+   no portal do responsável.
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+  .tabela-cartoes thead { display: none; }
+  .tabela-cartoes, .tabela-cartoes tbody, .tabela-cartoes tr, .tabela-cartoes td {
+    display: block; width: 100%;
+  }
+  .tabela-cartoes tr { border-top: 1px solid var(--rule); padding: 12px 0 4px; }
+  .tabela-cartoes td {
+    border: 0; padding: 3px 0;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  }
+  .tabela-cartoes td::before {
+    content: attr(data-rotulo);
+    font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; flex: none;
+  }
+  /* A primeira célula é o título do cartão: ocupa a linha inteira, sem rótulo. */
+  .tabela-cartoes td:first-child { display: block; padding-bottom: 7px; }
+  .tabela-cartoes td:first-child::before { content: none; }
+  .tabela-cartoes td > * { text-align: right; }
+  .tabela-cartoes td:first-child > * { text-align: left; }
+}

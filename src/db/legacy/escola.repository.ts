@@ -355,3 +355,87 @@ export async function obterSecretDoProfessor(id: number): Promise<string | null>
   const linhas = await readOnlyQuery<{ secret: string | null }>(SQL_SECRET_DO_PROFESSOR, { id });
   return linhas[0]?.secret ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Painel da secretaria
+// ---------------------------------------------------------------------------
+
+export interface NumerosDaEscola {
+  matriculasNoMes: number;
+  alunos: number;
+  turmas: number;
+  planos: number;
+  professores: number;
+}
+
+// Os mesmos cinco numeros do topo do dashboard do Laravel, para o Hub nao
+// contar a escola de um jeito e o sistema atual de outro.
+//
+// Em 08/09/2026 o dashboard antigo mostrava 18 / 570 / 46 / 43 / 15. E o
+// numero de conferencia no dia em que a credencial de leitura sair: se estas
+// contas divergirem daquela tela, quem esta errado e esta consulta.
+//
+// `plans` nao entra filtrada porque a migration nao lhe da `active` nem
+// `deleted_at` — se o painel antigo mostrar menos planos que este, e ai que a
+// diferenca esta.
+const SQL_NUMEROS_DA_ESCOLA = `
+  SELECT
+    (SELECT COUNT(*) FROM enrollments
+      WHERE deleted_at IS NULL
+        AND created_at >= :inicioDoMes
+        AND created_at <  :inicioDoProximoMes)      AS matriculasNoMes,
+    (SELECT COUNT(*) FROM students  WHERE deleted_at IS NULL) AS alunos,
+    (SELECT COUNT(*) FROM courses   WHERE active = 1)         AS turmas,
+    (SELECT COUNT(*) FROM plans)                              AS planos,
+    (SELECT COUNT(*) FROM teachers  WHERE active = 1)         AS professores
+`;
+
+export async function obterNumerosDaEscola(
+  inicioDoMes: string,
+  inicioDoProximoMes: string,
+): Promise<NumerosDaEscola> {
+  const linhas = await readOnlyQuery<NumerosDaEscola>(SQL_NUMEROS_DA_ESCOLA, {
+    inicioDoMes,
+    inicioDoProximoMes,
+  });
+  return (
+    linhas[0] ?? { matriculasNoMes: 0, alunos: 0, turmas: 0, planos: 0, professores: 0 }
+  );
+}
+
+export interface MatriculaRecente {
+  id: number;
+  aluno: string;
+  turma: string | null;
+  unidade: string | null;
+  plano: string | null;
+  status: string;
+  criadaEm: Date | string | null;
+}
+
+// Ultimas matriculas, na mesma leitura do painel antigo: a secretaria abre o
+// sistema para ver o que entrou desde ontem, e principalmente o que entrou e
+// ainda nao pagou.
+const SQL_MATRICULAS_RECENTES = `
+  SELECT
+    e.id         AS id,
+    s.name       AS aluno,
+    co.name      AS turma,
+    un.name      AS unidade,
+    p.name       AS plano,
+    e.status     AS status,
+    e.created_at AS criadaEm
+  FROM enrollments e
+  JOIN students s ON s.id = e.student_id
+  LEFT JOIN courses co ON co.id = e.course_id
+  LEFT JOIN units   un ON un.id = e.unit_id
+  LEFT JOIN plans   p  ON p.id  = e.plan_id
+  WHERE e.deleted_at IS NULL
+    AND s.deleted_at IS NULL
+  ORDER BY e.created_at DESC
+  LIMIT :limite
+`;
+
+export async function listarMatriculasRecentes(limite: number): Promise<MatriculaRecente[]> {
+  return readOnlyQuery<MatriculaRecente>(SQL_MATRICULAS_RECENTES, { limite });
+}

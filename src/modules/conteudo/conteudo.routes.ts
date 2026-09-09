@@ -2,12 +2,18 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { StatusOcorrencia, TipoEvento } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { segundaDaSemana } from "../../lib/datas.js";
+import { hoje, primeiroDiaDoMes, segundaDaSemana } from "../../lib/datas.js";
+import { LegadoIndisponivelError } from "../../db/legacy/pool.js";
+import {
+  listarMatriculasRecentes,
+  obterNumerosDaEscola,
+} from "../../db/legacy/escola.repository.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import {
   CronogramaIndisponivelError,
   apagarSemana,
   listarSemanas,
+  obterPublicadasComArte,
   obterSemanaPorId,
   salvarSemana,
 } from "../../db/compartilhado/cronograma.repository.js";
@@ -89,6 +95,62 @@ export async function conteudoRoutes(app: FastifyInstance) {
         : undefined,
     ),
   );
+
+  // ------------------------------------------------------- painel
+  //
+  // A primeira tela de quem abre o sistema. Antes dela a secretaria caía num
+  // formulário em branco de cronograma: tudo que o sistema sabe existia, mas
+  // só para quem soubesse em qual aba clicar.
+  //
+  // Duas metades, de propósito:
+  //
+  //   - O que é do Hub (ocorrências, semana, eventos) responde sempre, porque
+  //     mora no Postgres daqui.
+  //   - O que é da escola (alunos, turmas, matrículas) vem do MySQL do
+  //     Laravel, que pode não estar configurado. Nesse caso o bloco devolve
+  //     `disponivel: false` e a tela mostra o motivo, em vez de a página
+  //     inteira falhar por causa de uma metade.
+  app.get("/conteudo/painel", somenteEquipe, async () => {
+    const agora = hoje();
+    const segunda = segundaDaSemana(agora);
+    const mes = agora.getUTCMonth() + 1;
+    const inicioDoMes = primeiroDiaDoMes(agora.getUTCFullYear(), mes);
+    // Mês 13 vira janeiro do ano seguinte sozinho — o Date faz a virada, e
+    // escrever o caso de dezembro à mão só criaria uma chance a mais de errar.
+    const inicioDoProximoMes = primeiroDiaDoMes(agora.getUTCFullYear(), mes + 1);
+
+    const [ocorrenciasAbertas, ocorrenciasRecentes, eventos, semanaAtual, escola] =
+      await Promise.all([
+        prisma.ocorrencia.count({ where: { status: StatusOcorrencia.ABERTA } }),
+        prisma.ocorrencia.findMany({
+          where: { status: StatusOcorrencia.ABERTA },
+          orderBy: { criadoEm: "asc" },
+          take: 5,
+        }),
+        prisma.evento.findMany({
+          where: { data: { gte: agora }, publicado: true },
+          orderBy: { data: "asc" },
+          take: 5,
+        }),
+        // Só a semana corrente, e só se publicada: é exatamente o que o
+        // professor está vendo no app dele neste momento.
+        obterPublicadasComArte([segunda])
+          .then((linhas) => (linhas[0] ? { semana: linhas[0].semana, tema: linhas[0].tema } : null))
+          .catch(() => null),
+        numerosDaEscola(inicioDoMes, inicioDoProximoMes),
+      ]);
+
+    return {
+      hub: {
+        ocorrenciasAbertas,
+        ocorrenciasRecentes,
+        eventos,
+        semanaAtual,
+        semanaDeReferencia: segunda,
+      },
+      escola,
+    };
+  });
 
   // ------------------------------------------------------- configuração
   //
@@ -274,4 +336,36 @@ function montarEvento(corpo: z.infer<typeof eventoSchema>) {
     unidadeNome: corpo.unidadeNome ?? null,
     publicado: corpo.publicado,
   };
+}
+
+/**
+ * A metade do painel que vem do sistema atual.
+ *
+ * Falhar aqui não pode derrubar a tela: enquanto a credencial de leitura do
+ * MySQL não sair, `disponivel: false` é a resposta correta e esperada, não um
+ * erro. O mesmo vale para uma queda momentânea daquele banco — a secretaria
+ * continua enxergando ocorrências e eventos.
+ */
+async function numerosDaEscola(inicioDoMes: Date, inicioDoProximoMes: Date) {
+  const iso = (d: Date) => `${d.toISOString().slice(0, 10)} 00:00:00`;
+
+  try {
+    const [numeros, matriculas] = await Promise.all([
+      obterNumerosDaEscola(iso(inicioDoMes), iso(inicioDoProximoMes)),
+      listarMatriculasRecentes(20),
+    ]);
+    return { disponivel: true as const, numeros, matriculas };
+  } catch (erro) {
+    if (erro instanceof LegadoIndisponivelError) {
+      return {
+        disponivel: false as const,
+        motivo:
+          "Ainda sem acesso de leitura ao sistema atual. Os números da escola aparecem aqui assim que a credencial for liberada.",
+      };
+    }
+    return {
+      disponivel: false as const,
+      motivo: "Não foi possível ler o sistema atual agora. Tente de novo em instantes.",
+    };
+  }
 }
