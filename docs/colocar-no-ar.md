@@ -83,6 +83,7 @@ precisam ser preenchidas à mão:
 | `SEED_ADMIN_SENHA` | uma senha forte | só se quiser entrar sem Google |
 | `GOOGLE_CLIENT_ID` | o ID do projeto no Google Cloud | só para o login com Google |
 | `ASAAS_API_KEY` | a chave da conta | só para ver cobranças; **ela sozinha não emite nada** |
+| `WHATSAPP_COMERCIAL` | o número da escola, só dígitos com DDI (ex. `5583999999999`) | só para o botão "Fale conosco" da página de entrada |
 
 `JWT_SECRET` o Render gera sozinho. `TZ` e `CEP_BASE_URL` já vêm preenchidas.
 As quatro `LEGACY_MYSQL_*` podem ficar vazias — não são mais necessárias.
@@ -120,12 +121,13 @@ Os dois comandos podem ser repetidos: atualizam em vez de duplicar.
 
 ## 4 · Entrar
 
-Com o serviço no ar, cinco endereços:
+Com o serviço no ar, seis endereços:
 
 | Tela | Endereço | Quem entra |
 |---|---|---|
+| Página de entrada | `/` | qualquer pessoa, sem login |
 | Matrícula pelo site | `/matricula.html` | qualquer pessoa, sem login |
-| Portal do aluno | `/` | responsável, com Google ou senha |
+| Portal do aluno | `/portal.html` | responsável, com Google ou senha |
 | Área do professor | `/professor.html` | professor, por convite |
 | Administrativo | `/administrativo.html` | ADMIN e ADMINISTRATIVO |
 | Sócios | `/socios.html` | SÓCIO |
@@ -167,6 +169,8 @@ celular.
 
 Tudo, menos os alunos que ainda estão lá:
 
+- página de entrada com informação da escola — unidades, endereços e mapa —
+  puxada das mesmas unidades cadastradas, nunca digitada duas vezes;
 - as 46 turmas e os 43 planos, com horários e condições contratuais;
 - matrícula pelo site, nos quatro passos, com endereço e busca por CEP;
 - cadastro de aluno, matrícula de família e renovação pelo administrativo;

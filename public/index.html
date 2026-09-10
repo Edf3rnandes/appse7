@@ -3,652 +3,348 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
-  <title>Portal do Aluno · SE7 Vôlei de Praia</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="O maior Centro de Treinamento de Vôlei de Praia da Paraíba, há mais de 10 anos. Turmas para crianças, adolescentes e adultos em 6 unidades em João Pessoa e no interior.">
+  <title>SE7 Vôlei de Praia</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
+  <style>
+    /*
+      Página de entrada — a única do Hub com identidade própria.
+      O resto do sistema (portal, professor, administrativo, sócios) é
+      ferramenta de trabalho, e por isso usa o visual neutro de app.css. Esta
+      página é vitrine pública, e por isso usa as cores de verdade do SE7 —
+      azul-marinho e amarelo, as mesmas do Instagram, do uniforme e do site
+      atual — em vez do teal interno. É uma escolha de propósito, não um
+      desalinhamento: quem chega aqui pelo Google ou pelo Instagram precisa
+      reconhecer a marca antes de reconhecer o produto.
+
+      Não segue o claro/escuro do sistema operacional (diferente do resto do
+      Hub): a marca é escura por definição, do jeito que já está no
+      Instagram — alternar para um fundo claro no modo claro do celular
+      destoaria da própria identidade visual, não a respeitaria.
+    */
+    /*
+      Cores fixas, escritas direto em :root (não sobre as var(--ink) etc. de
+      app.css): aquelas trocam de valor no modo escuro do sistema, e o texto
+      escuro do cartão de depoimento (fundo claro, sempre) ficaria quase
+      branco sobre fundo quase branco no celular de quem usa modo escuro.
+      Esta página tem paleta própria e fixa — não é o :root que muda com o
+      tema, é um :root diferente, que nunca muda.
+    */
+    :root {
+      --marinho: #0b1440; --marinho-2: #141c52; --marinho-3: #1c2766;
+      --dourado: #f4c430; --dourado-forte: #e0af14;
+      --papel: #ffffff; --papel-2: #f4f1e6;
+      --texto: #eef1fb; --texto-2: #b9c0e6;
+      --linha: rgba(255,255,255,.14);
+      --texto-escuro: #1a2033; --texto-escuro-2: #4b5370;
+      --sombra-fixa: 0 8px 24px -14px rgba(11,20,64,.35);
+    }
+    body { background: var(--marinho); color: var(--texto); }
+
+    .entrada-topo {
+      position: sticky; top: 0; z-index: 20;
+      background: var(--marinho); border-bottom: 1px solid var(--linha);
+      padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+    }
+    .entrada-topo .marca .se7 { color: var(--dourado); }
+    .entrada-topo .marca .sub { color: var(--texto-2); }
+    .entrada-topo .espaco { flex: 1; }
+    .entrada-topo .link-nav {
+      color: var(--texto); text-decoration: none; font-weight: 600; font-size: 14.5px;
+      padding: 9px 14px; border-radius: 8px; border: 1px solid var(--linha);
+      white-space: nowrap;
+    }
+    .entrada-topo .link-nav:hover { background: rgba(255,255,255,.08); }
+    .entrada-topo .link-nav.destaque {
+      background: var(--dourado); color: var(--marinho); border-color: var(--dourado);
+    }
+    .entrada-topo .link-nav.destaque:hover { background: var(--dourado-forte); }
+
+    .faixa { padding: 64px 20px; max-width: 1080px; margin: 0 auto; }
+    .faixa h2 {
+      font-size: 28px; text-align: center; margin: 0 0 34px;
+      letter-spacing: -.01em;
+    }
+
+    .hero { padding: 84px 20px 70px; text-align: center; position: relative; overflow: hidden; }
+    .hero::before {
+      /* O "mar ao entardecer" que o site atual usa em foto — aqui é gradiente,
+         porque o Hub não tem nenhuma foto real da escola ainda (ver aviso no
+         resumo). Troca por uma foto de verdade é só editar este background. */
+      content: ""; position: absolute; inset: 0; z-index: -1;
+      background:
+        radial-gradient(ellipse 900px 500px at 50% -10%, var(--marinho-3), transparent),
+        linear-gradient(180deg, var(--marinho) 0%, var(--marinho-2) 100%);
+    }
+    .hero h1 { font-size: 40px; line-height: 1.15; max-width: 720px; margin: 0 auto 16px; }
+    .hero p.sub { font-size: 17px; color: var(--texto-2); max-width: 560px; margin: 0 auto 30px; }
+    .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .botao-dourado, .botao-fantasma-claro {
+      display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px;
+      padding: 13px 26px; border-radius: 10px; text-decoration: none; border: 1px solid transparent;
+    }
+    .botao-dourado { background: var(--dourado); color: var(--marinho); }
+    .botao-dourado:hover { background: var(--dourado-forte); }
+    .botao-fantasma-claro { border-color: var(--linha); color: var(--texto); }
+    .botao-fantasma-claro:hover { background: rgba(255,255,255,.08); }
+
+    .selo-anos {
+      display: inline-flex; gap: 8px; align-items: center; margin-bottom: 22px;
+      color: var(--dourado); font-weight: 700; font-size: 13px; letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .sobre { display: grid; gap: 32px; align-items: center; }
+    @media (min-width: 760px) { .sobre { grid-template-columns: 1fr 1fr; } }
+    .sobre p { color: var(--texto-2); line-height: 1.7; margin: 0 0 14px; }
+    .sobre strong { color: var(--texto); }
+    .sobre-numeros { display: flex; gap: 28px; margin: 22px 0 26px; flex-wrap: wrap; }
+    .sobre-numeros div b { display: block; font-size: 26px; color: var(--dourado); }
+    .sobre-numeros div span { font-size: 13px; color: var(--texto-2); }
+    .sobre-placeholder {
+      /* Sem foto real da escola ainda — ver aviso no resumo da entrega. */
+      aspect-ratio: 4/3; border-radius: 16px; border: 1px solid var(--linha);
+      background: linear-gradient(135deg, var(--marinho-2), var(--marinho-3));
+      display: flex; align-items: center; justify-content: center;
+      color: var(--texto-2); font-size: 14px; text-align: center; padding: 20px;
+    }
+
+    .categorias-grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .categoria-item {
+      background: var(--marinho-2); border: 1px solid var(--linha); border-radius: 14px; padding: 24px;
+    }
+    .categoria-item .rotulo-idade {
+      color: var(--dourado); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .categoria-item h3 { font-size: 21px; margin: 6px 0 8px; }
+    .categoria-item p { color: var(--texto-2); margin: 0; font-size: 14.5px; line-height: 1.55; }
+
+    .grade-unidades { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .cartao-unidade {
+      background: var(--marinho-2); border: 1px solid var(--linha); border-radius: 14px; padding: 20px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .cartao-unidade h3 { font-size: 18px; }
+    .cartao-unidade .end { color: var(--texto-2); font-size: 13.5px; line-height: 1.5; flex: 1; }
+    .cartao-unidade a.mapa {
+      color: var(--dourado); font-size: 13.5px; font-weight: 600; text-decoration: none; align-self: flex-start;
+    }
+    .cartao-unidade a.mapa:hover { text-decoration: underline; }
+
+    .avaliacoes { background: var(--papel-2); }
+    .avaliacoes h2 { color: var(--marinho); }
+    .selo-google {
+      display: flex; align-items: center; gap: 10px; margin: 0 auto 28px; width: fit-content;
+      color: var(--marinho); font-weight: 700;
+    }
+    .selo-google .estrelas { color: #f2a900; font-size: 18px; letter-spacing: 1px; }
+    .grade-depoimentos { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .depoimento {
+      background: var(--papel); border-radius: 14px; padding: 20px; box-shadow: var(--sombra-fixa);
+    }
+    .depoimento .estrelas { color: #f2a900; font-size: 14px; margin-bottom: 8px; }
+    .depoimento p { color: var(--texto-escuro-2); margin: 0 0 10px; font-size: 14.5px; line-height: 1.55; }
+    .depoimento .quem { font-weight: 700; color: var(--texto-escuro); font-size: 13.5px; }
+
+    .siga { text-align: center; }
+    .siga a.instagram {
+      display: inline-flex; align-items: center; gap: 8px; color: var(--marinho); background: var(--dourado);
+      font-weight: 700; text-decoration: none; padding: 12px 22px; border-radius: 10px;
+    }
+    .siga a.instagram:hover { background: var(--dourado-forte); }
+
+    .rodape {
+      border-top: 1px solid var(--linha); padding: 30px 20px 90px; text-align: center;
+      color: var(--texto-2); font-size: 13.5px;
+    }
+    .rodape .links { display: flex; gap: 18px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+    .rodape a { color: var(--texto); text-decoration: none; }
+    .rodape a:hover { text-decoration: underline; }
+
+    .whatsapp-flutuante {
+      position: fixed; right: 18px; bottom: 18px; z-index: 30;
+      display: flex; align-items: center; gap: 8px;
+      background: #25d366; color: #06210f; font-weight: 700; font-size: 14.5px;
+      padding: 12px 18px; border-radius: 999px; text-decoration: none;
+      box-shadow: 0 6px 20px -6px rgba(0,0,0,.5);
+    }
+
+    @media (max-width: 560px) {
+      .entrada-topo .link-nav:not(.destaque) { display: none; }
+      .hero { padding: 56px 16px 48px; }
+      .hero h1 { font-size: 30px; }
+      .faixa { padding: 44px 16px; }
+    }
+  </style>
 </head>
 <body>
 
-<header class="topo">
-  <div class="marca"><span class="se7">SE7</span><span class="sub">Portal do aluno</span></div>
+<header class="topo entrada-topo">
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Vôlei de Praia</span></div>
   <div class="espaco"></div>
-  <nav class="areas" id="areas" hidden></nav>
-  <div class="usuario oculto" id="boxUsuario">
-    <img id="avatar" alt="" hidden>
-    <span class="nome" id="nomeUsuario"></span>
-    <button class="botao fantasma" id="btnSair" type="button">Sair</button>
-  </div>
+  <a class="link-nav" href="/portal.html">Portal do aluno</a>
+  <a class="link-nav destaque" href="/matricula.html">Faça sua matrícula</a>
 </header>
 
-<!-- ============================ ENTRAR ============================ -->
-<main class="centro" id="telaLogin" hidden>
-  <h1 style="font-size:26px">Acompanhe a matrícula do seu filho</h1>
-  <p style="color:var(--ink-2);margin:14px 0 28px">
-    Faturas, frequência e cadastro num lugar só. Entre com a sua conta Google —
-    no primeiro acesso vamos pedir o seu CPF para localizar o cadastro na escola.
+<section class="hero">
+  <div class="selo-anos">🏐 Há mais de 10 anos na areia</div>
+  <h1>Vôlei de praia para toda a família</h1>
+  <p class="sub">
+    O maior Centro de Treinamento de Vôlei de Praia da Paraíba. Do mini vôlei
+    para crianças ao funcional para adultos, e equipes de alto rendimento com
+    campeões brasileiros, sul-americanos e mundiais.
   </p>
-  <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
-  <div class="aviso erro oculto" id="erroLogin" style="margin-top:22px;text-align:left"></div>
-</main>
-
-<!-- ============================ VÍNCULO ============================ -->
-<main class="centro" id="telaVinculo" hidden>
-  <h1 style="font-size:24px">Qual é o seu CPF?</h1>
-  <p style="color:var(--ink-2);margin:14px 0 24px">
-    Use o CPF do responsável financeiro, o mesmo que está no cadastro da escola.
-    Ele serve só para ligar a sua conta ao cadastro — e você faz isso uma vez só.
-  </p>
-  <form class="pilha" id="formCpf" style="gap:16px">
-    <div class="campo">
-      <label class="rotulo" for="cpf">CPF do responsável</label>
-      <input id="cpf" name="cpf" inputmode="numeric" autocomplete="off"
-             placeholder="000.000.000-00" maxlength="14" required>
-    </div>
-    <button class="botao" type="submit" id="btnVincular">Continuar</button>
-  </form>
-  <div class="aviso erro oculto" id="erroVinculo" style="margin-top:18px;text-align:left"></div>
-  <button class="botao fantasma" type="button" id="btnSairVinculo" style="margin-top:22px">
-    Entrar com outra conta
-  </button>
-</main>
-
-<!-- ============================ PORTAL ============================ -->
-<main class="pagina" id="telaPortal" hidden>
-  <div class="abas" role="tablist">
-    <button class="aba" role="tab" id="abaAlunos"   aria-selected="true"  data-painel="painelAlunos">Alunos</button>
-    <button class="aba" role="tab" id="abaFaturas"  aria-selected="false" data-painel="painelFaturas">Faturas</button>
-    <button class="aba" role="tab" id="abaCadastro" aria-selected="false" data-painel="painelCadastro">Cadastro</button>
+  <div class="hero-cta">
+    <a class="botao-dourado" href="/matricula.html">Faça sua matrícula</a>
+    <a class="botao-fantasma-claro" href="#unidades">Conheça as unidades</a>
   </div>
+</section>
 
-  <section id="painelAlunos" role="tabpanel" aria-labelledby="abaAlunos">
-    <div class="carregando">Carregando…</div>
-  </section>
-  <section id="painelFaturas" role="tabpanel" aria-labelledby="abaFaturas" hidden>
-    <div class="carregando">Carregando…</div>
-  </section>
-  <section id="painelCadastro" role="tabpanel" aria-labelledby="abaCadastro" hidden>
-    <div class="carregando">Carregando…</div>
-  </section>
-</main>
+<section class="faixa sobre" id="sobre">
+  <div>
+    <h2 style="text-align:left;margin-bottom:16px">Sobre nós</h2>
+    <p>
+      O <strong>SE7 é vôlei para toda a família.</strong> Temos metodologia
+      exclusiva desde o mini vôlei para crianças e adolescentes até o
+      funcional vôlei para adultos, além de equipes de alto rendimento que já
+      consagraram campeões brasileiros, sul-americanos e mundiais.
+    </p>
+    <p>Faça parte do Esquadrão Azul.</p>
+    <div class="sobre-numeros">
+      <div><b>10+</b><span>anos de escola</span></div>
+      <div><b>6</b><span>unidades</span></div>
+      <div><b>3</b><span>faixas etárias</span></div>
+    </div>
+    <a class="botao-dourado" href="/matricula.html">Faça sua matrícula</a>
+  </div>
+  <div class="sobre-placeholder">Foto da escola em breve</div>
+</section>
+
+<section class="faixa categorias">
+  <h2>Treino para todas as idades</h2>
+  <div class="categorias-grade">
+    <div class="categoria-item">
+      <div class="rotulo-idade">6 a 10 anos</div>
+      <h3>Kids</h3>
+      <p>Primeiro contato com a bola e com a areia — o jeito certo de começar.</p>
+    </div>
+    <div class="categoria-item">
+      <div class="rotulo-idade">11 a 16 anos</div>
+      <h3>Teens</h3>
+      <p>Fundamentos e jogo, na fase em que a técnica vira hábito.</p>
+    </div>
+    <div class="categoria-item">
+      <div class="rotulo-idade">A partir de 17 anos</div>
+      <h3>Adulto</h3>
+      <p>Do funcional ao competitivo, treino pensado pra quem já sabe o que quer da quadra.</p>
+    </div>
+  </div>
+  <p style="text-align:center;color:var(--texto-2);margin-top:26px;font-size:14px">
+    Os dias e horários variam por unidade — confira ao escolher a turma na
+    <a href="/matricula.html" style="color:var(--dourado)">matrícula</a>.
+  </p>
+</section>
+
+<section class="faixa unidades" id="unidades">
+  <h2>Unidades</h2>
+  <div id="listaUnidades" class="grade-unidades">
+    <div class="cartao-unidade"><span class="end">Carregando…</span></div>
+  </div>
+</section>
+
+<section class="faixa avaliacoes">
+  <h2>O que dizem sobre a gente</h2>
+  <div class="selo-google">
+    <span class="estrelas">★★★★★</span>
+    <span>Excelente — avaliações no Google</span>
+  </div>
+  <div class="grade-depoimentos">
+    <div class="depoimento">
+      <div class="estrelas">★★★★★</div>
+      <p>"Treino no lugar mais lindo 😍"</p>
+      <div class="quem">Talita Zeferino</div>
+    </div>
+    <div class="depoimento">
+      <div class="estrelas">★★★★★</div>
+      <p>"Uma experiência incrível! Os professores estão de parabéns!! 👏👏"</p>
+      <div class="quem">Gardênia Coelho</div>
+    </div>
+  </div>
+</section>
+
+<section class="faixa siga">
+  <h2>Siga-nos</h2>
+  <a class="instagram" href="https://www.instagram.com/se7.voleidepraia/" target="_blank" rel="noopener noreferrer">
+    📷 @se7.voleidepraia no Instagram
+  </a>
+</section>
+
+<footer class="rodape">
+  <div><strong style="color:var(--texto)">SE7 Vôlei de Praia</strong> · João Pessoa e Alagoa Grande/PB</div>
+  <div class="links">
+    <a href="/matricula.html">Faça sua matrícula</a>
+    <a href="/portal.html">Portal do aluno</a>
+    <a href="https://www.instagram.com/se7.voleidepraia/" target="_blank" rel="noopener noreferrer">Instagram</a>
+  </div>
+</footer>
+
+<a id="whatsappFlutuante" class="whatsapp-flutuante" hidden target="_blank" rel="noopener noreferrer">
+  💬 Fale conosco
+</a>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao, prepararImagem, fotoDaContaGoogle } from "/app.js";
-
-const el = (id) => document.getElementById(id);
-const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
-
-function mostrar(nome) {
-  for (const [chave, node] of Object.entries(telas)) node.hidden = chave !== nome;
-  el("boxUsuario").classList.toggle("oculto", nome === "login");
-}
-
-function pintarUsuario() {
-  const u = Sessao.usuario;
-  if (!u) return;
-  el("nomeUsuario").textContent = u.nome || u.email || "";
-  const img = el("avatar");
-  if (u.avatarUrl) { img.src = u.avatarUrl; img.hidden = false; } else { img.hidden = true; }
-}
-
-function erro(node, mensagem) {
-  node.textContent = mensagem;
-  node.classList.remove("oculto");
-}
-
-function sair() {
-  Sessao.limpar();
-  mostrar("login");
-}
-
-// ------------------------------------------------------------------ entrar
-async function concluirLogin(r) {
-  Sessao.token = r.token;
-  Sessao.usuario = r.usuario;
-  pintarUsuario();
-
-  // Os atalhos para as outras áreas. Sem esta linha o portal só os mostrava
-  // quando já havia sessão salva — quem acabava de entrar caía num beco sem
-  // saída, e só via as outras áreas depois de recarregar a página.
-  try {
-    pintarNavegacao(el("areas"), await api("/auth/eu"), "portal");
-  } catch {
-    // Sem os atalhos dá para usar o portal. Falhar aqui não pode impedir a
-    // entrada de quem só é responsável, que é a maioria.
-  }
-
-  r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
-}
-
-// ------------------------------------------------------------------ vínculo
-el("formCpf").addEventListener("submit", async (evento) => {
-  evento.preventDefault();
-  el("erroVinculo").classList.add("oculto");
-  el("btnVincular").disabled = true;
-  el("btnVincular").textContent = "Verificando…";
-
-  try {
-    const r = await api("/auth/vincular-cpf", {
-      method: "POST",
-      body: JSON.stringify({ cpf: el("cpf").value }),
-    });
-    Sessao.token = r.token;
-    const u = Sessao.usuario || {};
-    Sessao.usuario = { ...u, vinculoPendente: false };
-    abrirPortal();
-  } catch (e) {
-    erro(el("erroVinculo"), e.message);
-    if (e.status === 401) mostrar("login");
-  } finally {
-    el("btnVincular").disabled = false;
-    el("btnVincular").textContent = "Continuar";
-  }
-});
-
-el("cpf").addEventListener("input", (e) => { e.target.value = fmt.cpf(e.target.value); });
-el("btnSair").addEventListener("click", sair);
-el("btnSairVinculo").addEventListener("click", sair);
-
-// ------------------------------------------------------------------ abas
-const abas = [...document.querySelectorAll(".aba")];
-abas.forEach((aba) => aba.addEventListener("click", () => {
-  abas.forEach((outra) => {
-    const ativa = outra === aba;
-    outra.setAttribute("aria-selected", String(ativa));
-    el(outra.dataset.painel).hidden = !ativa;
-  });
-}));
-
-// ------------------------------------------------------------------ portal
-function abrirPortal() {
-  mostrar("portal");
-  pintarUsuario();
-  carregarAlunos();
-  carregarFaturas();
-  carregarCadastro();
-}
-
-/** Traduz a falha em algo que o responsável entenda, sem jargão de HTTP. */
-function painelErro(e) {
-  if (e instanceof ErroApi && e.status === 503) {
-    return `<div class="aviso alerta">${escapar(e.message)} Tente de novo em alguns minutos.</div>`;
-  }
-  return `<div class="aviso erro">${escapar(e.message)}</div>`;
-}
-
-const STATUS_MATRICULA = {
-  CONFIRMADA: ["ok", "Confirmada"],
-  PAGAMENTO_PENDENTE: ["alerta", "Pagamento pendente"],
-  CRIADA: ["neutra", "Criada"],
-  CANCELADA: ["erro", "Cancelada"],
-};
-
-/** "Beatriz Honor" -> "BH", enquanto não há foto. */
-function iniciais(nome) {
-  const partes = (nome || "").trim().split(/\s+/).filter(Boolean);
-  if (partes.length === 0) return "?";
-  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
-}
-
-/** Manda a foto já reduzida, nos dois tamanhos que o sistema guarda. */
-async function enviarFoto(alunoId, dataUrlGrande, arquivo) {
-  const recado = document.querySelector(`[data-erro-foto="${alunoId}"]`);
-  recado?.classList.add("oculto");
-
-  try {
-    const [grande, mini] = arquivo
-      ? await Promise.all([prepararImagem(arquivo, 400, 0.78), prepararImagem(arquivo, 96, 0.7)])
-      : [{ dataUrl: dataUrlGrande }, { dataUrl: await reduzirDataUrl(dataUrlGrande, 96) }];
-
-    await api(`/portal/alunos/${alunoId}/foto`, {
-      method: "PUT",
-      body: JSON.stringify({ foto: grande.dataUrl, miniatura: mini.dataUrl }),
-    });
-    await carregarAlunos();
-  } catch (e) {
-    if (recado) {
-      recado.textContent = e.message;
-      recado.classList.remove("oculto");
-    }
-  }
-}
-
-/** Reduz um data URL que já temos em memória — usado na foto do Google. */
-async function reduzirDataUrl(dataUrl, lado) {
-  const img = await new Promise((ok) => {
-    const i = new Image();
-    i.onload = () => ok(i);
-    i.src = dataUrl;
-  });
-  const tela = document.createElement("canvas");
-  tela.width = lado;
-  tela.height = lado;
-  tela.getContext("2d").drawImage(img, 0, 0, lado, lado);
-  return tela.toDataURL("image/jpeg", 0.7);
-}
-
-async function carregarAlunos() {
-  const painel = el("painelAlunos");
-  try {
-    const alunos = await api("/portal/alunos");
-
-    if (!alunos.length) {
-      painel.innerHTML = `<div class="vazio">Nenhum aluno vinculado a este CPF.<br>
-        Se isso não parece certo, fale com o administrativo.</div>`;
-      return;
-    }
-
-    painel.innerHTML = `<div class="pilha">${alunos.map((a) => {
-      const m = a.matricula;
-      const [cor, texto] = m ? (STATUS_MATRICULA[m.status] || ["neutra", m.status]) : ["neutra", "Sem matrícula"];
-      // O aluno que é a própria pessoa logada — adulto responsável por si.
-      // Só nesse caso a foto da conta Google é o rosto certo: a mãe que entra
-      // com o Gmail dela tem o rosto dela, não o da filha.
-      const ehAPropriaPessoa =
-        (Sessao.usuario?.nome || "").trim().toLowerCase() === a.nome.trim().toLowerCase();
-
-      return `
-        <article class="cartao">
-          <div style="display:flex;align-items:center;gap:12px">
-            <span class="retrato">
-              ${a.fotoMiniatura
-                ? `<img src="${escapar(a.fotoMiniatura)}" alt="">`
-                : `<span>${escapar(iniciais(a.nome))}</span>`}
-            </span>
-            <div style="flex:1;min-width:0">
-              <div class="linha">
-                <span class="aluno-nome">${escapar(a.nome)}</span>
-                <span class="pilula ${cor}">${escapar(texto)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="barra-acoes" style="margin-top:10px">
-            <label class="botao fantasma" for="foto-${a.id}" style="cursor:pointer;padding-left:0">
-              ${a.fotoMiniatura ? "Trocar foto" : "Enviar foto"}
-            </label>
-            <input type="file" id="foto-${a.id}" data-foto="${a.id}" accept="image/*" hidden>
-            ${ehAPropriaPessoa && Sessao.usuario?.avatarUrl && !a.fotoMiniatura
-              ? `<button class="botao fantasma" type="button" data-google="${a.id}">Usar a foto do Google</button>`
-              : ""}
-            ${a.fotoMiniatura
-              ? `<button class="botao fantasma" type="button" data-semfoto="${a.id}">Remover</button>` : ""}
-          </div>
-          <div class="aviso erro oculto" data-erro-foto="${a.id}" style="margin-top:8px"></div>
-          ${m ? `<p class="meta" style="margin:8px 0 0">
-                   ${escapar(m.turma || "Turma não informada")}
-                   ${m.unidade ? " · " + escapar(m.unidade) : ""}
-                   ${m.plano ? " · " + escapar(m.plano) : ""}
-                 </p>
-                 ${m.expiraEm ? `<p class="meta" style="margin:4px 0 0">Vence em ${fmt.data(m.expiraEm)}</p>` : ""}`
-              : `<p class="meta" style="margin:8px 0 0">Este aluno ainda não tem matrícula ativa.</p>`}
-          <button class="botao fantasma" data-freq="${a.id}" style="margin-top:6px;padding-left:0">
-            Ver frequência
-          </button>
-          <div data-freq-alvo="${a.id}"></div>
-        </article>`;
-    }).join("")}</div>`;
-
-    painel.querySelectorAll("[data-foto]").forEach((campo) => {
-      campo.addEventListener("change", () => {
-        const arquivo = campo.files?.[0];
-        if (arquivo) enviarFoto(campo.dataset.foto, null, arquivo);
-      });
-    });
-
-    painel.querySelectorAll("[data-google]").forEach((botao) => {
-      botao.addEventListener("click", async () => {
-        botao.disabled = true;
-        const copia = await fotoDaContaGoogle(Sessao.usuario?.avatarUrl);
-        if (copia) {
-          await enviarFoto(botao.dataset.google, copia, null);
-          return;
-        }
-        // O Google recusou a leitura do pixel (canvas contaminado). Não dá para
-        // insistir: sobra escolher um arquivo, que é o caminho de todo mundo.
-        botao.disabled = false;
-        const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.google}"]`);
-        if (recado) {
-          recado.textContent = "Não foi possível copiar a foto do Google. Escolha uma foto do aparelho.";
-          recado.classList.remove("oculto");
-        }
-      });
-    });
-
-    painel.querySelectorAll("[data-semfoto]").forEach((botao) => {
-      botao.addEventListener("click", async () => {
-        botao.disabled = true;
-        try {
-          await api(`/portal/alunos/${botao.dataset.semfoto}/foto`, { method: "DELETE" });
-          await carregarAlunos();
-        } catch (e) {
-          botao.disabled = false;
-          const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.semfoto}"]`);
-          if (recado) {
-            recado.textContent = e.message;
-            recado.classList.remove("oculto");
-          }
-        }
-      });
-    });
-
-    painel.querySelectorAll("[data-freq]").forEach((botao) => {
-      botao.addEventListener("click", () => alternarFrequencia(botao));
-    });
-  } catch (e) {
-    painel.innerHTML = painelErro(e);
-  }
-}
-
-async function alternarFrequencia(botao) {
-  const id = botao.dataset.freq;
-  const alvo = document.querySelector(`[data-freq-alvo="${id}"]`);
-
-  if (alvo.dataset.aberto === "1") {
-    alvo.innerHTML = "";
-    alvo.dataset.aberto = "0";
-    botao.textContent = "Ver frequência";
-    return;
-  }
-
-  alvo.dataset.aberto = "1";
-  botao.textContent = "Esconder frequência";
-  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
-
-  try {
-    const f = await api(`/portal/alunos/${id}/frequencia`);
-
-    if (!f.resumo.aulas) {
-      alvo.innerHTML = `<div class="vazio">Nenhuma presença registrada nos últimos 6 meses.</div>`;
-      return;
-    }
-
-    const pct = f.resumo.percentual ?? 0;
-    alvo.innerHTML = `
-      <div style="margin-top:14px;border-top:1px solid var(--rule);padding-top:14px">
-        <div class="linha"><span class="rotulo">Últimos 6 meses</span>
-          <span class="valor"><strong>${pct}%</strong> de presença</span></div>
-        <div class="barra" style="margin:8px 0 10px"><i style="width:${pct}%"></i></div>
-        <p class="meta" style="margin:0 0 12px">
-          ${f.resumo.presencas} presença${f.resumo.presencas === 1 ? "" : "s"} ·
-          ${f.resumo.faltas} falta${f.resumo.faltas === 1 ? "" : "s"} ·
-          ${f.resumo.aulas} aula${f.resumo.aulas === 1 ? "" : "s"}
-        </p>
-        <div>${f.registros.slice(0, 12).map((r) => `
-          <div class="item">
-            <div class="corpo">
-              <div class="titulo valor">${fmt.data(r.data)}</div>
-              <div class="detalhe">${escapar(r.turma || "—")}${r.professor ? " · " + escapar(r.professor) : ""}</div>
-            </div>
-            <div class="lado">
-              <span class="pilula ${r.presente ? "ok" : "erro"}">${r.presente ? "Presente" : "Falta"}</span>
-            </div>
-          </div>`).join("")}</div>
-      </div>`;
-  } catch (e) {
-    alvo.innerHTML = painelErro(e);
-  }
-}
-
-const STATUS_FATURA = {
-  RECEIVED: ["ok", "Paga"],
-  CONFIRMED: ["ok", "Confirmada"],
-  PENDING: ["alerta", "Em aberto"],
-  OVERDUE: ["erro", "Vencida"],
-  REFUNDED: ["neutra", "Estornada"],
-  DELETED: ["neutra", "Cancelada"],
-};
-
-async function carregarFaturas() {
-  const painel = el("painelFaturas");
-  try {
-    const r = await api("/portal/faturas");
-
-    if (r.aviso) {
-      painel.innerHTML = `<div class="aviso info">${escapar(r.aviso)}</div>`;
-      return;
-    }
-    if (!r.faturas.length) {
-      painel.innerHTML = `<div class="vazio">Nenhuma fatura encontrada.</div>`;
-      return;
-    }
-
-    // Cartões, não tabela: com cinco colunas o botão de 2ª via ficava fora da
-    // tela no celular, que é de onde quase todo responsável abre isto.
-    painel.innerHTML = `<div class="cartao">${r.faturas.map((f) => {
-      const [cor, texto] = STATUS_FATURA[f.status] || ["neutra", f.status];
-      const link = f.linkFatura || f.linkBoleto;
-      const aberta = f.status === "PENDING" || f.status === "OVERDUE";
-      return `<div class="item">
-        <div class="corpo">
-          <div class="titulo">${escapar(f.descricao || "Mensalidade")}</div>
-          <div class="detalhe">
-            ${aberta ? "Vence" : "Venceu"} em ${fmt.data(f.vencimento)} ·
-            <span class="valor">${fmt.moeda(f.valor)}</span>
-          </div>
-          <div style="margin-top:7px"><span class="pilula ${cor}">${escapar(texto)}</span></div>
-        </div>
-        ${link && aberta
-          ? `<div class="lado"><a class="link-botao" href="${escapar(link)}"
-               target="_blank" rel="noopener noreferrer">2ª via</a></div>`
-          : ""}
-      </div>`;
-    }).join("")}</div>`;
-  } catch (e) {
-    painel.innerHTML = painelErro(e);
-  }
-}
-
-// Rascunho do endereço enquanto o responsável preenche. Fora do DOM porque o
-// painel é reescrito inteiro a cada busca de CEP.
-const cadastro = {
-  perfil: null,
-  editando: false,
-  rascunho: null,
-  buscandoCep: false,
-  recadoCep: "",
-  salvando: false,
-  erro: "",
-};
-
-const CAMPOS_ENDERECO = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"];
-
-async function carregarCadastro() {
-  const painel = el("painelCadastro");
-  try {
-    cadastro.perfil = await api("/portal/perfil");
-    pintarCadastro();
-  } catch (e) {
-    painel.innerHTML = painelErro(e);
-  }
-}
-
-function pintarCadastro() {
-  const painel = el("painelCadastro");
-  const c = cadastro.perfil;
-
-  if (!c?.encontrado) {
-    painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com o administrativo.</div>`;
-    return;
-  }
-
-  const e = c.endereco;
-  const partes = [e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado]
-    .filter(Boolean).map(escapar).join(", ");
-
-  painel.innerHTML = `
-    ${e.completo ? "" : `<div class="aviso alerta" style="margin-bottom:14px">
-      Faltam dados no seu endereço. É por ele que a escola emite a nota fiscal e o boleto.
-      Você mesmo pode preencher aqui embaixo.</div>`}
-
-    <div class="cartao pilha">
-      ${[["Nome", c.nome], ["E-mail", c.email], ["Telefone", c.telefone], ["CPF", c.cpf]]
-        .map(([rotulo, valor]) => `
-          <div class="linha">
-            <span class="rotulo">${rotulo}</span>
-            <span style="text-align:right">${valor ? escapar(valor) : "<span style='color:var(--ink-3)'>não informado</span>"}</span>
-          </div>`).join("")}
-    </div>
-    <p class="meta" style="margin-top:10px">
-      Nome, CPF, e-mail e telefone só o administrativo altera — é por eles que a cobrança
-      encontra você.
-    </p>
-
-    ${cadastro.editando ? formularioEndereco() : `
-      <div class="cartao pilha" style="margin-top:14px">
-        <div class="linha"><span class="rotulo">CEP</span>
-          <span style="text-align:right">${e.cep ? escapar(e.cep) : "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
-        <div class="linha"><span class="rotulo">Endereço</span>
-          <span style="text-align:right">${partes || "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
-      </div>
-      <button class="botao fantasma" type="button" id="btnEditarEndereco" style="margin-top:8px;padding-left:0">
-        ${e.completo ? "Corrigir endereço" : "Preencher endereço"}
-      </button>`}`;
-
-  ligarCadastro();
-}
-
-function formularioEndereco() {
-  const r = cadastro.rascunho;
-  return `
-    <div class="cartao pilha" style="margin-top:14px;gap:12px">
-      <div class="rotulo">Endereço</div>
-
-      <div class="campo">
-        <label class="rotulo" for="cadCep">CEP</label>
-        <div style="display:flex;gap:8px">
-          <input id="cadCep" data-end="cep" inputmode="numeric" placeholder="58000-000"
-                 maxlength="9" style="flex:1" value="${escapar(r.cep)}" autocomplete="postal-code">
-          <button class="botao fantasma" type="button" id="btnCadCep" ${cadastro.buscandoCep ? "disabled" : ""}>
-            ${cadastro.buscandoCep ? "Buscando…" : "Buscar"}
-          </button>
-        </div>
-        ${cadastro.recadoCep ? `<span class="meta">${escapar(cadastro.recadoCep)}</span>` : ""}
-      </div>
-
-      <div class="campo"><label class="rotulo" for="cadRua">Rua</label>
-        <input id="cadRua" data-end="logradouro" value="${escapar(r.logradouro)}"></div>
-
-      <div style="display:flex;gap:10px">
-        <div class="campo" style="flex:1"><label class="rotulo" for="cadNum">Número</label>
-          <input id="cadNum" data-end="numero" value="${escapar(r.numero)}"></div>
-        <div class="campo" style="flex:2"><label class="rotulo" for="cadCompl">Complemento</label>
-          <input id="cadCompl" data-end="complemento" value="${escapar(r.complemento)}"></div>
-      </div>
-
-      <div class="campo"><label class="rotulo" for="cadBairro">Bairro</label>
-        <input id="cadBairro" data-end="bairro" value="${escapar(r.bairro)}"></div>
-
-      <div style="display:flex;gap:10px">
-        <div class="campo" style="flex:3"><label class="rotulo" for="cadCidade">Cidade</label>
-          <input id="cadCidade" data-end="cidade" value="${escapar(r.cidade)}"></div>
-        <div class="campo" style="flex:1"><label class="rotulo" for="cadUf">UF</label>
-          <input id="cadUf" data-end="estado" maxlength="2" value="${escapar(r.estado)}"></div>
-      </div>
-
-      <div class="aviso erro ${cadastro.erro ? "" : "oculto"}">${escapar(cadastro.erro)}</div>
-
-      <div class="barra-acoes">
-        <button class="botao" type="button" id="btnSalvarEndereco" ${cadastro.salvando ? "disabled" : ""}>
-          ${cadastro.salvando ? "Salvando…" : "Salvar endereço"}
-        </button>
-        <button class="botao fantasma" type="button" id="btnCancelarEndereco">Cancelar</button>
-      </div>
-    </div>`;
-}
-
-function ligarCadastro() {
-  el("btnEditarEndereco")?.addEventListener("click", () => {
-    const e = cadastro.perfil.endereco;
-    cadastro.rascunho = Object.fromEntries(CAMPOS_ENDERECO.map((k) => [k, e[k] ?? ""]));
-    cadastro.editando = true;
-    cadastro.erro = "";
-    cadastro.recadoCep = "";
-    pintarCadastro();
-  });
-
-  el("btnCancelarEndereco")?.addEventListener("click", () => {
-    cadastro.editando = false;
-    pintarCadastro();
-  });
-
-  // Cada tecla vai para o rascunho. Sem isto a busca de CEP, que redesenha o
-  // painel, devolveria os campos vazios.
-  document.querySelectorAll("[data-end]").forEach((c) =>
-    c.addEventListener("input", (ev) => {
-      const campo = ev.target.dataset.end;
-      cadastro.rascunho[campo] = campo === "estado" ? ev.target.value.toUpperCase() : ev.target.value;
-    }));
-
-  el("btnCadCep")?.addEventListener("click", async () => {
-    const cep = cadastro.rascunho.cep.replace(/\D/g, "");
-    if (cep.length !== 8) {
-      cadastro.recadoCep = "CEP precisa ter 8 dígitos.";
-      return pintarCadastro();
-    }
-
-    cadastro.buscandoCep = true;
-    cadastro.recadoCep = "";
-    pintarCadastro();
-
-    try {
-      const e = await api(`/publico/cep/${cep}`);
-      cadastro.rascunho.logradouro = e.logradouro || cadastro.rascunho.logradouro;
-      cadastro.rascunho.bairro = e.bairro || cadastro.rascunho.bairro;
-      cadastro.rascunho.cidade = e.cidade || cadastro.rascunho.cidade;
-      cadastro.rascunho.estado = e.estado || cadastro.rascunho.estado;
-      cadastro.recadoCep = e.logradouro ? "" : "Este CEP não tem rua definida. Escreva a rua.";
-    } catch (erro) {
-      cadastro.recadoCep = erro.message;
-    } finally {
-      cadastro.buscandoCep = false;
-      pintarCadastro();
-      el("cadNum")?.focus();
-    }
-  });
-
-  el("btnSalvarEndereco")?.addEventListener("click", async () => {
-    cadastro.salvando = true;
-    cadastro.erro = "";
-    pintarCadastro();
-
-    try {
-      const salvo = await api("/portal/endereco", {
-        method: "PUT",
-        body: JSON.stringify(cadastro.rascunho),
-      });
-      cadastro.perfil = { ...cadastro.perfil, endereco: salvo };
-      cadastro.editando = false;
-    } catch (e) {
-      cadastro.erro = e.message;
-    } finally {
-      cadastro.salvando = false;
-      pintarCadastro();
-    }
-  });
-}
-
-// ------------------------------------------------------------------ início
+import { api, escapar } from "/app.js";
+
+/**
+ * Unidades e o botão de WhatsApp vêm do mesmo catálogo que a matrícula usa
+ * (/publico/catalogo) — não existe uma segunda lista de unidades mantida à
+ * mão aqui. É exatamente o problema que o site atual tem hoje (duas seções
+ * "Sobre Nós" com números diferentes, uma unidade encerrada que continua
+ * aparecendo): sem fonte única, o texto desalinha da realidade e ninguém
+ * percebe até uma família ligar perguntando por uma unidade que já fechou.
+ */
 async function iniciar() {
-  if (Sessao.token && Sessao.usuario) {
-    pintarUsuario();
-    // Confia na sessão guardada, mas confirma com o servidor: o token pode ter
-    // expirado, ou o vínculo pode ter sido feito em outro aparelho.
-    try {
-      const eu = await api("/auth/eu");
-      pintarNavegacao(el("areas"), eu, "portal");
-      if (eu.responsavelId) return abrirPortal();
-      return mostrar("vinculo");
-    } catch {
-      sair();
-    }
+  try {
+    const catalogo = await api("/publico/catalogo");
+    pintarUnidades(catalogo.unidades);
+    pintarWhatsapp(catalogo.whatsapp);
+  } catch {
+    document.getElementById("listaUnidades").innerHTML =
+      `<div class="cartao-unidade"><span class="end">Não foi possível carregar as unidades agora.</span></div>`;
   }
+}
 
-  mostrar("login");
-  montarLogin(el("botaoGoogle"), concluirLogin, (mensagem) => erro(el("erroLogin"), mensagem));
+function linkDoMapa(nome, endereco) {
+  const consulta = encodeURIComponent(`${nome} - SE7 Vôlei de Praia, ${endereco || ""}`);
+  return `https://www.google.com/maps/search/?api=1&query=${consulta}`;
+}
+
+function pintarUnidades(unidades) {
+  const alvo = document.getElementById("listaUnidades");
+  if (!unidades.length) {
+    alvo.innerHTML = `<div class="cartao-unidade"><span class="end">Nenhuma turma com matrícula aberta no momento.</span></div>`;
+    return;
+  }
+  alvo.innerHTML = unidades.map((u) => `
+    <div class="cartao-unidade">
+      <h3>${escapar(u.nome)}</h3>
+      <span class="end">${u.endereco ? escapar(u.endereco) : "Endereço a confirmar"}</span>
+      <a class="mapa" href="${linkDoMapa(u.nome, u.endereco)}" target="_blank" rel="noopener noreferrer">Ver no mapa</a>
+    </div>`).join("");
+}
+
+function pintarWhatsapp(numero) {
+  const botao = document.getElementById("whatsappFlutuante");
+  if (!numero) return; // sem WHATSAPP_COMERCIAL configurada, o botão fica escondido
+  const texto = encodeURIComponent("Oi! Vi o site do SE7 e quero saber mais sobre as turmas.");
+  botao.href = `https://wa.me/${numero}?text=${texto}`;
+  botao.hidden = false;
 }
 
 iniciar();
 </script>
+
 </body>
 </html>

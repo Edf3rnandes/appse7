@@ -144,8 +144,8 @@ cronograma que o administrativo criou pelo painel antigo, porque é a mesma tabe
 - **Professor**: em `/administrativo.html`, emita um convite (`POST /auth/convites`)
   com o e-mail dele e o `legacyId` (o `teachers.id` do sistema atual). Aí ele
   entra em `/professor.html` com o Google e já cai vinculado.
-- **Responsável**: entra em `/` com o Google e informa o CPF. Só funciona
-  depois que o MySQL estiver liberado, porque o CPF é conferido lá.
+- **Responsável**: entra em `/portal.html` com o Google e informa o CPF. Só
+  funciona depois que o MySQL estiver liberado, porque o CPF é conferido lá.
 
 ## Observação sobre o plano gratuito
 

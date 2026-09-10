@@ -286,7 +286,7 @@ export function areasDisponiveis(eu, atual) {
     areas.push({ chave: "professor", nome: "Professor", href: "/professor.html" });
   }
   if (eu?.responsavelId != null) {
-    areas.push({ chave: "portal", nome: "Portal do aluno", href: "/" });
+    areas.push({ chave: "portal", nome: "Portal do aluno", href: "/portal.html" });
   }
 
   return areas.filter((a) => a.chave !== atual);

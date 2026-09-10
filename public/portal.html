@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Portal do Aluno · SE7 Vôlei de Praia</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="topo">
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Portal do aluno</span></div>
+  <div class="espaco"></div>
+  <nav class="areas" id="areas" hidden></nav>
+  <div class="usuario oculto" id="boxUsuario">
+    <img id="avatar" alt="" hidden>
+    <span class="nome" id="nomeUsuario"></span>
+    <button class="botao fantasma" id="btnSair" type="button">Sair</button>
+  </div>
+</header>
+
+<!-- ============================ ENTRAR ============================ -->
+<main class="centro" id="telaLogin" hidden>
+  <h1 style="font-size:26px">Acompanhe a matrícula do seu filho</h1>
+  <p style="color:var(--ink-2);margin:14px 0 28px">
+    Faturas, frequência e cadastro num lugar só. Entre com a sua conta Google —
+    no primeiro acesso vamos pedir o seu CPF para localizar o cadastro na escola.
+  </p>
+  <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
+  <div class="aviso erro oculto" id="erroLogin" style="margin-top:22px;text-align:left"></div>
+</main>
+
+<!-- ============================ VÍNCULO ============================ -->
+<main class="centro" id="telaVinculo" hidden>
+  <h1 style="font-size:24px">Qual é o seu CPF?</h1>
+  <p style="color:var(--ink-2);margin:14px 0 24px">
+    Use o CPF do responsável financeiro, o mesmo que está no cadastro da escola.
+    Ele serve só para ligar a sua conta ao cadastro — e você faz isso uma vez só.
+  </p>
+  <form class="pilha" id="formCpf" style="gap:16px">
+    <div class="campo">
+      <label class="rotulo" for="cpf">CPF do responsável</label>
+      <input id="cpf" name="cpf" inputmode="numeric" autocomplete="off"
+             placeholder="000.000.000-00" maxlength="14" required>
+    </div>
+    <button class="botao" type="submit" id="btnVincular">Continuar</button>
+  </form>
+  <div class="aviso erro oculto" id="erroVinculo" style="margin-top:18px;text-align:left"></div>
+  <button class="botao fantasma" type="button" id="btnSairVinculo" style="margin-top:22px">
+    Entrar com outra conta
+  </button>
+</main>
+
+<!-- ============================ PORTAL ============================ -->
+<main class="pagina" id="telaPortal" hidden>
+  <div class="abas" role="tablist">
+    <button class="aba" role="tab" id="abaAlunos"   aria-selected="true"  data-painel="painelAlunos">Alunos</button>
+    <button class="aba" role="tab" id="abaFaturas"  aria-selected="false" data-painel="painelFaturas">Faturas</button>
+    <button class="aba" role="tab" id="abaCadastro" aria-selected="false" data-painel="painelCadastro">Cadastro</button>
+  </div>
+
+  <section id="painelAlunos" role="tabpanel" aria-labelledby="abaAlunos">
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelFaturas" role="tabpanel" aria-labelledby="abaFaturas" hidden>
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelCadastro" role="tabpanel" aria-labelledby="abaCadastro" hidden>
+    <div class="carregando">Carregando…</div>
+  </section>
+</main>
+
+<script type="module">
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao, prepararImagem, fotoDaContaGoogle } from "/app.js";
+
+const el = (id) => document.getElementById(id);
+const telas = { login: el("telaLogin"), vinculo: el("telaVinculo"), portal: el("telaPortal") };
+
+function mostrar(nome) {
+  for (const [chave, node] of Object.entries(telas)) node.hidden = chave !== nome;
+  el("boxUsuario").classList.toggle("oculto", nome === "login");
+}
+
+function pintarUsuario() {
+  const u = Sessao.usuario;
+  if (!u) return;
+  el("nomeUsuario").textContent = u.nome || u.email || "";
+  const img = el("avatar");
+  if (u.avatarUrl) { img.src = u.avatarUrl; img.hidden = false; } else { img.hidden = true; }
+}
+
+function erro(node, mensagem) {
+  node.textContent = mensagem;
+  node.classList.remove("oculto");
+}
+
+function sair() {
+  Sessao.limpar();
+  mostrar("login");
+}
+
+// ------------------------------------------------------------------ entrar
+async function concluirLogin(r) {
+  Sessao.token = r.token;
+  Sessao.usuario = r.usuario;
+  pintarUsuario();
+
+  // Os atalhos para as outras áreas. Sem esta linha o portal só os mostrava
+  // quando já havia sessão salva — quem acabava de entrar caía num beco sem
+  // saída, e só via as outras áreas depois de recarregar a página.
+  try {
+    pintarNavegacao(el("areas"), await api("/auth/eu"), "portal");
+  } catch {
+    // Sem os atalhos dá para usar o portal. Falhar aqui não pode impedir a
+    // entrada de quem só é responsável, que é a maioria.
+  }
+
+  r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
+}
+
+// ------------------------------------------------------------------ vínculo
+el("formCpf").addEventListener("submit", async (evento) => {
+  evento.preventDefault();
+  el("erroVinculo").classList.add("oculto");
+  el("btnVincular").disabled = true;
+  el("btnVincular").textContent = "Verificando…";
+
+  try {
+    const r = await api("/auth/vincular-cpf", {
+      method: "POST",
+      body: JSON.stringify({ cpf: el("cpf").value }),
+    });
+    Sessao.token = r.token;
+    const u = Sessao.usuario || {};
+    Sessao.usuario = { ...u, vinculoPendente: false };
+    abrirPortal();
+  } catch (e) {
+    erro(el("erroVinculo"), e.message);
+    if (e.status === 401) mostrar("login");
+  } finally {
+    el("btnVincular").disabled = false;
+    el("btnVincular").textContent = "Continuar";
+  }
+});
+
+el("cpf").addEventListener("input", (e) => { e.target.value = fmt.cpf(e.target.value); });
+el("btnSair").addEventListener("click", sair);
+el("btnSairVinculo").addEventListener("click", sair);
+
+// ------------------------------------------------------------------ abas
+const abas = [...document.querySelectorAll(".aba")];
+abas.forEach((aba) => aba.addEventListener("click", () => {
+  abas.forEach((outra) => {
+    const ativa = outra === aba;
+    outra.setAttribute("aria-selected", String(ativa));
+    el(outra.dataset.painel).hidden = !ativa;
+  });
+}));
+
+// ------------------------------------------------------------------ portal
+function abrirPortal() {
+  mostrar("portal");
+  pintarUsuario();
+  carregarAlunos();
+  carregarFaturas();
+  carregarCadastro();
+}
+
+/** Traduz a falha em algo que o responsável entenda, sem jargão de HTTP. */
+function painelErro(e) {
+  if (e instanceof ErroApi && e.status === 503) {
+    return `<div class="aviso alerta">${escapar(e.message)} Tente de novo em alguns minutos.</div>`;
+  }
+  return `<div class="aviso erro">${escapar(e.message)}</div>`;
+}
+
+const STATUS_MATRICULA = {
+  CONFIRMADA: ["ok", "Confirmada"],
+  PAGAMENTO_PENDENTE: ["alerta", "Pagamento pendente"],
+  CRIADA: ["neutra", "Criada"],
+  CANCELADA: ["erro", "Cancelada"],
+};
+
+/** "Beatriz Honor" -> "BH", enquanto não há foto. */
+function iniciais(nome) {
+  const partes = (nome || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+}
+
+/** Manda a foto já reduzida, nos dois tamanhos que o sistema guarda. */
+async function enviarFoto(alunoId, dataUrlGrande, arquivo) {
+  const recado = document.querySelector(`[data-erro-foto="${alunoId}"]`);
+  recado?.classList.add("oculto");
+
+  try {
+    const [grande, mini] = arquivo
+      ? await Promise.all([prepararImagem(arquivo, 400, 0.78), prepararImagem(arquivo, 96, 0.7)])
+      : [{ dataUrl: dataUrlGrande }, { dataUrl: await reduzirDataUrl(dataUrlGrande, 96) }];
+
+    await api(`/portal/alunos/${alunoId}/foto`, {
+      method: "PUT",
+      body: JSON.stringify({ foto: grande.dataUrl, miniatura: mini.dataUrl }),
+    });
+    await carregarAlunos();
+  } catch (e) {
+    if (recado) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+    }
+  }
+}
+
+/** Reduz um data URL que já temos em memória — usado na foto do Google. */
+async function reduzirDataUrl(dataUrl, lado) {
+  const img = await new Promise((ok) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.src = dataUrl;
+  });
+  const tela = document.createElement("canvas");
+  tela.width = lado;
+  tela.height = lado;
+  tela.getContext("2d").drawImage(img, 0, 0, lado, lado);
+  return tela.toDataURL("image/jpeg", 0.7);
+}
+
+async function carregarAlunos() {
+  const painel = el("painelAlunos");
+  try {
+    const alunos = await api("/portal/alunos");
+
+    if (!alunos.length) {
+      painel.innerHTML = `<div class="vazio">Nenhum aluno vinculado a este CPF.<br>
+        Se isso não parece certo, fale com o administrativo.</div>`;
+      return;
+    }
+
+    painel.innerHTML = `<div class="pilha">${alunos.map((a) => {
+      const m = a.matricula;
+      const [cor, texto] = m ? (STATUS_MATRICULA[m.status] || ["neutra", m.status]) : ["neutra", "Sem matrícula"];
+      // O aluno que é a própria pessoa logada — adulto responsável por si.
+      // Só nesse caso a foto da conta Google é o rosto certo: a mãe que entra
+      // com o Gmail dela tem o rosto dela, não o da filha.
+      const ehAPropriaPessoa =
+        (Sessao.usuario?.nome || "").trim().toLowerCase() === a.nome.trim().toLowerCase();
+
+      return `
+        <article class="cartao">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="retrato">
+              ${a.fotoMiniatura
+                ? `<img src="${escapar(a.fotoMiniatura)}" alt="">`
+                : `<span>${escapar(iniciais(a.nome))}</span>`}
+            </span>
+            <div style="flex:1;min-width:0">
+              <div class="linha">
+                <span class="aluno-nome">${escapar(a.nome)}</span>
+                <span class="pilula ${cor}">${escapar(texto)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="barra-acoes" style="margin-top:10px">
+            <label class="botao fantasma" for="foto-${a.id}" style="cursor:pointer;padding-left:0">
+              ${a.fotoMiniatura ? "Trocar foto" : "Enviar foto"}
+            </label>
+            <input type="file" id="foto-${a.id}" data-foto="${a.id}" accept="image/*" hidden>
+            ${ehAPropriaPessoa && Sessao.usuario?.avatarUrl && !a.fotoMiniatura
+              ? `<button class="botao fantasma" type="button" data-google="${a.id}">Usar a foto do Google</button>`
+              : ""}
+            ${a.fotoMiniatura
+              ? `<button class="botao fantasma" type="button" data-semfoto="${a.id}">Remover</button>` : ""}
+          </div>
+          <div class="aviso erro oculto" data-erro-foto="${a.id}" style="margin-top:8px"></div>
+          ${m ? `<p class="meta" style="margin:8px 0 0">
+                   ${escapar(m.turma || "Turma não informada")}
+                   ${m.unidade ? " · " + escapar(m.unidade) : ""}
+                   ${m.plano ? " · " + escapar(m.plano) : ""}
+                 </p>
+                 ${m.expiraEm ? `<p class="meta" style="margin:4px 0 0">Vence em ${fmt.data(m.expiraEm)}</p>` : ""}`
+              : `<p class="meta" style="margin:8px 0 0">Este aluno ainda não tem matrícula ativa.</p>`}
+          <button class="botao fantasma" data-freq="${a.id}" style="margin-top:6px;padding-left:0">
+            Ver frequência
+          </button>
+          <div data-freq-alvo="${a.id}"></div>
+        </article>`;
+    }).join("")}</div>`;
+
+    painel.querySelectorAll("[data-foto]").forEach((campo) => {
+      campo.addEventListener("change", () => {
+        const arquivo = campo.files?.[0];
+        if (arquivo) enviarFoto(campo.dataset.foto, null, arquivo);
+      });
+    });
+
+    painel.querySelectorAll("[data-google]").forEach((botao) => {
+      botao.addEventListener("click", async () => {
+        botao.disabled = true;
+        const copia = await fotoDaContaGoogle(Sessao.usuario?.avatarUrl);
+        if (copia) {
+          await enviarFoto(botao.dataset.google, copia, null);
+          return;
+        }
+        // O Google recusou a leitura do pixel (canvas contaminado). Não dá para
+        // insistir: sobra escolher um arquivo, que é o caminho de todo mundo.
+        botao.disabled = false;
+        const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.google}"]`);
+        if (recado) {
+          recado.textContent = "Não foi possível copiar a foto do Google. Escolha uma foto do aparelho.";
+          recado.classList.remove("oculto");
+        }
+      });
+    });
+
+    painel.querySelectorAll("[data-semfoto]").forEach((botao) => {
+      botao.addEventListener("click", async () => {
+        botao.disabled = true;
+        try {
+          await api(`/portal/alunos/${botao.dataset.semfoto}/foto`, { method: "DELETE" });
+          await carregarAlunos();
+        } catch (e) {
+          botao.disabled = false;
+          const recado = painel.querySelector(`[data-erro-foto="${botao.dataset.semfoto}"]`);
+          if (recado) {
+            recado.textContent = e.message;
+            recado.classList.remove("oculto");
+          }
+        }
+      });
+    });
+
+    painel.querySelectorAll("[data-freq]").forEach((botao) => {
+      botao.addEventListener("click", () => alternarFrequencia(botao));
+    });
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+async function alternarFrequencia(botao) {
+  const id = botao.dataset.freq;
+  const alvo = document.querySelector(`[data-freq-alvo="${id}"]`);
+
+  if (alvo.dataset.aberto === "1") {
+    alvo.innerHTML = "";
+    alvo.dataset.aberto = "0";
+    botao.textContent = "Ver frequência";
+    return;
+  }
+
+  alvo.dataset.aberto = "1";
+  botao.textContent = "Esconder frequência";
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+
+  try {
+    const f = await api(`/portal/alunos/${id}/frequencia`);
+
+    if (!f.resumo.aulas) {
+      alvo.innerHTML = `<div class="vazio">Nenhuma presença registrada nos últimos 6 meses.</div>`;
+      return;
+    }
+
+    const pct = f.resumo.percentual ?? 0;
+    alvo.innerHTML = `
+      <div style="margin-top:14px;border-top:1px solid var(--rule);padding-top:14px">
+        <div class="linha"><span class="rotulo">Últimos 6 meses</span>
+          <span class="valor"><strong>${pct}%</strong> de presença</span></div>
+        <div class="barra" style="margin:8px 0 10px"><i style="width:${pct}%"></i></div>
+        <p class="meta" style="margin:0 0 12px">
+          ${f.resumo.presencas} presença${f.resumo.presencas === 1 ? "" : "s"} ·
+          ${f.resumo.faltas} falta${f.resumo.faltas === 1 ? "" : "s"} ·
+          ${f.resumo.aulas} aula${f.resumo.aulas === 1 ? "" : "s"}
+        </p>
+        <div>${f.registros.slice(0, 12).map((r) => `
+          <div class="item">
+            <div class="corpo">
+              <div class="titulo valor">${fmt.data(r.data)}</div>
+              <div class="detalhe">${escapar(r.turma || "—")}${r.professor ? " · " + escapar(r.professor) : ""}</div>
+            </div>
+            <div class="lado">
+              <span class="pilula ${r.presente ? "ok" : "erro"}">${r.presente ? "Presente" : "Falta"}</span>
+            </div>
+          </div>`).join("")}</div>
+      </div>`;
+  } catch (e) {
+    alvo.innerHTML = painelErro(e);
+  }
+}
+
+const STATUS_FATURA = {
+  RECEIVED: ["ok", "Paga"],
+  CONFIRMED: ["ok", "Confirmada"],
+  PENDING: ["alerta", "Em aberto"],
+  OVERDUE: ["erro", "Vencida"],
+  REFUNDED: ["neutra", "Estornada"],
+  DELETED: ["neutra", "Cancelada"],
+};
+
+async function carregarFaturas() {
+  const painel = el("painelFaturas");
+  try {
+    const r = await api("/portal/faturas");
+
+    if (r.aviso) {
+      painel.innerHTML = `<div class="aviso info">${escapar(r.aviso)}</div>`;
+      return;
+    }
+    if (!r.faturas.length) {
+      painel.innerHTML = `<div class="vazio">Nenhuma fatura encontrada.</div>`;
+      return;
+    }
+
+    // Cartões, não tabela: com cinco colunas o botão de 2ª via ficava fora da
+    // tela no celular, que é de onde quase todo responsável abre isto.
+    painel.innerHTML = `<div class="cartao">${r.faturas.map((f) => {
+      const [cor, texto] = STATUS_FATURA[f.status] || ["neutra", f.status];
+      const link = f.linkFatura || f.linkBoleto;
+      const aberta = f.status === "PENDING" || f.status === "OVERDUE";
+      return `<div class="item">
+        <div class="corpo">
+          <div class="titulo">${escapar(f.descricao || "Mensalidade")}</div>
+          <div class="detalhe">
+            ${aberta ? "Vence" : "Venceu"} em ${fmt.data(f.vencimento)} ·
+            <span class="valor">${fmt.moeda(f.valor)}</span>
+          </div>
+          <div style="margin-top:7px"><span class="pilula ${cor}">${escapar(texto)}</span></div>
+        </div>
+        ${link && aberta
+          ? `<div class="lado"><a class="link-botao" href="${escapar(link)}"
+               target="_blank" rel="noopener noreferrer">2ª via</a></div>`
+          : ""}
+      </div>`;
+    }).join("")}</div>`;
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+// Rascunho do endereço enquanto o responsável preenche. Fora do DOM porque o
+// painel é reescrito inteiro a cada busca de CEP.
+const cadastro = {
+  perfil: null,
+  editando: false,
+  rascunho: null,
+  buscandoCep: false,
+  recadoCep: "",
+  salvando: false,
+  erro: "",
+};
+
+const CAMPOS_ENDERECO = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"];
+
+async function carregarCadastro() {
+  const painel = el("painelCadastro");
+  try {
+    cadastro.perfil = await api("/portal/perfil");
+    pintarCadastro();
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
+}
+
+function pintarCadastro() {
+  const painel = el("painelCadastro");
+  const c = cadastro.perfil;
+
+  if (!c?.encontrado) {
+    painel.innerHTML = `<div class="vazio">Cadastro não localizado. Fale com o administrativo.</div>`;
+    return;
+  }
+
+  const e = c.endereco;
+  const partes = [e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.estado]
+    .filter(Boolean).map(escapar).join(", ");
+
+  painel.innerHTML = `
+    ${e.completo ? "" : `<div class="aviso alerta" style="margin-bottom:14px">
+      Faltam dados no seu endereço. É por ele que a escola emite a nota fiscal e o boleto.
+      Você mesmo pode preencher aqui embaixo.</div>`}
+
+    <div class="cartao pilha">
+      ${[["Nome", c.nome], ["E-mail", c.email], ["Telefone", c.telefone], ["CPF", c.cpf]]
+        .map(([rotulo, valor]) => `
+          <div class="linha">
+            <span class="rotulo">${rotulo}</span>
+            <span style="text-align:right">${valor ? escapar(valor) : "<span style='color:var(--ink-3)'>não informado</span>"}</span>
+          </div>`).join("")}
+    </div>
+    <p class="meta" style="margin-top:10px">
+      Nome, CPF, e-mail e telefone só o administrativo altera — é por eles que a cobrança
+      encontra você.
+    </p>
+
+    ${cadastro.editando ? formularioEndereco() : `
+      <div class="cartao pilha" style="margin-top:14px">
+        <div class="linha"><span class="rotulo">CEP</span>
+          <span style="text-align:right">${e.cep ? escapar(e.cep) : "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
+        <div class="linha"><span class="rotulo">Endereço</span>
+          <span style="text-align:right">${partes || "<span style='color:var(--ink-3)'>não informado</span>"}</span></div>
+      </div>
+      <button class="botao fantasma" type="button" id="btnEditarEndereco" style="margin-top:8px;padding-left:0">
+        ${e.completo ? "Corrigir endereço" : "Preencher endereço"}
+      </button>`}`;
+
+  ligarCadastro();
+}
+
+function formularioEndereco() {
+  const r = cadastro.rascunho;
+  return `
+    <div class="cartao pilha" style="margin-top:14px;gap:12px">
+      <div class="rotulo">Endereço</div>
+
+      <div class="campo">
+        <label class="rotulo" for="cadCep">CEP</label>
+        <div style="display:flex;gap:8px">
+          <input id="cadCep" data-end="cep" inputmode="numeric" placeholder="58000-000"
+                 maxlength="9" style="flex:1" value="${escapar(r.cep)}" autocomplete="postal-code">
+          <button class="botao fantasma" type="button" id="btnCadCep" ${cadastro.buscandoCep ? "disabled" : ""}>
+            ${cadastro.buscandoCep ? "Buscando…" : "Buscar"}
+          </button>
+        </div>
+        ${cadastro.recadoCep ? `<span class="meta">${escapar(cadastro.recadoCep)}</span>` : ""}
+      </div>
+
+      <div class="campo"><label class="rotulo" for="cadRua">Rua</label>
+        <input id="cadRua" data-end="logradouro" value="${escapar(r.logradouro)}"></div>
+
+      <div style="display:flex;gap:10px">
+        <div class="campo" style="flex:1"><label class="rotulo" for="cadNum">Número</label>
+          <input id="cadNum" data-end="numero" value="${escapar(r.numero)}"></div>
+        <div class="campo" style="flex:2"><label class="rotulo" for="cadCompl">Complemento</label>
+          <input id="cadCompl" data-end="complemento" value="${escapar(r.complemento)}"></div>
+      </div>
+
+      <div class="campo"><label class="rotulo" for="cadBairro">Bairro</label>
+        <input id="cadBairro" data-end="bairro" value="${escapar(r.bairro)}"></div>
+
+      <div style="display:flex;gap:10px">
+        <div class="campo" style="flex:3"><label class="rotulo" for="cadCidade">Cidade</label>
+          <input id="cadCidade" data-end="cidade" value="${escapar(r.cidade)}"></div>
+        <div class="campo" style="flex:1"><label class="rotulo" for="cadUf">UF</label>
+          <input id="cadUf" data-end="estado" maxlength="2" value="${escapar(r.estado)}"></div>
+      </div>
+
+      <div class="aviso erro ${cadastro.erro ? "" : "oculto"}">${escapar(cadastro.erro)}</div>
+
+      <div class="barra-acoes">
+        <button class="botao" type="button" id="btnSalvarEndereco" ${cadastro.salvando ? "disabled" : ""}>
+          ${cadastro.salvando ? "Salvando…" : "Salvar endereço"}
+        </button>
+        <button class="botao fantasma" type="button" id="btnCancelarEndereco">Cancelar</button>
+      </div>
+    </div>`;
+}
+
+function ligarCadastro() {
+  el("btnEditarEndereco")?.addEventListener("click", () => {
+    const e = cadastro.perfil.endereco;
+    cadastro.rascunho = Object.fromEntries(CAMPOS_ENDERECO.map((k) => [k, e[k] ?? ""]));
+    cadastro.editando = true;
+    cadastro.erro = "";
+    cadastro.recadoCep = "";
+    pintarCadastro();
+  });
+
+  el("btnCancelarEndereco")?.addEventListener("click", () => {
+    cadastro.editando = false;
+    pintarCadastro();
+  });
+
+  // Cada tecla vai para o rascunho. Sem isto a busca de CEP, que redesenha o
+  // painel, devolveria os campos vazios.
+  document.querySelectorAll("[data-end]").forEach((c) =>
+    c.addEventListener("input", (ev) => {
+      const campo = ev.target.dataset.end;
+      cadastro.rascunho[campo] = campo === "estado" ? ev.target.value.toUpperCase() : ev.target.value;
+    }));
+
+  el("btnCadCep")?.addEventListener("click", async () => {
+    const cep = cadastro.rascunho.cep.replace(/\D/g, "");
+    if (cep.length !== 8) {
+      cadastro.recadoCep = "CEP precisa ter 8 dígitos.";
+      return pintarCadastro();
+    }
+
+    cadastro.buscandoCep = true;
+    cadastro.recadoCep = "";
+    pintarCadastro();
+
+    try {
+      const e = await api(`/publico/cep/${cep}`);
+      cadastro.rascunho.logradouro = e.logradouro || cadastro.rascunho.logradouro;
+      cadastro.rascunho.bairro = e.bairro || cadastro.rascunho.bairro;
+      cadastro.rascunho.cidade = e.cidade || cadastro.rascunho.cidade;
+      cadastro.rascunho.estado = e.estado || cadastro.rascunho.estado;
+      cadastro.recadoCep = e.logradouro ? "" : "Este CEP não tem rua definida. Escreva a rua.";
+    } catch (erro) {
+      cadastro.recadoCep = erro.message;
+    } finally {
+      cadastro.buscandoCep = false;
+      pintarCadastro();
+      el("cadNum")?.focus();
+    }
+  });
+
+  el("btnSalvarEndereco")?.addEventListener("click", async () => {
+    cadastro.salvando = true;
+    cadastro.erro = "";
+    pintarCadastro();
+
+    try {
+      const salvo = await api("/portal/endereco", {
+        method: "PUT",
+        body: JSON.stringify(cadastro.rascunho),
+      });
+      cadastro.perfil = { ...cadastro.perfil, endereco: salvo };
+      cadastro.editando = false;
+    } catch (e) {
+      cadastro.erro = e.message;
+    } finally {
+      cadastro.salvando = false;
+      pintarCadastro();
+    }
+  });
+}
+
+// ------------------------------------------------------------------ início
+async function iniciar() {
+  if (Sessao.token && Sessao.usuario) {
+    pintarUsuario();
+    // Confia na sessão guardada, mas confirma com o servidor: o token pode ter
+    // expirado, ou o vínculo pode ter sido feito em outro aparelho.
+    try {
+      const eu = await api("/auth/eu");
+      pintarNavegacao(el("areas"), eu, "portal");
+      if (eu.responsavelId) return abrirPortal();
+      return mostrar("vinculo");
+    } catch {
+      sair();
+    }
+  }
+
+  mostrar("login");
+  montarLogin(el("botaoGoogle"), concluirLogin, (mensagem) => erro(el("erroLogin"), mensagem));
+}
+
+iniciar();
+</script>
+</body>
+</html>

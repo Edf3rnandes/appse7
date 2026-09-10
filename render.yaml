@@ -70,6 +70,11 @@ services:
       # falhando a busca, a familia digita o endereco.
       - key: CEP_BASE_URL
         value: https://viacep.com.br/ws
+      # Numero de WhatsApp da escola, so digitos com DDI (ex: 5583999999999).
+      # Usado no botao "Fale conosco" da pagina de entrada. Sem ela o botao
+      # nao aparece, em vez de virar um link quebrado.
+      - key: WHATSAPP_COMERCIAL
+        sync: false
       # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a
       # escola mora no Postgres do Hub. Estas variaveis servem so a importacao
       # unica dos alunos, quando ela acontecer — e podem ficar vazias ate la.

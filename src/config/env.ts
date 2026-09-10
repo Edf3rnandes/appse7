@@ -53,6 +53,12 @@ const schema = z.object({
   // Quantas tentativas de vinculo por CPF uma conta pode errar por hora antes
   // de ser barrada. Freio contra varredura de CPF por quem ja tem login.
   VINCULO_MAX_TENTATIVAS_HORA: z.coerce.number().default(5),
+
+  // WhatsApp comercial da escola, so digitos com DDI (ex: 5583999999999).
+  // Usado no botao "Fale conosco" da pagina de entrada. Opcional de
+  // proposito, mesmo espirito do GOOGLE_CLIENT_ID acima: sem ele o botao
+  // simplesmente nao aparece, em vez de virar um link quebrado.
+  WHATSAPP_COMERCIAL: z.string().default(""),
 });
 
 export const env = schema.parse(process.env);
@@ -61,6 +67,7 @@ export const legadoConfigurado =
   env.LEGACY_MYSQL_HOST !== "" && env.LEGACY_MYSQL_DATABASE !== "";
 
 export const googleConfigurado = env.GOOGLE_CLIENT_ID !== "";
+export const whatsappComercial = env.WHATSAPP_COMERCIAL.replace(/\D/g, "");
 
 
 const listaDeEmails = (bruto: string) =>

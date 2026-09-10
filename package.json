@@ -18,7 +18,8 @@
     "importar:turmas": "tsx src/db/importar-turmas.ts",
     "importar:planos": "tsx src/db/importar-planos.ts",
     "checar:paginas": "node scripts/checar-paginas.mjs",
-    "importar:dump": "tsx src/db/importar-dump.ts"
+    "importar:dump": "tsx src/db/importar-dump.ts",
+    "atualizar:enderecos": "tsx src/db/atualizar-enderecos-unidades.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
