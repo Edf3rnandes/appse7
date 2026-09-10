@@ -4193,16 +4193,23 @@ function cartaoGoogle(config) {
         <span class="pilula ${config.googlePlaceId ? "ok" : "neutra"}">${config.googlePlaceId ? "Configurado" : "Não configurado"}</span>
       </div>
       <p class="meta" style="margin:0 0 12px">
-        Também precisa da variável de ambiente GOOGLE_PLACES_API_KEY no servidor (Render →
-        Environment), uma chave da Places API do Google Cloud. Sem ela, mesmo com o Place ID
-        certo aqui, a página segue mostrando os depoimentos fixos.
+        Três passos, uma vez só — os dois primeiros no Google Cloud, feitos por quem tem
+        acesso ao projeto (o mesmo do login com Google, se já existir):
       </p>
+      <ol style="margin:0 0 14px;padding-left:18px;font-size:13.5px;color:var(--ink-3)">
+        <li>Em console.cloud.google.com → APIs e serviços → Biblioteca, ative a
+          <strong>Places API</strong>. Depois, em Credenciais, crie uma chave de API — dá pra
+          restringir ela só pra essa API, o Google explica como na própria tela.</li>
+        <li>Cole essa chave na variável <code>GOOGLE_PLACES_API_KEY</code> do serviço no Render
+          (Environment) e salve — o Render reinicia sozinho, sem precisar de novo deploy.</li>
+        <li>Ache o Place ID da escola em
+          developers.google.com/maps/documentation/places/web-service/place-id (a própria
+          página tem uma busca) e cole abaixo.</li>
+      </ol>
       <form class="pilha" style="gap:10px" data-form-google>
         <div class="campo">
           <label class="rotulo" for="googlePlaceId">Place ID</label>
           <input id="googlePlaceId" value="${escapar(config.googlePlaceId || "")}" placeholder="ChIJ…">
-          <span class="ajuda">Procure o nome e o endereço da escola em
-            developers.google.com/maps/documentation/places/web-service/place-id e copie o ID.</span>
         </div>
         <div class="aviso erro oculto" id="recadoGoogle"></div>
         <button class="botao" type="submit">Salvar</button>

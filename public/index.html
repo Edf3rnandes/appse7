@@ -234,28 +234,51 @@
     }
     .cartao-unidade h3 { font-size: 18px; }
     .cartao-unidade .end { color: var(--texto-2); font-size: 13.5px; line-height: 1.5; flex: 1; }
-    .acoes-mapa { display: flex; gap: 14px; flex-wrap: wrap; }
     .mapa {
+      align-self: flex-start;
       color: var(--dourado); font-size: 13.5px; font-weight: 600; text-decoration: none;
       background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
     }
     .mapa:hover { text-decoration: underline; }
     .mapa-embutido:not([hidden]) { margin-top: 4px; }
 
-    .avaliacoes { background: var(--papel-2); }
-    .avaliacoes h2 { color: var(--marinho); }
-    .selo-google {
-      display: flex; align-items: center; gap: 10px; margin: 0 auto 28px; width: fit-content;
-      color: var(--marinho); font-weight: 700;
+    /* O amarelo entrando pela esquerda é o mesmo "cartão de nota" do site
+       real — a cor puxa o olho pro resumo antes dos depoimentos em si. */
+    .avaliacoes { background: linear-gradient(120deg, #ffe27a 0%, var(--papel-2) 48%); }
+    .avaliacoes h2 { color: var(--marinho); text-align: left; }
+
+    .avaliacoes-corpo { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; }
+    .resumo-google { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+    .selo-excelente {
+      font-weight: 800; font-size: 20px; color: var(--texto-escuro);
+      letter-spacing: .02em; text-transform: uppercase;
     }
-    .selo-google .estrelas { color: #f2a900; font-size: 18px; letter-spacing: 1px; }
-    .grade-depoimentos { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-    .depoimento {
-      background: var(--papel); border-radius: 14px; padding: 20px; box-shadow: var(--sombra-fixa);
+    .estrelas-resumo { color: #f2a900; font-size: 24px; letter-spacing: 2px; }
+    .baseado-em { color: var(--texto-escuro-2); font-size: 14px; }
+    .baseado-em strong { color: var(--texto-escuro); }
+    /* "Google" com a cor de cada letra da marca — sem depender de nenhuma
+       imagem ou fonte externa pro logo. */
+    .marca-google { font-weight: 700; font-size: 19px; }
+    .marca-google.pequena { font-size: 12.5px; flex: none; }
+    .marca-google .g1 { color: #4285F4; }
+    .marca-google .g2 { color: #EA4335; }
+    .marca-google .g3 { color: #FBBC05; }
+    .marca-google .g4 { color: #34A853; }
+
+    .grade-depoimentos {
+      flex: 1 1 460px; display: grid; gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     }
+    .depoimento { background: var(--papel); border-radius: 14px; padding: 18px 20px; box-shadow: var(--sombra-fixa); }
+    .depoimento .cabeca { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .depoimento .avatar {
+      width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none;
+      background: var(--marinho-2); color: #fff; font-weight: 700; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .depoimento .quem { font-weight: 700; color: var(--texto-escuro); font-size: 13.5px; flex: 1; min-width: 0; }
     .depoimento .estrelas { color: #f2a900; font-size: 14px; margin-bottom: 8px; }
-    .depoimento p { color: var(--texto-escuro-2); margin: 0 0 10px; font-size: 14.5px; line-height: 1.55; }
-    .depoimento .quem { font-weight: 700; color: var(--texto-escuro); font-size: 13.5px; }
+    .depoimento p { color: var(--texto-escuro-2); margin: 0; font-size: 14.5px; line-height: 1.55; }
 
     .siga { text-align: center; }
     .siga a.instagram {
@@ -409,20 +432,38 @@
 
 <section class="faixa avaliacoes" id="avaliacoes">
   <h2>O que dizem sobre a gente</h2>
-  <div class="selo-google">
-    <span class="estrelas">★★★★★</span>
-    <span>Excelente — avaliações no Google</span>
-  </div>
-  <div class="grade-depoimentos">
-    <div class="depoimento">
-      <div class="estrelas">★★★★★</div>
-      <p>"Treino no lugar mais lindo 😍"</p>
-      <div class="quem">Talita Zeferino</div>
+  <div class="avaliacoes-corpo">
+    <div class="resumo-google">
+      <span class="selo-excelente">Excelente</span>
+      <span class="estrelas-resumo">★★★★★</span>
+      <span class="baseado-em">Avaliações no Google</span>
+      <span class="marca-google">
+        <span class="g1">G</span><span class="g2">o</span><span class="g3">o</span><span class="g1">g</span><span class="g4">l</span><span class="g2">e</span>
+      </span>
     </div>
-    <div class="depoimento">
-      <div class="estrelas">★★★★★</div>
-      <p>"Uma experiência incrível! Os professores estão de parabéns!! 👏👏"</p>
-      <div class="quem">Gardênia Coelho</div>
+    <div class="grade-depoimentos">
+      <div class="depoimento">
+        <div class="cabeca">
+          <span class="avatar">T</span>
+          <span class="quem">Talita Zeferino</span>
+          <span class="marca-google pequena">
+            <span class="g1">G</span><span class="g2">o</span><span class="g3">o</span><span class="g1">g</span><span class="g4">l</span><span class="g2">e</span>
+          </span>
+        </div>
+        <div class="estrelas">★★★★★</div>
+        <p>"Treino no lugar mais lindo 😍"</p>
+      </div>
+      <div class="depoimento">
+        <div class="cabeca">
+          <span class="avatar">G</span>
+          <span class="quem">Gardênia Coelho</span>
+          <span class="marca-google pequena">
+            <span class="g1">G</span><span class="g2">o</span><span class="g3">o</span><span class="g1">g</span><span class="g4">l</span><span class="g2">e</span>
+          </span>
+        </div>
+        <div class="estrelas">★★★★★</div>
+        <p>"Uma experiência incrível! Os professores estão de parabéns!! 👏👏"</p>
+      </div>
     </div>
   </div>
 </section>
@@ -502,17 +543,12 @@ async function iniciar() {
   }
 }
 
-function linkExternoDoMapa(nome, endereco) {
-  const consulta = encodeURIComponent(`${nome} - SE7 Vôlei de Praia, ${endereco || ""}`);
-  return `https://www.google.com/maps/search/?api=1&query=${consulta}`;
-}
-
 /**
  * O mapa embutido usa o truque conhecido de `output=embed` — funciona sem
  * chave de API, mas não é um contrato oficial do Google, então pode mudar um
- * dia. O link "Abrir no Google Maps" ao lado é o caminho garantido: se o
- * embutido algum dia parar de carregar, a rota até a unidade continua
- * funcionando por ele.
+ * dia. Sem link externo ao lado (tirado por pedido — duplicava "Ver no
+ * mapa"): se o embutido parar de carregar, o jeito de corrigir é trocar
+ * esta função, não depender de um segundo link.
  */
 function linkEmbutidoDoMapa(nome, endereco) {
   const consulta = encodeURIComponent(`${nome} - SE7 Vôlei de Praia, ${endereco || ""}`);
@@ -530,10 +566,7 @@ function pintarUnidades(unidades) {
       ${u.fotoBase64 ? `<img class="foto-unidade" src="${u.fotoBase64}" alt="${escapar(u.nome)}" loading="lazy">` : ""}
       <h3>${escapar(u.nome)}</h3>
       <span class="end">${u.endereco ? escapar(u.endereco) : "Endereço a confirmar"}</span>
-      <div class="acoes-mapa">
-        <button class="mapa" type="button" data-alternar-mapa="${i}">Ver no mapa</button>
-        <a class="mapa" href="${linkExternoDoMapa(u.nome, u.endereco)}" target="_blank" rel="noopener noreferrer">Abrir no Google Maps</a>
-      </div>
+      <button class="mapa" type="button" data-alternar-mapa="${i}">Ver no mapa</button>
       <div class="mapa-embutido" id="mapa-${i}" hidden></div>
     </div>`).join("");
 
@@ -667,25 +700,37 @@ function pintarCarrosselCartaz(alvo, imagens) {
 }
 
 /** As avaliações do Google Maps, quando a integração está configurada e respondeu. */
+const MARCA_GOOGLE = `<span class="g1">G</span><span class="g2">o</span><span class="g3">o</span><span class="g1">g</span><span class="g4">l</span><span class="g2">e</span>`;
+
+/** As avaliações de verdade, quando a integração (Site → Integrações) está configurada e respondeu. */
 function pintarAvaliacoes(resposta) {
   if (!resposta?.configurado || !resposta.disponivel) return; // fica com os depoimentos fixos
   const { nota, total, avaliacoes } = resposta.dados;
   const estrelas = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
 
   if (nota != null) {
-    const selo = document.querySelector("#avaliacoes .selo-google");
-    selo.innerHTML = `
-      <span class="estrelas">${estrelas(nota)}</span>
-      <span>${nota.toFixed(1)} — ${total ?? 0} avaliações no Google</span>`;
+    document.querySelector("#avaliacoes .estrelas-resumo").textContent = estrelas(nota);
+    document.querySelector("#avaliacoes .baseado-em").innerHTML =
+      total != null ? `Com base em <strong>${total}</strong> avaliações` : "Avaliações no Google";
   }
 
   if (avaliacoes.length) {
-    document.querySelector("#avaliacoes .grade-depoimentos").innerHTML = avaliacoes.slice(0, 4).map((a) => `
+    document.querySelector("#avaliacoes .grade-depoimentos").innerHTML = avaliacoes.slice(0, 4).map((a) => {
+      const inicial = escapar((a.autor || "?").trim().charAt(0).toUpperCase());
+      const avatar = a.foto
+        ? `<img class="avatar" src="${escapar(a.foto)}" alt="" loading="lazy">`
+        : `<span class="avatar">${inicial}</span>`;
+      return `
       <div class="depoimento">
+        <div class="cabeca">
+          ${avatar}
+          <span class="quem">${escapar(a.autor)}</span>
+          <span class="marca-google pequena">${MARCA_GOOGLE}</span>
+        </div>
         <div class="estrelas">${estrelas(a.nota)}</div>
         <p>"${escapar(a.texto || "")}"</p>
-        <div class="quem">${escapar(a.autor)}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
 }
 

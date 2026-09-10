@@ -28,6 +28,10 @@ interface Avaliacao {
   nota: number;
   texto: string;
   quando: string;
+  // Foto do perfil de quem avaliou, hospedada pelo próprio Google — vem
+  // pronta da Places API, e cai bem no cartão do depoimento. Sem ela (o
+  // Google nem sempre manda), a tela usa a inicial do nome.
+  foto: string | null;
 }
 
 interface Resultado {
@@ -69,6 +73,7 @@ export async function buscarAvaliacoesGoogle(): Promise<
         nota: r.rating,
         texto: r.text,
         quando: r.relative_time_description,
+        foto: r.profile_photo_url ?? null,
       })),
     };
     cache = { placeId, dados, buscadoEm: Date.now() };
