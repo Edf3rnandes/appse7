@@ -18,10 +18,10 @@ services:
     # transacao, por onde mudanca de schema nao passa. O schema vem de
     # prisma/instalar-no-supabase.sql, colado no SQL Editor do Supabase.
     #
-    # O seed so garante a conta de ADMIN_EMAILS, e e idempotente. As turmas,
-    # os planos e a escola de demonstracao NAO entram aqui: sao comandos
-    # rodados a mao uma vez (npm run importar:turmas / importar:planos), e
-    # repeti-los a cada deploy so gastaria tempo de partida.
+    # O seed so garante a conta de ADMIN_EMAILS, e e idempotente. As turmas, os
+    # planos e os alunos NAO entram aqui: sao comandos rodados a mao uma vez
+    # (importar:turmas, importar:planos, importar:dump), e repeti-los a cada
+    # deploy so gastaria tempo de partida.
     startCommand: node dist/db/seed.js && node dist/server.js
     healthCheckPath: /health
     envVars:
@@ -37,6 +37,12 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
+      # Os donos, separados dos administradores de proposito: ADMIN administra
+      # a escola, SOCIO ve o resultado dela. O mesmo e-mail costuma estar nas
+      # duas listas. Esta variavel existe porque so socio convida socio — sem
+      # ela a area dos socios nasceria sem ninguem que pudesse entrar.
+      - key: SOCIO_EMAILS
+        sync: false
       # Valvula de escape: com ela, as contas de ADMIN_EMAILS ganham login por
       # e-mail e senha alem do Google. Sem Google configurado, e a unica porta.
       - key: SEED_ADMIN_SENHA
@@ -51,8 +57,6 @@ services:
       # usa o ViaCEP, que e gratuito e nao pede chave. Esta aqui para trocar de
       # provedor sem mexer no codigo — e porque a matricula NUNCA depende dela:
       # falhando a busca, a familia digita o endereco.
-      # Sociedade. Nao ha variavel: os socios sao cadastrados pela tela, e o
-      # papel SOCIO so e concedido por convite emitido por outro socio.
       - key: CEP_BASE_URL
         value: https://viacep.com.br/ws
       # MySQL do Laravel. NAO e mais necessario para o sistema funcionar: a

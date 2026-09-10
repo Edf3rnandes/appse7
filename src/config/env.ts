@@ -48,6 +48,7 @@ const schema = z.object({
   // Serve para o bootstrap: sem isso nao existe ninguem para emitir o primeiro
   // convite. Lista separada por virgula.
   ADMIN_EMAILS: z.string().default(""),
+  SOCIO_EMAILS: z.string().default(""),
 
   // Quantas tentativas de vinculo por CPF uma conta pode errar por hora antes
   // de ser barrada. Freio contra varredura de CPF por quem ja tem login.
@@ -62,6 +63,21 @@ export const legadoConfigurado =
 export const googleConfigurado = env.GOOGLE_CLIENT_ID !== "";
 
 
-export const adminEmails = env.ADMIN_EMAILS.split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter((e) => e !== "");
+const listaDeEmails = (bruto: string) =>
+  bruto
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e !== "");
+
+export const adminEmails = listaDeEmails(env.ADMIN_EMAILS);
+
+/**
+ * Os donos. Papel separado de ADMIN de propósito, e nao derivado dele: ADMIN e
+ * quem administra a escola, SOCIO e quem ve o resultado dela. Somar os dois
+ * automaticamente daria acesso ao painel financeiro a qualquer pessoa que a
+ * escola precise tornar administradora um dia.
+ *
+ * Existe como variavel porque o primeiro socio nao tem quem o convide: so
+ * socio convida socio, e sem esta linha a area nasceria inalcancavel.
+ */
+export const socioEmails = listaDeEmails(env.SOCIO_EMAILS);

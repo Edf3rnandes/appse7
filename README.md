@@ -5,12 +5,21 @@ partido em dois sistemas:
 
 | Sistema | Stack | Papel hoje | Papel no Hub |
 |---|---|---|---|
-| **se7volei** (Laravel 10 / MySQL) | PHP 8.1, Blade, Asaas | Alunos, turmas, matrículas, frequência, cobrança | **Fonte de dados durante a transição** — lido em modo somente leitura, nunca escrito |
+| **se7volei** (Laravel 10 / MySQL) | PHP 8.1, Blade, Asaas | Alunos, turmas, matrículas, frequência, cobrança | **Origem da importação** — os dados vêm de lá uma vez, por arquivo; nada é escrito nele |
 | **se7-inadimplencia** (Fastify / Postgres) | Node, Prisma, Supabase | Administrativo: central de demandas, inadimplência, loja, ponto | Módulos migram para cá em seguida |
 | **se7-hub** (este repositório) | Node, Fastify, Prisma, Postgres | — | Acesso único, portal do responsável, app do professor |
 
-O Hub divide o Postgres do Supabase com o se7-inadimplencia (ver abaixo) e lê o MySQL do Laravel
-em modo somente leitura.
+O Hub divide o Postgres do Supabase com o se7-inadimplencia (ver abaixo). Ele
+**não depende do Laravel para funcionar**: a escola mora aqui, e o sistema
+antigo é só a origem da importação.
+
+### Comece por aqui
+
+| Para | Documento |
+|---|---|
+| Colocar no ar, do zero | [`docs/colocar-no-ar.md`](docs/colocar-no-ar.md) |
+| Trazer os alunos do sistema atual | [`docs/importar-a-escola.md`](docs/importar-a-escola.md) |
+| Rodar na sua máquina | [`docs/desenvolvimento-local.md`](docs/desenvolvimento-local.md) |
 
 O Hub é um **caminho novo**: sobe ao lado dos outros dois, sem alterar uma linha
 do Laravel nem do se7-inadimplencia. Enquanto ele cresce, os sistemas atuais
