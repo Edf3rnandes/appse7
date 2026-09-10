@@ -37,14 +37,40 @@ select table_schema, count(*)
 -- hub deve dar 22; public, o mesmo número de antes.
 ```
 
-> **Se você já rodou uma versão anterior deste arquivo**, o `hub` do seu
-> Supabase tem tabelas antigas e o script vai parar dizendo que `hub.usuarios`
-> já existe. Lá só há dados de teste. Para recomeçar, rode **este comando
-> sozinho antes**, conferindo que está escrito `hub` e não `public`:
->
-> ```sql
-> DROP SCHEMA "hub" CASCADE;
-> ```
+### Se ele parar dizendo que algo "already exists"
+
+```
+ERROR: 42710: type "Provedor" already exists
+```
+
+Quer dizer que o schema `hub` já tem uma instalação anterior. O script não
+altera o que existe — ele para. É de propósito: continuar por cima de uma
+versão antiga daria um banco meio de um jeito, meio de outro.
+
+**Antes de apagar, veja o que tem lá.** Rode isto:
+
+```sql
+select 'turmas'      as tabela, count(*) from hub.turmas
+union all select 'planos',      count(*) from hub.planos
+union all select 'alunos',      count(*) from hub.alunos
+union all select 'matriculas',  count(*) from hub.matriculas
+union all select 'usuarios',    count(*) from hub.usuarios;
+```
+
+- **Alunos e matrículas em zero** — é a instalação de experimento. Pode apagar.
+- **Alunos ou matrículas com número** — pare e me diga o que apareceu. Tem
+  cadastro de verdade ali, e apagar é definitivo.
+
+Sendo o primeiro caso, rode **este comando sozinho**, conferindo que está
+escrito `hub` e não `public`, e depois cole o script inteiro de novo:
+
+```sql
+DROP SCHEMA "hub" CASCADE;
+```
+
+Ele apaga só o schema do Hub. As tabelas do se7-cobrancas vivem em `public` e
+não são tocadas — conferido: depois do DROP e da reinstalação, `public`
+continuou com exatamente as mesmas tabelas de antes.
 
 ## 2 · Criar o serviço no Render
 

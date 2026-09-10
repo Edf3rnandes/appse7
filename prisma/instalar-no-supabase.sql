@@ -17,17 +17,26 @@
 --   Não há DROP, DELETE nem TRUNCATE em nenhuma linha deste arquivo.
 --
 -- ---------------------------------------------------------------------------
--- ANTES DE RODAR, SE VOCÊ JÁ RODOU A VERSÃO ANTERIOR
+-- SE ELE PARAR COM 'already exists'
 --
---   A versão anterior criava 9 tabelas. O sistema agora tem 22, e três das
---   antigas mudaram de forma: o vínculo da conta passou a apontar para
---   professor/responsável por chave estrangeira, em vez de um id do MySQL.
---   Este script não altera tabela existente, então ele vai falhar dizendo que
---   `hub.usuarios` já existe.
+--   ERROR: 42710: type "Provedor" already exists
 --
---   O `hub` do seu Supabase tem só dados de teste — as contas e convites que
---   criamos experimentando. Para recomeçar, rode ESTE comando sozinho,
---   primeiro, conferindo que está escrito "hub" e não "public":
+-- O schema `hub` ja tem uma instalacao anterior. Este script nao altera o que
+-- existe: ele para. Continuar por cima de uma versao antiga daria um banco meio
+-- de um jeito, meio de outro.
+--
+-- ANTES DE APAGAR, veja o que tem la:
+--
+--   select 'turmas' as tabela, count(*) from hub.turmas
+--   union all select 'planos',     count(*) from hub.planos
+--   union all select 'alunos',     count(*) from hub.alunos
+--   union all select 'matriculas', count(*) from hub.matriculas;
+--
+-- Alunos e matriculas em zero e a instalacao de experimento, e pode ir. Com
+-- numero, PARE: ha cadastro de verdade ali, e apagar e definitivo.
+--
+--   Feita a conferencia, rode ESTE comando sozinho, primeiro, conferindo que
+--   esta escrito "hub" e nao "public":
 --
 --       DROP SCHEMA "hub" CASCADE;
 --
