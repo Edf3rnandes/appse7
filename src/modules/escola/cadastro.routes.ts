@@ -87,8 +87,16 @@ const planoSchema = z.object({
 const professorSchema = z.object({
   nome: z.string({ required_error: "Nome é obrigatório." }).min(1, "Nome é obrigatório.").max(120),
   // O sistema antigo não guardava e-mail de professor, e é por isso que ele
-  // não conseguia entrar sozinho. Com e-mail, o convite vira opcional.
-  email: z.string().email("E-mail inválido.").optional(),
+  // não conseguia entrar sozinho. Com e-mail, o convite sai da própria linha
+  // do colaborador, sem redigitar nada.
+  //
+  // Vazio é aceito e vira ausência, em vez de erro: era o que impedia corrigir
+  // um e-mail errado: com `.optional()` puro, apagar o campo mandava "" e a
+  // validação recusava, então o e-mail errado não tinha como sair de lá.
+  email: z
+    .union([z.string().email("E-mail inválido."), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" ? null : v)),
   telefone: z.string().max(30).optional(),
   ativo: z.boolean().default(true),
 });

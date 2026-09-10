@@ -30,9 +30,9 @@ async function main() {
 
   await app.register(cors, { origin: true });
 
-  // Limite global folgado, so para conter abuso grosseiro. As rotas de auth
-  // (login e vinculo por CPF) tem limite proprio, bem mais apertado, definido
-  // dentro do escopo em authRoutes.
+  // Limite global folgado, so para conter abuso grosseiro. As TRES portas de
+  // entrada — login por senha, login pelo Google e vinculo por CPF — tem
+  // limite proprio, bem mais apertado, declarado em cada uma delas.
   await app.register(rateLimit, { max: 240, timeWindow: "1 minute" });
 
   await app.register(authPlugin);
@@ -47,10 +47,9 @@ async function main() {
     setHeaders: (res) => res.setHeader("Cache-Control", "no-store"),
   });
 
-  await app.register(async (escopo) => {
-    await escopo.register(rateLimit, { max: 20, timeWindow: "1 minute" });
-    await escopo.register(authRoutes);
-  });
+  // Sem escopo de limite em volta: quem precisa dele sao as portas de entrada,
+  // e elas o declaram uma a uma. O porque esta em authRoutes.
+  await app.register(authRoutes);
 
   await app.register(portalRoutes);
   await app.register(professorRoutes);

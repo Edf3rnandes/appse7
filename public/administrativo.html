@@ -63,10 +63,9 @@
 
       <div class="grupo">
         <div class="grupo-titulo">Configurações</div>
-        <button class="item-menu" data-painel="painelProfessores">Professores</button>
         <button class="item-menu" data-painel="painelUnidades">Unidades</button>
         <button class="item-menu" data-painel="painelPlanos">Planos</button>
-        <button class="item-menu" data-painel="painelAcessos">Usuários</button>
+        <button class="item-menu" data-painel="painelAcessos">Colaboradores</button>
       </div>
 
       <div class="grupo">
@@ -100,7 +99,6 @@
       <section id="painelFreqAluno" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelAlunos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelMatriculas" hidden><div class="carregando">Carregando…</div></section>
-      <section id="painelProfessores" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelUnidades" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelPlanos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelAcessos" hidden><div class="carregando">Carregando…</div></section>
@@ -117,7 +115,8 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, montarLogin, prepararImagem, pintarNavegacao, gradeDoMes } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, prepararImagem, pintarNavegacao,
+         gradeDoMes, juntarColaboradores } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semPermissao: el("telaSemPermissao"), app: el("telaApp") };
@@ -201,10 +200,9 @@ const SECOES = {
   painelFreqAluno:   { titulo: "Frequência por aluno", carregar: () => carregarFreqAluno() },
   painelAlunos:      { titulo: "Alunos",      carregar: () => carregarAlunos() },
   painelMatriculas:  { titulo: "Matrículas",  carregar: () => carregarMatriculas() },
-  painelProfessores: { titulo: "Professores", carregar: () => carregarProfessores() },
   painelUnidades:    { titulo: "Unidades",    carregar: () => carregarUnidades() },
   painelPlanos:      { titulo: "Planos",      carregar: () => carregarPlanos() },
-  painelAcessos:     { titulo: "Usuários",    carregar: () => carregarAcessos() },
+  painelAcessos:     { titulo: "Colaboradores", carregar: () => carregarAcessos() },
   painelVencidas:      { titulo: "Cobranças vencidas",   carregar: () => carregarVencidas() },
   painelExpiradas:     { titulo: "Matrículas expiradas", carregar: () => carregarExpiradas() },
   painelRelAlunos:     { titulo: "Alunos por turma",     carregar: () => carregarRelAlunos() },
@@ -2723,10 +2721,12 @@ function ligarFormularioTurma() {
 
 // ========================================================= CADASTRO SIMPLES
 //
-// Unidades, planos e professores são a mesma tela com campos diferentes:
-// lista, botão de novo, formulário embutido, editar e desativar. Escrever as
-// três à mão seria o mesmo código em triplicata — e três lugares para o
-// próximo defeito se esconder.
+// Unidade e plano são a mesma tela com campos diferentes: lista, botão de
+// novo, formulário embutido, editar e desativar. Escrever as duas à mão seria
+// o mesmo código em dobro — e dois lugares para o próximo defeito se esconder.
+//
+// O professor já teve uma tela destas e não tem mais: ele é uma pessoa, e
+// pessoa da escola agora vive em Colaboradores, junto com a conta e o convite.
 //
 // Nada aqui apaga: "excluir" desativa. É a mesma regra do resto do sistema, e
 // o motivo está no schema — no sistema antigo, apagar levava junto o
@@ -2893,8 +2893,8 @@ function cadastroSimples(config) {
   return carregar;
 }
 
-// Mexer em unidade, plano ou professor muda o que a matrícula oferece; sem
-// isto a tela de matrícula seguiria com a lista velha até um F5.
+// Mexer em unidade, plano ou colaborador muda o que a matrícula e a turma
+// oferecem; sem isto essas telas seguiriam com a lista velha até um F5.
 const recarregarDependentes = () => {
   mat.turmas = [];
   invalidarSecao("painelMatriculas");
@@ -2940,25 +2940,6 @@ const carregarPlanos = cadastroSimples({
   resumo: (p) => ({
     titulo: p.nome,
     detalhe: `${fmt.moeda(p.valor)} · ${p.parcelas}x${p.multiplasMatriculas ? " · família" : ""}`,
-    etiqueta: p.ativo ? null : ["neutra", "Desativado"],
-  }),
-  aoMudar: recarregarDependentes,
-});
-
-const carregarProfessores = cadastroSimples({
-  painelId: "painelProfessores",
-  rota: "/escola/professores",
-  singular: "Professor",
-  campos: [
-    { nome: "nome", rotulo: "Nome", obrigatorio: true },
-    { nome: "email", rotulo: "E-mail", tipo: "email",
-      ajuda: "É por ele que o convite de acesso ao app do professor é emitido." },
-    { nome: "telefone", rotulo: "Telefone", dica: "83 99999-0000" },
-    { nome: "ativo", rotulo: "Ativo", tipo: "checkbox", padrao: true },
-  ],
-  resumo: (p) => ({
-    titulo: p.nome,
-    detalhe: [p.email, p.telefone, `${p._count?.turmas ?? 0} turma(s)`].filter(Boolean).join(" · "),
     etiqueta: p.ativo ? null : ["neutra", "Desativado"],
   }),
   aoMudar: recarregarDependentes,
@@ -3629,88 +3610,314 @@ function ligarAvisos() {
   });
 }
 
-// ================================================================== ACESSOS
+// ============================================================ COLABORADORES
+//
+// Uma tela só para quem trabalha na escola.
+//
+// Antes eram duas — "Professores" e "Usuários" — e a mesma pessoa aparecia nas
+// duas, com a mesma cara. Pior: o cadastro do professor tinha um campo de
+// e-mail que dizia "é por ele que o convite é emitido", e não emitia nada. Quem
+// preenchia esperava um link e não recebia nenhum; o convite só saía na outra
+// aba, redigitando o mesmo e-mail.
+//
+// Aqui a pessoa é uma linha só, e a linha mostra em que pé ela está: sem
+// acesso, convite aguardando, ou entrando no sistema. O botão que aparece é o
+// próximo passo dela — "Convidar" em quem ainda não tem acesso, "WhatsApp" em
+// quem tem convite em aberto.
+//
+// Cadastro e conta continuam sendo duas coisas no banco, e é certo que sejam:
+// a turma aponta para o cadastro do professor, que existe antes de a pessoa ter
+// qualquer login. O que estava errado era obrigar quem usa a tela a saber
+// disso.
+
 let convites = [];
 let usuarios = [];
 let professores = [];
 let souAdmin = false;
+let souSocio = false;
 
 const PAPEIS = {
-  ADMIN: "Administrador", ADMINISTRATIVO: "Administrativo",
+  SOCIO: "Sócio", ADMIN: "Administrador", ADMINISTRATIVO: "Administrativo",
   PROFESSOR: "Professor", RESPONSAVEL: "Responsável",
+};
+
+// Só o professor tem cadastro próprio, porque só ele é apontado pelas turmas.
+// Criar uma linha de professor para a secretária encheria de gente o seletor de
+// professores da turma — então para os outros perfis o colaborador é a conta.
+const PERFIL_COM_CADASTRO = "PROFESSOR";
+
+const estadoCol = {
+  aberto: false,
+  editando: null,   // id do professor em edição, ou null para novo
+  erro: "",
+  recado: "",
+  rascunho: null,   // o que está digitado, para sobreviver a um redesenho
+  // Por que o formulário abriu. "Editar" e "Convidar" abrem a mesma tela, e
+  // sem isto os dois vinham com a mesma marcação: quem clicava em Convidar
+  // preenchia o e-mail, salvava, e não saía convite nenhum.
+  convidarAoAbrir: null,
 };
 
 async function carregarAcessos() {
   const painel = el("painelAcessos");
   try {
-    souAdmin = (Sessao.usuario?.papeis || []).includes("ADMIN");
+    const papeis = Sessao.usuario?.papeis || [];
+    souAdmin = papeis.includes("ADMIN") || papeis.includes("SOCIO");
+    souSocio = papeis.includes("SOCIO");
 
-    [convites, usuarios] = await Promise.all([
+    // Inclui os desativados de propósito: sem isso, desativar um professor o
+    // fazia sumir da tela sem nenhum caminho de volta.
+    [convites, usuarios, professores] = await Promise.all([
       api("/auth/convites"),
       api("/auth/usuarios"),
+      api("/escola/professores?incluirArquivados=true").catch(() => []),
     ]);
 
-    // Vem do sistema atual: sem a ponte ligada o campo vira número digitado à
-    // mão, e a tela continua funcionando.
-    if (!professores.length) professores = await api("/escola/professores").catch(() => []);
-
-    painel.innerHTML = formConvite() + listaConvites() + listaUsuarios();
-    ligarAcessos();
+    pintarAcessosComEstado();
   } catch (e) {
     painel.innerHTML = aviso(e);
   }
 }
 
-function formConvite() {
+/** Salva o que está digitado antes de repintar. */
+function pintarAcessos() {
+  guardarRascunho();
+  pintarAcessosComEstado();
+}
+
+function guardarRascunho() {
+  if (!estadoCol.aberto || !el("colNome")) return;
+  estadoCol.rascunho = {
+    nome: el("colNome").value,
+    email: el("colEmail").value,
+    telefone: el("colTelefone").value,
+    perfil: el("colPerfil").value,
+    convidar: el("colConvidar")?.checked ?? true,
+    validade: el("colValidade")?.value ?? "14",
+  };
+}
+
+function pintarAcessosComEstado() {
+  const painel = el("painelAcessos");
+  painel.innerHTML =
+    (estadoCol.aberto ? formColaborador() : barraNovo()) +
+    recadoColaborador() +
+    listaColaboradores() +
+    listaFamilias();
+  ligarAcessos();
+}
+
+// ------------------------------------------------------- juntar as três listas
+
+function colaboradores() {
+  return juntarColaboradores(professores, usuarios, convites);
+}
+
+function situacaoColaborador(l) {
+  if (l.professor && l.professor.ativo === false) return ["neutra", "Desativado"];
+  if (l.conta) return l.conta.ativo ? ["ok", "Entra no sistema"] : ["neutra", "Acesso desativado"];
+  if (l.convite) {
+    return new Date(l.convite.expiraEm) < new Date()
+      ? ["neutra", "Convite expirado"]
+      : ["alerta", "Convite aguardando"];
+  }
+  return ["neutra", "Sem acesso"];
+}
+
+function papeisDaLinha(l) {
+  if (l.conta) return l.conta.papeis.map((p) => PAPEIS[p] || p).join(", ");
+  if (l.convite) return PAPEIS[l.convite.papel] || l.convite.papel;
+  return l.professor ? "Professor" : "";
+}
+
+// ------------------------------------------------------------------- desenho
+
+function barraNovo() {
   return `
-    <form class="cartao" id="formConvite" style="margin-bottom:22px">
-      <h2 style="font-size:18px;margin-bottom:4px">Convidar para o sistema</h2>
+    <div class="barra-acoes" style="margin-bottom:14px">
+      <button class="botao" type="button" id="btnNovoColaborador">Novo colaborador</button>
+    </div>`;
+}
+
+function recadoColaborador() {
+  if (!estadoCol.recado) return "";
+  return `<div class="aviso info" style="margin-bottom:14px">${escapar(estadoCol.recado)}</div>`;
+}
+
+function formColaborador() {
+  const prof = estadoCol.editando
+    ? professores.find((p) => p.id === estadoCol.editando)
+    : null;
+  const r = estadoCol.rascunho ?? {
+    nome: prof?.nome ?? "",
+    email: prof?.email ?? "",
+    telefone: prof?.telefone ?? "",
+    perfil: "PROFESSOR",
+    convidar: estadoCol.convidarAoAbrir ?? !prof,
+    validade: "14",
+  };
+
+  return `
+    <div class="cartao" style="margin-bottom:22px">
+      <div class="linha" style="margin-bottom:6px">
+        <strong>${prof ? "Editar colaborador" : "Novo colaborador"}</strong>
+        <button class="botao fantasma" type="button" id="btnFecharColaborador">Fechar</button>
+      </div>
       <p class="meta" style="margin:0 0 16px">
-        Professor, administrativo e administrador entram por convite: a tabela de professores do
-        sistema atual não tem CPF nem e-mail, então não há como a pessoa provar quem é sozinha.
-        Depois de convidada, ela entra com o Google e já cai vinculada.
+        ${prof
+          ? "O e-mail é o da conta Google com que a pessoa entra. Mudá-lo aqui não move um acesso já criado."
+          : "Professor entra com cadastro e conta. Administrativo, administrador e sócio entram só com a conta — "
+            + "cadastro de professor é o que as turmas apontam, e não faz sentido para quem não dá aula."}
       </p>
 
       <div class="form-grade">
         <div class="campo largo">
-          <label class="rotulo" for="conviteEmail">E-mail da conta Google</label>
-          <input id="conviteEmail" type="email" required placeholder="professor@gmail.com">
+          <label class="rotulo" for="colNome">Nome</label>
+          <input id="colNome" type="text" value="${escapar(r.nome)}" placeholder="Rafael Lima">
         </div>
         <div class="campo">
-          <label class="rotulo" for="convitePapel">Perfil</label>
-          <select id="convitePapel">
-            <option value="PROFESSOR">Professor</option>
-            <option value="ADMINISTRATIVO">Administrativo</option>
-            <option value="ADMIN">Administrador</option>
+          <label class="rotulo" for="colPerfil">Perfil</label>
+          <select id="colPerfil" ${prof ? "disabled" : ""}>
+            <option value="PROFESSOR" ${r.perfil === "PROFESSOR" ? "selected" : ""}>Professor</option>
+            <option value="ADMINISTRATIVO" ${r.perfil === "ADMINISTRATIVO" ? "selected" : ""}>Administrativo</option>
+            <option value="ADMIN" ${r.perfil === "ADMIN" ? "selected" : ""}>Administrador</option>
+            ${souSocio
+              ? `<option value="SOCIO" ${r.perfil === "SOCIO" ? "selected" : ""}>Sócio</option>`
+              : ""}
           </select>
+          ${prof ? `<span class="meta">O perfil de quem já tem cadastro não muda por aqui.</span>` : ""}
+        </div>
+        <div class="campo largo">
+          <label class="rotulo" for="colEmail">E-mail da conta Google</label>
+          <input id="colEmail" type="email" value="${escapar(r.email)}" placeholder="rafael@gmail.com">
         </div>
         <div class="campo">
-          <label class="rotulo" for="conviteValidade">Validade</label>
-          <select id="conviteValidade">
-            <option value="7">7 dias</option>
-            <option value="14" selected>14 dias</option>
-            <option value="30">30 dias</option>
+          <label class="rotulo" for="colTelefone">Telefone</label>
+          <input id="colTelefone" type="text" value="${escapar(r.telefone)}" placeholder="83 99999-0000">
+          <span class="meta">Com ele, o convite abre a conversa certa no WhatsApp.</span>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="colValidade">Validade do convite</label>
+          <select id="colValidade">
+            <option value="7" ${r.validade === "7" ? "selected" : ""}>7 dias</option>
+            <option value="14" ${r.validade === "14" ? "selected" : ""}>14 dias</option>
+            <option value="30" ${r.validade === "30" ? "selected" : ""}>30 dias</option>
           </select>
         </div>
-        <div class="campo largo" id="campoProfessor">
-          <label class="rotulo" for="conviteProfessor">Qual professor</label>
-          ${professores.length
-            ? `<select id="conviteProfessor">
-                 <option value="">Escolha…</option>
-                 ${professores.map((p) => `
-                   <option value="${p.id}">${escapar(p.nome)}${p.email ? ` (${escapar(p.email)})` : ""}</option>`).join("")}
-               </select>`
-            : `<select id="conviteProfessor" disabled><option value="">Nenhum professor cadastrado</option></select>
-               <span class="ajuda">Cadastre o professor primeiro; depois o convite liga a conta
-               dele a esse cadastro.</span>`}
+        <div class="campo largo">
+          <label class="marcavel">
+            <input type="checkbox" id="colConvidar" ${r.convidar ? "checked" : ""}>
+            <span>Criar o convite de acesso agora
+              <span class="ajuda">— sem isto, fica só o cadastro, e o convite sai depois pelo botão da lista</span></span>
+          </label>
         </div>
       </div>
 
+      <div class="aviso erro ${estadoCol.erro ? "" : "oculto"}" id="erroColaborador">${escapar(estadoCol.erro)}</div>
       <div class="barra-acoes" style="margin-top:16px">
-        <button class="botao" type="submit" id="btnConvidar">Enviar convite</button>
+        <button class="botao" type="button" id="btnSalvarColaborador">Salvar</button>
       </div>
-      <div class="aviso oculto" id="recadoConvite" style="margin-top:12px"></div>
-    </form>`;
+    </div>`;
+}
+
+function listaColaboradores() {
+  const linhas = colaboradores();
+  if (!linhas.length) {
+    return `<div class="vazio">Nenhum colaborador ainda. Comece pelo botão acima.</div>`;
+  }
+
+  return `<div class="cartao">
+    <div class="rotulo" style="margin-bottom:8px">Quem trabalha na escola</div>
+    ${linhas.map((l) => {
+      const [cor, texto] = situacaoColaborador(l);
+      const apagada = l.professor?.ativo === false || l.conta?.ativo === false;
+      const detalhe = [
+        l.email || "sem e-mail",
+        l.telefone,
+        papeisDaLinha(l),
+        l.professor ? `${l.turmas} turma(s)` : null,
+        l.conta?.ultimoLoginEm ? `último acesso ${fmt.data(l.conta.ultimoLoginEm)}` : null,
+        !l.conta && l.convite && !l.convite.usadoEm ? `vale até ${fmt.data(l.convite.expiraEm)}` : null,
+      ].filter(Boolean).join(" · ");
+
+      return `<div class="item" ${apagada ? 'style="opacity:.55"' : ""}>
+        <div class="corpo">
+          <div class="titulo">${escapar(l.nome)}</div>
+          <div class="detalhe">${escapar(detalhe)}</div>
+        </div>
+        <div class="lado">
+          <span class="pilula ${cor}">${escapar(texto)}</span>
+          ${acoesDaLinha(l)}
+        </div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function acoesDaLinha(l) {
+  const botoes = [];
+
+  // O próximo passo da pessoa vem primeiro.
+  if (l.convite && !l.conta) {
+    botoes.push(`<a class="link-botao" href="${escapar(linkWhatsapp(l.convite, l.telefone))}"
+        target="_blank" rel="noopener noreferrer">WhatsApp</a>`);
+    botoes.push(`<button class="botao secundario pequeno" type="button"
+        data-copiar-convite="${l.convite.id}">Copiar</button>`);
+    botoes.push(`<button class="botao fantasma pequeno" type="button"
+        data-cancelar-convite="${l.convite.id}">Cancelar convite</button>`);
+  } else if (!l.conta && l.professor && l.professor.ativo !== false) {
+    botoes.push(`<button class="botao secundario pequeno" type="button"
+        data-convidar="${l.professor.id}">Convidar</button>`);
+  }
+
+  if (l.professor) {
+    botoes.push(`<button class="botao fantasma pequeno" type="button"
+        data-editar-colaborador="${l.professor.id}">Editar</button>`);
+    botoes.push(`<button class="botao fantasma pequeno" type="button"
+        data-cadastro="${l.professor.id}" data-ativo="${l.professor.ativo !== false}">
+        ${l.professor.ativo === false ? "Reativar" : "Desativar"}</button>`);
+  }
+
+  if (l.conta && souAdmin) {
+    botoes.push(`<button class="botao fantasma pequeno" type="button"
+        data-usuario="${l.conta.id}" data-ativo="${l.conta.ativo}">
+        ${l.conta.ativo ? "Tirar acesso" : "Devolver acesso"}</button>`);
+  }
+
+  return botoes.join("");
+}
+
+/**
+ * As contas de família ficam à parte e fechadas: elas não são colaboradoras, e
+ * misturá-las na lista foi metade do problema que esta tela veio resolver. Mas
+ * este é o único lugar onde se tira o acesso de uma, então não some.
+ */
+function listaFamilias() {
+  const familias = usuarios.filter((u) => u.papeis.every((p) => p === "RESPONSAVEL"));
+  if (!familias.length) return "";
+
+  return `<details class="cartao" style="margin-top:22px">
+    <summary class="rotulo" style="cursor:pointer">Contas de famílias (${familias.length})</summary>
+    <p class="meta" style="margin:8px 0 12px">
+      Responsáveis que entraram no portal. Ficam aqui só para o caso de precisar tirar um acesso.
+    </p>
+    ${familias.map((u) => `
+      <div class="item" ${u.ativo ? "" : 'style="opacity:.55"'}>
+        <div class="corpo">
+          <div class="titulo">${escapar(u.nome)}</div>
+          <div class="detalhe">${escapar(u.email)}${
+            u.ultimoLoginEm ? ` · último acesso ${escapar(fmt.data(u.ultimoLoginEm))}` : ""}</div>
+        </div>
+        <div class="lado">
+          ${u.ativo ? "" : `<span class="pilula neutra">Desativado</span>`}
+          ${souAdmin
+            ? `<button class="botao fantasma pequeno" type="button"
+                 data-usuario="${u.id}" data-ativo="${u.ativo}">
+                 ${u.ativo ? "Tirar acesso" : "Devolver acesso"}</button>`
+            : ""}
+        </div>
+      </div>`).join("")}
+  </details>`;
 }
 
 // A mensagem é escrita como o administrativo escreveria: diz onde entrar, com
@@ -3728,137 +3935,148 @@ function mensagemConvite(c) {
   ].join("\n");
 }
 
-function linkWhatsapp(c) {
+function linkWhatsapp(c, telefone) {
   const texto = encodeURIComponent(mensagemConvite(c));
-  // Com o telefone (vem do cadastro do professor no sistema atual), abre a
-  // conversa certa; sem ele, o WhatsApp pergunta para quem enviar.
-  const professor = professores.find((p) => p.id === c.legacyId);
-  const fone = (professor?.telefone || "").replace(/\D/g, "");
+  // Com o telefone do cadastro, abre a conversa certa; sem ele, o WhatsApp
+  // pergunta para quem enviar.
+  const fone = (telefone || "").replace(/\D/g, "");
   const numero = fone.length >= 10 ? (fone.startsWith("55") ? fone : `55${fone}`) : "";
   return numero ? `https://wa.me/${numero}?text=${texto}` : `https://wa.me/?text=${texto}`;
 }
 
-function situacaoConvite(c) {
-  if (c.usadoEm) return ["ok", "Usado"];
-  if (new Date(c.expiraEm) < new Date()) return ["neutra", "Expirado"];
-  return ["alerta", "Aguardando"];
+// ------------------------------------------------------------------- ações
+
+async function emitirConvite(corpo) {
+  return api("/auth/convites", { method: "POST", body: JSON.stringify(corpo) });
 }
 
-function listaConvites() {
-  if (!convites.length) return "";
-
-  return `<div class="cartao" style="margin-bottom:22px">
-    <div class="rotulo" style="margin-bottom:8px">Convites</div>
-    ${convites.map((c) => {
-      const [cor, texto] = situacaoConvite(c);
-      return `<div class="item">
-        <div class="corpo">
-          <div class="titulo">${escapar(c.email)}</div>
-          <div class="detalhe">
-            ${escapar(PAPEIS[c.papel] || c.papel)} ·
-            ${c.usadoEm ? `entrou em ${fmt.data(c.usadoEm)}` : `vale até ${fmt.data(c.expiraEm)}`}
-          </div>
-        </div>
-        <div class="lado">
-          <span class="pilula ${cor}">${texto}</span>
-          ${c.usadoEm ? "" : `
-            <a class="link-botao" href="${escapar(linkWhatsapp(c))}"
-               target="_blank" rel="noopener noreferrer">WhatsApp</a>
-            <button class="botao secundario pequeno" type="button"
-                    data-copiar-convite="${c.id}">Copiar</button>
-            <button class="botao fantasma pequeno" type="button"
-                    data-cancelar-convite="${c.id}">Cancelar</button>`}
-        </div>
-      </div>`;
-    }).join("")}
-  </div>`;
+function abrirForm(professorId, opcoes = {}) {
+  estadoCol.aberto = true;
+  estadoCol.editando = professorId ?? null;
+  estadoCol.erro = "";
+  estadoCol.recado = opcoes.recado ?? "";
+  estadoCol.rascunho = null;
+  estadoCol.convidarAoAbrir = opcoes.convidar ?? null;
+  pintarAcessosComEstado();
 }
 
-function listaUsuarios() {
-  if (!usuarios.length) {
-    return `<div class="vazio">Ninguém entrou no sistema ainda.</div>`;
+async function salvarColaborador() {
+  guardarRascunho();
+  const r = estadoCol.rascunho;
+  const botao = el("btnSalvarColaborador");
+
+  const nome = r.nome.trim();
+  const email = r.email.trim().toLowerCase();
+  const telefone = r.telefone.trim();
+  const perfil = estadoCol.editando ? PERFIL_COM_CADASTRO : r.perfil;
+
+  const falhar = (msg) => {
+    estadoCol.erro = msg;
+    const campo = el("erroColaborador");
+    campo.textContent = msg;
+    campo.classList.remove("oculto");
+    botao.disabled = false;
+    botao.textContent = "Salvar";
+  };
+
+  if (perfil === PERFIL_COM_CADASTRO && !nome) return falhar("O nome é obrigatório.");
+  if (perfil !== PERFIL_COM_CADASTRO && !email) {
+    return falhar("Sem cadastro de professor, o e-mail é o que identifica a pessoa.");
   }
+  if (r.convidar && !email) return falhar("Para convidar, preencha o e-mail da conta Google.");
 
-  return `<div class="cartao">
-    <div class="rotulo" style="margin-bottom:8px">Quem tem acesso</div>
-    ${usuarios.map((u) => {
-      const vinculo = u.vinculos.find((v) => v.tipo === "PROFESSOR")
-        ? "professor vinculado"
-        : u.vinculos.find((v) => v.tipo === "RESPONSAVEL")
-          ? "responsável vinculado"
-          : "sem vínculo";
-      return `<div class="item" ${u.ativo ? "" : 'style="opacity:.55"'}>
-        <div class="corpo">
-          <div class="titulo">${escapar(u.nome)}</div>
-          <div class="detalhe">
-            ${escapar(u.email)} ·
-            ${u.papeis.map((p) => escapar(PAPEIS[p] || p)).join(", ")} · ${vinculo}
-            ${u.ultimoLoginEm ? ` · último acesso ${fmt.data(u.ultimoLoginEm)}` : ""}
-          </div>
-        </div>
-        <div class="lado">
-          ${u.ativo ? "" : `<span class="pilula neutra">Desativado</span>`}
-          ${souAdmin
-            ? `<button class="botao ${u.ativo ? "fantasma" : "secundario"} pequeno" type="button"
-                 data-usuario="${u.id}" data-ativo="${u.ativo}">
-                 ${u.ativo ? "Desativar" : "Reativar"}
-               </button>`
-            : ""}
-        </div>
-      </div>`;
-    }).join("")}
-  </div>`;
+  botao.disabled = true;
+  botao.textContent = "Salvando…";
+
+  try {
+    let recado = "";
+
+    if (perfil === PERFIL_COM_CADASTRO) {
+      const corpo = { nome, email: email || "", telefone, ativo: true };
+      const salvo = estadoCol.editando
+        ? await api(`/escola/professores/${estadoCol.editando}`, {
+            method: "PUT", body: JSON.stringify(corpo) })
+        : await api("/escola/professores", { method: "POST", body: JSON.stringify(corpo) });
+      recado = estadoCol.editando ? `Cadastro de ${nome} atualizado.` : `${nome} cadastrado.`;
+
+      if (r.convidar) {
+        await emitirConvite({
+          email, papel: "PROFESSOR", professorId: salvo.id,
+          validadeDias: Number(r.validade),
+        });
+        recado += " Convite criado — use o botão WhatsApp na linha dele para mandar a mensagem pronta.";
+      }
+    } else {
+      await emitirConvite({ email, papel: perfil, validadeDias: Number(r.validade) });
+      recado = `Convite criado para ${email}. Use o botão WhatsApp na linha dele.`;
+    }
+
+    estadoCol.aberto = false;
+    estadoCol.editando = null;
+    estadoCol.rascunho = null;
+    estadoCol.convidarAoAbrir = null;
+    estadoCol.erro = "";
+    estadoCol.recado = recado;
+    await carregarAcessos();
+    recarregarDependentes();
+  } catch (e) {
+    falhar(e.message);
+  }
 }
 
 function ligarAcessos() {
-  const papel = el("convitePapel");
-  const alternarCampoProfessor = () => {
-    el("campoProfessor").hidden = papel.value !== "PROFESSOR";
-  };
-  papel.addEventListener("change", alternarCampoProfessor);
-  alternarCampoProfessor();
+  const painel = el("painelAcessos");
 
-  el("formConvite").addEventListener("submit", async (evento) => {
-    evento.preventDefault();
-    const recado = el("recadoConvite");
-    const botao = el("btnConvidar");
-    recado.classList.add("oculto");
+  el("btnNovoColaborador")?.addEventListener("click", () => abrirForm(null));
+  el("btnFecharColaborador")?.addEventListener("click", () => {
+    estadoCol.aberto = false;
+    estadoCol.editando = null;
+    estadoCol.rascunho = null;
+    estadoCol.convidarAoAbrir = null;
+    estadoCol.erro = "";
+    pintarAcessosComEstado();
+  });
+  el("btnSalvarColaborador")?.addEventListener("click", salvarColaborador);
 
-    const corpo = {
-      email: el("conviteEmail").value.trim(),
-      papel: papel.value,
-      validadeDias: Number(el("conviteValidade").value),
-    };
+  // O perfil decide se o nome vira cadastro; redesenhar mantém o texto de
+  // ajuda coerente com o que foi escolhido, sem perder o que já foi digitado.
+  el("colPerfil")?.addEventListener("change", pintarAcessos);
 
-    if (papel.value === "PROFESSOR") {
-      const id = el("conviteProfessor").value;
-      if (!id) {
-        recado.className = "aviso erro";
-        recado.textContent = "Escolha o professor a que este e-mail corresponde.";
+  painel.querySelectorAll("[data-editar-colaborador]").forEach((b) =>
+    b.addEventListener("click", () => abrirForm(b.dataset.editarColaborador)));
+
+  painel.querySelectorAll("[data-convidar]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const prof = professores.find((p) => p.id === b.dataset.convidar);
+      if (!prof) return;
+      if (!prof.email) {
+        // Sem e-mail não há convite — e a saída é preencher, não um erro seco.
+        // Abre já marcado para convidar: quem apertou "Convidar" quer convidar,
+        // e salvar tem de terminar o que ele começou.
+        abrirForm(prof.id, {
+          convidar: true,
+          recado: `${prof.nome} está sem e-mail. Preencha o e-mail da conta Google `
+            + "e salve: o convite sai junto.",
+        });
         return;
       }
-      corpo.professorId = id;
-    }
+      b.disabled = true;
+      b.textContent = "Convidando…";
+      try {
+        await emitirConvite({
+          email: prof.email.toLowerCase(), papel: "PROFESSOR",
+          professorId: prof.id, validadeDias: 14,
+        });
+        estadoCol.recado = `Convite criado para ${prof.email}. Use o botão WhatsApp na linha dele.`;
+        await carregarAcessos();
+      } catch (e) {
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
+        b.disabled = false;
+        b.textContent = "Convidar";
+      }
+    }));
 
-    botao.disabled = true;
-    botao.textContent = "Enviando…";
-
-    try {
-      await api("/auth/convites", { method: "POST", body: JSON.stringify(corpo) });
-      await carregarAcessos();
-      const novo = el("recadoConvite");
-      novo.className = "aviso info";
-      novo.textContent = `Convite criado para ${corpo.email}. Use o botão WhatsApp ao lado dele `
-        + "para mandar a mensagem pronta.";
-    } catch (e) {
-      recado.className = "aviso erro";
-      recado.textContent = e.message;
-      botao.disabled = false;
-      botao.textContent = "Enviar convite";
-    }
-  });
-
-  el("painelAcessos").querySelectorAll("[data-copiar-convite]").forEach((b) => {
+  painel.querySelectorAll("[data-copiar-convite]").forEach((b) =>
     b.addEventListener("click", async () => {
       const convite = convites.find((c) => c.id === b.dataset.copiarConvite);
       if (!convite) return;
@@ -3869,37 +4087,62 @@ function ligarAcessos() {
       } catch {
         b.textContent = "Não deu";
       }
-    });
-  });
+    }));
 
-  el("painelAcessos").querySelectorAll("[data-cancelar-convite]").forEach((b) => {
+  painel.querySelectorAll("[data-cancelar-convite]").forEach((b) =>
     b.addEventListener("click", async () => {
       if (!confirm("Cancelar este convite?")) return;
       try {
         await api(`/auth/convites/${b.dataset.cancelarConvite}`, { method: "DELETE" });
+        estadoCol.recado = "";
         await carregarAcessos();
       } catch (e) {
-        el("painelAcessos").insertAdjacentHTML("afterbegin", aviso(e));
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
       }
-    });
-  });
+    }));
 
-  el("painelAcessos").querySelectorAll("[data-usuario]").forEach((b) => {
+  painel.querySelectorAll("[data-cadastro]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const prof = professores.find((p) => p.id === b.dataset.cadastro);
+      const desativando = b.dataset.ativo === "true";
+      if (desativando && !confirm(
+        `Desativar o cadastro de "${prof?.nome ?? ""}"? Ele sai das turmas novas, mas o histórico fica.`)) return;
+      try {
+        if (desativando) {
+          await api(`/escola/professores/${b.dataset.cadastro}`, { method: "DELETE" });
+        } else {
+          await api(`/escola/professores/${b.dataset.cadastro}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              nome: prof.nome, email: prof.email || "",
+              telefone: prof.telefone || "", ativo: true,
+            }),
+          });
+        }
+        estadoCol.recado = "";
+        await carregarAcessos();
+        recarregarDependentes();
+      } catch (e) {
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
+      }
+    }));
+
+  painel.querySelectorAll("[data-usuario]").forEach((b) =>
     b.addEventListener("click", async () => {
       const ativo = b.dataset.ativo !== "true";
-      if (!ativo && !confirm("Desativar este acesso? A pessoa deixa de conseguir entrar.")) return;
+      if (!ativo && !confirm("Tirar o acesso desta pessoa? Ela deixa de conseguir entrar.")) return;
       try {
         await api(`/auth/usuarios/${b.dataset.usuario}`, {
-          method: "PATCH",
-          body: JSON.stringify({ ativo }),
+          method: "PATCH", body: JSON.stringify({ ativo }),
         });
+        estadoCol.recado = "";
         await carregarAcessos();
       } catch (e) {
-        el("painelAcessos").insertAdjacentHTML("afterbegin", aviso(e));
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
       }
-    });
-  });
+    }));
 }
+
 
 // ------------------------------------------------------------------ início
 async function iniciar() {

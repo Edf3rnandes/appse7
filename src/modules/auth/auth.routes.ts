@@ -45,6 +45,16 @@ const conviteSchema = z.object({
 });
 
 export async function authRoutes(app: FastifyInstance) {
+  // O limite apertado mora nas TRES portas de entrada, e não em volta do
+  // módulo. Envolvendo o módulo inteiro ele também pegava as rotas que só um
+  // administrador logado alcança — listar convites, listar usuários, emitir
+  // convite —, que não são superfície de ataque porque a sessão é conferida
+  // antes. E a escola sai por um IP só: duas pessoas no administrativo
+  // dividiam a mesma cota, e a tela de colaboradores, que lê duas rotas a cada
+  // redesenho, era apagada por "Rate limit exceeded" no meio de uma leva de
+  // convites.
+  const portaDeEntrada = { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } };
+
   // Diz ao front o que esta ligado, para ele nao mostrar um botao do Google que
   // vai falhar. Unica rota de auth sem autenticacao alguma.
   //
@@ -62,7 +72,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   // Ver entrarComSenha(): porta de servico da administracao, nao o caminho
   // normal de ninguem.
-  app.post("/auth/senha", async (request, reply) => {
+  app.post("/auth/senha", portaDeEntrada, async (request, reply) => {
     const body = senhaSchema.parse(request.body);
 
     try {
@@ -92,7 +102,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/auth/google", async (request, reply) => {
+  app.post("/auth/google", portaDeEntrada, async (request, reply) => {
     const body = googleSchema.parse(request.body);
 
     try {
@@ -128,7 +138,10 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/auth/vincular-cpf", { preHandler: [app.autenticar] }, async (request, reply) => {
+  // Aqui se adivinha CPF alheio: o limite por IP soma-se ao limite por conta
+  // que o serviço já aplica.
+  const guardaCpf = { preHandler: [app.autenticar], ...portaDeEntrada };
+  app.post("/auth/vincular-cpf", guardaCpf, async (request, reply) => {
     const body = cpfSchema.parse(request.body);
 
     try {
@@ -320,10 +333,13 @@ export async function authRoutes(app: FastifyInstance) {
         ultimoLoginEm: u.ultimoLoginEm,
         papeis: u.papeis.map((p) => p.nome),
         // A tela mostra o nome da pessoa ligada à conta, não um id: "Rafael
-        // Lima" diz o que "7" nunca disse.
+        // Lima" diz o que "7" nunca disse. O id do professor vai junto porque
+        // a tela de colaboradores costura conta e cadastro numa linha só, e
+        // sem ele a costura teria de ser pelo nome — que se repete.
         vinculos: u.vinculos.map((v) => ({
           tipo: v.tipo,
           nome: v.professor?.nome ?? v.responsavel?.nome ?? null,
+          professorId: v.professor?.id ?? null,
         })),
       }));
     },

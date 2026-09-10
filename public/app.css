@@ -158,13 +158,25 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Linha de lista: substitui tabela onde o conteúdo não cabe em 360px de
    largura. Título e ação sempre visíveis; o detalhe cai para a segunda linha. */
+/* A linha quebra quando as acoes nao cabem, em vez de espremer o texto.
+   Com `flex: none` no lado e sem quebra, uma linha de cinco botoes reduzia o
+   nome da pessoa a uma palavra por linha e a pilula acabava por cima do
+   e-mail. Quebrar empurra os botoes para baixo, alinhados a direita, e o
+   texto continua legivel — inclusive no celular, onde isso ja acontecia com
+   duas acoes. */
 .item { display: flex; align-items: center; gap: 12px; padding: 13px 0;
-  border-top: 1px solid var(--rule); }
+  border-top: 1px solid var(--rule); flex-wrap: wrap; }
 .item:first-child { border-top: 0; }
-.item .corpo { flex: 1; min-width: 0; }
+.item .corpo { flex: 1 1 260px; min-width: 0; }
 .item .titulo { font-weight: 600; }
 .item .detalhe { color: var(--ink-3); font-size: 13.5px; margin-top: 2px; }
-.item .lado { display: flex; align-items: center; gap: 10px; flex: none; }
+/* `flex: none` aqui foi um erro: o lado media pelo conteudo e nunca encolhia,
+   entao cinco botoes saiam para fora do cartao no celular — a pagina rolava
+   para o lado e o ultimo botao ficava inalcancavel. Podendo encolher, e com
+   quebra propria, os botoes descem de linha em vez de vazar. */
+.item .lado { display: flex; align-items: center; gap: 10px; flex: 0 1 auto;
+  min-width: 0; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.item .lado > * { white-space: nowrap; }
 
 .link-botao {
   display: inline-block; text-decoration: none; white-space: nowrap;

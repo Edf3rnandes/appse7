@@ -412,3 +412,71 @@ export async function fotoDaContaGoogle(url, ladoMaximo = 400, qualidade = 0.78)
     return null;
   }
 }
+
+/**
+ * Costura cadastro, conta e convite numa linha por pessoa.
+ *
+ * A tela de colaboradores nasceu de duas telas que mostravam a MESMA pessoa
+ * duas vezes — uma como "professor" do cadastro, outra como "usuário" do
+ * sistema — sem nada dizendo que eram a mesma. Esta função é a promessa de que
+ * isso não volta: uma pessoa, uma linha, com as três origens dentro dela.
+ *
+ * Fica aqui, e não dentro da página, porque é a única parte da tela que dá para
+ * provar com teste: o resto é desenho.
+ *
+ * `usuarios` vem de /auth/usuarios, `convites` de /auth/convites e
+ * `professores` de /escola/professores.
+ */
+export function juntarColaboradores(professores, usuarios, convites) {
+  const contaDoProfessor = new Map();
+  const contasSemCadastro = [];
+
+  for (const u of usuarios) {
+    const v = (u.vinculos || []).find((x) => x.tipo === "PROFESSOR" && x.professorId);
+    if (v) contaDoProfessor.set(v.professorId, u);
+    // Responsável não é colaborador: é cliente. Uma conta que só tem esse
+    // papel fica de fora — o lugar dela é em Clientes.
+    else if ((u.papeis || []).some((pp) => pp !== "RESPONSAVEL")) contasSemCadastro.push(u);
+  }
+
+  const conviteDoProfessor = new Map();
+  const convitesSoltos = [];
+  for (const c of convites) {
+    if (c.usadoEm) continue;
+    if (c.professorId) conviteDoProfessor.set(c.professorId, c);
+    else convitesSoltos.push(c);
+  }
+
+  const linhas = professores.map((p) => ({
+    chave: `prof:${p.id}`,
+    nome: p.nome,
+    email: p.email || contaDoProfessor.get(p.id)?.email || "",
+    telefone: p.telefone || "",
+    turmas: p._count?.turmas ?? 0,
+    professor: p,
+    conta: contaDoProfessor.get(p.id) || null,
+    convite: conviteDoProfessor.get(p.id) || null,
+  }));
+
+  for (const u of contasSemCadastro) {
+    linhas.push({
+      chave: `conta:${u.id}`, nome: u.nome, email: u.email, telefone: "",
+      turmas: 0, professor: null, conta: u, convite: null,
+    });
+  }
+
+  for (const c of convitesSoltos) {
+    // O convite de quem já virou conta aparece na linha da conta, não duas vezes.
+    if (usuarios.some((u) => (u.email || "").toLowerCase() === c.email.toLowerCase())) continue;
+    linhas.push({
+      chave: `convite:${c.id}`, nome: c.email, email: c.email, telefone: "",
+      turmas: 0, professor: null, conta: null, convite: c,
+    });
+  }
+
+  // Quem precisa de atenção primeiro: sem acesso, depois convidado, depois quem
+  // já entra. Dentro de cada grupo, por nome.
+  const ordem = (l) => (l.conta ? 2 : l.convite ? 1 : 0);
+  return linhas.sort((a, b) =>
+    ordem(a) - ordem(b) || a.nome.localeCompare(b.nome, "pt-BR"));
+}
