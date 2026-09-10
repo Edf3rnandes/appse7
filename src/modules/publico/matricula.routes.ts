@@ -150,7 +150,14 @@ export async function publicoRoutes(app: FastifyInstance) {
    * /api/courses/{id}/students, devolve nome e foto de aluno para qualquer um
    * — é o vazamento que o patch de segurança fecha.
    */
-  app.get("/publico/catalogo", async () => {
+  // Limite próprio, generoso: sem ele, esta rota herdava os 10/10min pensados
+  // pra frear envio automatizado de matrícula. Ela não recebe nada de
+  // ninguém — é leitura pura, agora chamada duas vezes por visita na página
+  // de entrada (esta rota e /publico/galeria) — e o limite apertado bloquearia
+  // visitantes de boa-fé numa escola movimentada, no mesmo Wi-Fi.
+  const leituraPublica = { config: { rateLimit: { max: 120, timeWindow: "10 minutes" } } };
+
+  app.get("/publico/catalogo", leituraPublica, async () => {
     const config = await lerConfig();
 
     const unidades = await prisma.unidade.findMany({
@@ -231,6 +238,20 @@ export async function publicoRoutes(app: FastifyInstance) {
       whatsapp: whatsappComercial,
     };
   });
+
+  /**
+   * As fotos da página de entrada, na ordem em que devem aparecer.
+   *
+   * Só as ativas — desativar uma foto aqui é o "excluir" da tela pública sem
+   * perder o registro, mesma regra do resto do sistema (ver Colaboradores,
+   * Unidades, Planos).
+   */
+  app.get("/publico/galeria", leituraPublica, async () =>
+    prisma.galeriaFoto.findMany({
+      where: { ativa: true },
+      orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+      select: { id: true, imagemBase64: true, legenda: true, linkInstagram: true },
+    }));
 
   app.post("/publico/matricula", async (request, reply) => {
     const corpo = matriculaDoSiteSchema.parse(request.body);

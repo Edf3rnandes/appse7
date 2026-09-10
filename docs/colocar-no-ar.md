@@ -23,7 +23,7 @@ quanto para reinstalar por cima de uma tentativa que deu errado.
 O que ele faz:
 
 1. confere se há cadastro de verdade no schema `hub` — e **para** se houver;
-2. cria o schema `hub` e as **22 tabelas** do sistema;
+2. cria o schema `hub` e as **23 tabelas** do sistema;
 3. acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
 
 O que ele **não** faz: encostar em qualquer coisa fora do `hub`. As tabelas do
@@ -37,7 +37,7 @@ select table_schema, count(*)
   from information_schema.tables
  where table_schema in ('hub','public')
  group by 1;
--- hub deve dar 22; public, o mesmo número de antes.
+-- hub deve dar 23; public, o mesmo número de antes.
 ```
 
 ### Sobre a conferência do passo 1
@@ -200,7 +200,7 @@ Este roteiro foi executado inteiro num banco Postgres limpo, com o schema
 `public` já ocupado por tabelas de outro sistema, para reproduzir o Supabase de
 vocês:
 
-- o script criou 22 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
+- o script criou 23 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
   só acrescentou a coluna `observacoes`;
 - as 46 turmas e os 43 planos entraram;
 - as cinco telas abriram, sem um único erro de JavaScript.

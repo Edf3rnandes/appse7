@@ -7,7 +7,7 @@
 --
 -- O QUE ELE FAZ
 --   1. Confere se há cadastro de verdade no schema `hub` — e PARA se houver.
---   2. Cria o schema `hub` e as 22 tabelas do sistema.
+--   2. Cria o schema `hub` e as 23 tabelas do sistema.
 --   3. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
 -- SOBRE O PASSO 1, QUE É O QUE IMPORTA
@@ -29,7 +29,7 @@
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
---   -- hub deve ter 22; public, o mesmo número de antes.
+--   -- hub deve ter 23; public, o mesmo número de antes.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -423,6 +423,24 @@ CREATE TABLE "hub"."fechamentos_diarios" (
 
     CONSTRAINT "fechamentos_diarios_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateTable
+CREATE TABLE "hub"."galeria_fotos" (
+    "id" TEXT NOT NULL,
+    "imagemBase64" TEXT NOT NULL,
+    "imagemNome" TEXT,
+    "legenda" TEXT,
+    "linkInstagram" TEXT,
+    "ordem" INTEGER NOT NULL DEFAULT 0,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "galeria_fotos_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "galeria_fotos_ativa_ordem_idx" ON "hub"."galeria_fotos"("ativa", "ordem");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "usuarios_email_key" ON "hub"."usuarios"("email");

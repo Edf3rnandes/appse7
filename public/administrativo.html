@@ -91,6 +91,7 @@
         <button class="item-menu" data-painel="painelSemanas">Cronograma</button>
         <button class="item-menu" data-painel="painelEventos">Eventos</button>
         <button class="item-menu" data-painel="painelAvisos">Avisos</button>
+        <button class="item-menu" data-painel="painelGaleria">Site: galeria</button>
       </details>
     </nav>
 
@@ -115,6 +116,7 @@
       <section id="painelSemanas" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelEventos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelAvisos" hidden><div class="carregando">Carregando…</div></section>
+      <section id="painelGaleria" hidden><div class="carregando">Carregando…</div></section>
     </div>
   </div>
 </main>
@@ -216,6 +218,7 @@ const SECOES = {
   painelSemanas:     { titulo: "Cronograma",  carregar: () => carregarSemanas() },
   painelEventos:     { titulo: "Eventos",     carregar: () => carregarEventos() },
   painelAvisos:      { titulo: "Avisos",      carregar: () => carregarAvisos() },
+  painelGaleria:     { titulo: "Site: galeria", carregar: () => carregarGaleria() },
 };
 
 const jaCarregadas = new Set();
@@ -3642,6 +3645,212 @@ function ligarAvisos() {
   el("painelAvisos").querySelectorAll("[data-reabrir]").forEach((b) => {
     b.addEventListener("click", () => mudar(b.dataset.reabrir, "ABERTA"));
   });
+}
+
+// ======================================================== GALERIA DO SITE
+//
+// A seção "Siga-nos" da página de entrada não puxa o Instagram ao vivo — uma
+// integração de verdade precisa de um app cadastrado no Facebook Developers,
+// uma conta Business ligada, e um token que expira a cada 60 dias e precisa
+// ser renovado à mão. É trabalho que só o dono da conta pode autorizar, não
+// algo que dá para contornar de fora.
+//
+// Esta é a alternativa que fica no ar sozinha: quem cuida do site sobe as
+// fotos aqui, com legenda e (se quiser) o link do post de verdade no
+// Instagram, e elas aparecem na página pública na hora. Mesmo padrão de
+// imagem do Cronograma — comprimida no navegador antes de enviar, gravada
+// como data URL — e por isso o volume esperado é pequeno (uma dúzia de fotos,
+// não um álbum inteiro), o que também é por que a lista aqui vem com a
+// miniatura de cada foto, ao contrário da lista do Cronograma.
+let galeriaFotos = [];
+// undefined = nenhuma foto nova escolhida ainda (obrigatório só pra criar).
+let fotoGaleriaEmEdicao;
+let fotoGaleriaNomeEmEdicao;
+
+async function carregarGaleria() {
+  const painel = el("painelGaleria");
+  try {
+    galeriaFotos = await api("/conteudo/galeria");
+    fotoGaleriaEmEdicao = undefined;
+    fotoGaleriaNomeEmEdicao = undefined;
+    painel.innerHTML = formGaleriaFoto() + listaGaleriaFotos();
+    ligarFormGaleria();
+  } catch (e) {
+    painel.innerHTML = aviso(e);
+  }
+}
+
+function formGaleriaFoto(f = null) {
+  return `
+    <form class="cartao" id="formGaleria" style="margin-bottom:22px">
+      <h2 style="font-size:18px;margin-bottom:4px">${f ? "Editar foto" : "Nova foto"}</h2>
+      <p class="meta" style="margin:0 0 16px">
+        Aparece em "Siga-nos", na página de entrada do site.
+      </p>
+
+      <div class="campo largo">
+        <label class="rotulo" for="arquivoFotoGaleria">Foto</label>
+        <input type="file" id="arquivoFotoGaleria" accept="image/*">
+        <div id="previaFotoGaleria" style="margin-top:10px">
+          ${f?.imagemBase64
+            ? `<img src="${f.imagemBase64}" alt="Prévia da foto" style="max-width:220px;border-radius:10px;display:block">`
+            : `<div class="vazio-arte">Nenhuma foto escolhida.</div>`}
+        </div>
+        <span class="ajuda" id="infoFotoGaleria"></span>
+      </div>
+
+      <div class="form-grade" style="margin-top:14px">
+        <div class="campo largo">
+          <label class="rotulo" for="legendaFoto">Legenda (opcional)</label>
+          <input id="legendaFoto" maxlength="300" placeholder="Treino de sábado na Bessa"
+                 value="${f?.legenda ? escapar(f.legenda) : ""}">
+        </div>
+        <div class="campo largo">
+          <label class="rotulo" for="linkFoto">Link do post no Instagram (opcional)</label>
+          <input id="linkFoto" type="url" maxlength="500" placeholder="https://www.instagram.com/p/…"
+                 value="${f?.linkInstagram ? escapar(f.linkInstagram) : ""}">
+          <span class="ajuda">Com o link, clicar na foto abre o post de verdade. Sem ele, a foto só
+          aparece — do jeito que a legenda descrever.</span>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="ordemFoto">Ordem</label>
+          <input id="ordemFoto" type="number" value="${f ? f.ordem : galeriaFotos.length}">
+          <span class="ajuda">Menor número aparece primeiro.</span>
+        </div>
+        <label class="marcavel">
+          <input type="checkbox" id="ativaFoto" ${!f || f.ativa ? "checked" : ""}>
+          <span>Mostrar na página de entrada</span>
+        </label>
+      </div>
+
+      <div class="aviso erro oculto" id="recadoFotoGaleria" style="margin-top:12px"></div>
+      <div class="barra-acoes" style="margin-top:16px">
+        <button class="botao" type="submit" id="btnSalvarFotoGaleria">${f ? "Salvar" : "Adicionar foto"}</button>
+        ${f ? `<button class="botao fantasma" type="button" id="btnCancelarFotoGaleria">Cancelar</button>` : ""}
+      </div>
+    </form>`;
+}
+
+function listaGaleriaFotos() {
+  if (!galeriaFotos.length) {
+    return `<div class="vazio">Nenhuma foto na galeria ainda — a página de entrada mostra só o
+      botão do Instagram até a primeira ser adicionada.</div>`;
+  }
+  return `<div class="cartao">
+    <div class="rotulo" style="margin-bottom:8px">Fotos da página de entrada</div>
+    ${galeriaFotos.map((f) => `
+      <div class="item" ${f.ativa ? "" : 'style="opacity:.55"'}>
+        <div class="corpo" style="display:flex;gap:12px;align-items:center">
+          <img src="${f.imagemBase64}" alt="" width="56" height="56"
+               style="object-fit:cover;border-radius:8px;flex:none">
+          <div style="min-width:0">
+            <div class="titulo">${f.legenda ? escapar(f.legenda) : "(sem legenda)"}</div>
+            <div class="detalhe">ordem ${f.ordem}${f.linkInstagram ? " · com link do Instagram" : ""}${f.ativa ? "" : " · oculta"}</div>
+          </div>
+        </div>
+        <div class="lado">
+          <button class="botao secundario pequeno" type="button" data-editar-foto-galeria="${f.id}">Editar</button>
+          <button class="botao fantasma pequeno" type="button" data-apagar-foto-galeria="${f.id}">Apagar</button>
+        </div>
+      </div>`).join("")}
+  </div>`;
+}
+
+function ligarFormGaleria(editandoId = null) {
+  const painel = el("painelGaleria");
+  const form = el("formGaleria");
+
+  el("arquivoFotoGaleria").addEventListener("change", async (evento) => {
+    const arquivo = evento.target.files?.[0];
+    if (!arquivo) return;
+
+    const info = el("infoFotoGaleria");
+    info.textContent = "Preparando a imagem…";
+
+    try {
+      const { dataUrl, nome, largura, altura } = await prepararImagem(arquivo);
+      fotoGaleriaEmEdicao = dataUrl;
+      fotoGaleriaNomeEmEdicao = nome;
+
+      el("previaFotoGaleria").innerHTML =
+        `<img src="${dataUrl}" alt="Prévia da foto" style="max-width:220px;border-radius:10px;display:block">`;
+
+      const kb = Math.round((dataUrl.length * 3) / 4 / 1024);
+      info.textContent = `${largura}×${altura} · ~${kb} KB depois de reduzida`;
+    } catch (e) {
+      info.textContent = "";
+      const recado = el("recadoFotoGaleria");
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+    }
+  });
+
+  form.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoFotoGaleria");
+    const botao = el("btnSalvarFotoGaleria");
+    recado.classList.add("oculto");
+
+    if (!editandoId && fotoGaleriaEmEdicao === undefined) {
+      recado.textContent = "Escolha uma foto.";
+      recado.classList.remove("oculto");
+      return;
+    }
+
+    const corpo = {
+      legenda: el("legendaFoto").value.trim() || undefined,
+      linkInstagram: el("linkFoto").value.trim() || undefined,
+      ordem: Number(el("ordemFoto").value) || 0,
+      ativa: el("ativaFoto").checked,
+    };
+    // Só manda a imagem quando uma foto nova foi escolhida — editar legenda
+    // ou ordem não deveria obrigar a escolher a foto de novo.
+    if (fotoGaleriaEmEdicao !== undefined) {
+      corpo.imagemBase64 = fotoGaleriaEmEdicao;
+      corpo.imagemNome = fotoGaleriaNomeEmEdicao;
+    }
+
+    botao.disabled = true;
+    botao.textContent = "Salvando…";
+
+    try {
+      if (editandoId) {
+        await api(`/conteudo/galeria/${editandoId}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api("/conteudo/galeria", { method: "POST", body: JSON.stringify(corpo) });
+      }
+      await carregarGaleria();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+      botao.textContent = editandoId ? "Salvar" : "Adicionar foto";
+    }
+  });
+
+  el("btnCancelarFotoGaleria")?.addEventListener("click", () => carregarGaleria());
+
+  painel.querySelectorAll("[data-editar-foto-galeria]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const f = galeriaFotos.find((x) => x.id === b.dataset.editarFotoGaleria);
+      if (!f) return;
+      fotoGaleriaEmEdicao = undefined;
+      fotoGaleriaNomeEmEdicao = undefined;
+      painel.innerHTML = formGaleriaFoto(f) + listaGaleriaFotos();
+      ligarFormGaleria(f.id);
+      el("formGaleria").scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+
+  painel.querySelectorAll("[data-apagar-foto-galeria]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar esta foto da galeria? Não dá para desfazer.")) return;
+      try {
+        await api(`/conteudo/galeria/${b.dataset.apagarFotoGaleria}`, { method: "DELETE" });
+        await carregarGaleria();
+      } catch (e) {
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
+      }
+    }));
 }
 
 // ============================================================ COLABORADORES

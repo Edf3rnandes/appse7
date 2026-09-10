@@ -64,6 +64,19 @@ const eventoSchema = z.object({
 
 const idParams = z.object({ id: z.string().uuid() });
 
+// Mesma imagem-como-data-URL do cronograma (ver imagemDataUrl acima) — mesmo
+// motivo: poucas fotos, não justifica um bucket de storage à parte.
+const galeriaSchema = z.object({
+  imagemBase64: imagemDataUrl,
+  imagemNome: z.string().max(200).optional(),
+  legenda: z.string().max(300).optional(),
+  linkInstagram: z
+    .union([z.string().url("Link inválido.").max(500), z.literal("")])
+    .optional(),
+  ordem: z.number().int().default(0),
+  ativa: z.boolean().default(true),
+});
+
 // Chaves permitidas, uma a uma. Uma tabela chave/valor sem lista fechada vira
 // depósito de qualquer coisa que o cliente resolva mandar.
 const CHAVE_CANVA = "cronograma.linkCanva";
@@ -373,6 +386,50 @@ export async function conteudoRoutes(app: FastifyInstance) {
     await prisma.evento.delete({ where: { id } }).catch(() => null);
     return reply.code(204).send();
   });
+
+  // ------------------------------------------------------ galeria da entrada
+  //
+  // A "seção Instagram" da página pública, sem depender da API do Instagram —
+  // ver o cabeçalho de GaleriaFoto no schema. Lista TODAS (inclusive as
+  // desativadas), porque quem edita precisa ver o que tirou do ar para poder
+  // devolver.
+  app.get("/conteudo/galeria", somenteEquipe, async () =>
+    prisma.galeriaFoto.findMany({ orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] }));
+
+  app.post(
+    "/conteudo/galeria",
+    { ...somenteEquipe, bodyLimit: 6_000_000 },
+    async (request, reply) => {
+      const corpo = galeriaSchema.parse(request.body);
+      const foto = await prisma.galeriaFoto.create({ data: montarGaleriaFoto(corpo) });
+      return reply.code(201).send(foto);
+    },
+  );
+
+  app.put(
+    "/conteudo/galeria/:id",
+    { ...somenteEquipe, bodyLimit: 6_000_000 },
+    async (request, reply) => {
+      const { id } = idParams.parse(request.params);
+      const corpo = galeriaSchema.partial({ imagemBase64: true }).parse(request.body);
+
+      const existe = await prisma.galeriaFoto.findUnique({ where: { id } });
+      if (!existe) return reply.code(404).send({ message: "Foto não encontrada." });
+
+      return prisma.galeriaFoto.update({
+        where: { id },
+        // imagemBase64 ausente mantém a foto atual — trocar legenda ou ordem
+        // não deveria obrigar a reenviar a imagem inteira.
+        data: montarGaleriaFoto(corpo, existe.imagemBase64),
+      });
+    },
+  );
+
+  app.delete("/conteudo/galeria/:id", somenteEquipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    await prisma.galeriaFoto.delete({ where: { id } }).catch(() => null);
+    return reply.code(204).send();
+  });
 }
 
 function montarEvento(corpo: z.infer<typeof eventoSchema>) {
@@ -387,6 +444,20 @@ function montarEvento(corpo: z.infer<typeof eventoSchema>) {
     unidadeIdLegacy: corpo.unidadeIdLegacy ?? null,
     unidadeNome: corpo.unidadeNome ?? null,
     publicado: corpo.publicado,
+  };
+}
+
+/** `imagemAtual` só é usada quando o pedido não trouxe uma imagem nova. */
+function montarGaleriaFoto(corpo: Partial<z.infer<typeof galeriaSchema>>, imagemAtual?: string) {
+  const imagem = corpo.imagemBase64 ?? imagemAtual;
+  if (!imagem) throw new Error("Faltou a imagem.");
+  return {
+    imagemBase64: imagem,
+    imagemNome: corpo.imagemNome ?? null,
+    legenda: corpo.legenda ?? null,
+    linkInstagram: corpo.linkInstagram || null,
+    ordem: corpo.ordem ?? 0,
+    ativa: corpo.ativa ?? true,
   };
 }
 

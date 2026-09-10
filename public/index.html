@@ -62,6 +62,49 @@
     }
     .entrada-topo .link-nav.destaque:hover { background: var(--dourado-forte); }
 
+    /* Botão "☰ Menu" — só o ícone e a palavra, do jeito pedido. */
+    .btn-menu {
+      display: flex; align-items: center; gap: 8px; background: none; border: 0; cursor: pointer;
+      color: var(--texto); font: inherit; font-weight: 600; font-size: 14.5px; padding: 6px 4px;
+    }
+    .tres-barras, .tres-barras::before, .tres-barras::after {
+      display: block; width: 20px; height: 2px; background: var(--texto); border-radius: 2px;
+    }
+    .tres-barras { position: relative; }
+    .tres-barras::before, .tres-barras::after { content: ""; position: absolute; left: 0; }
+    .tres-barras::before { top: -6px; }
+    .tres-barras::after { top: 6px; }
+
+    /* A gaveta fica fora da tela até "aberto" — sem JS de animação, só uma
+       transição de transform. */
+    .veu-menu {
+      position: fixed; inset: 0; background: rgba(6,10,32,.55); z-index: 39;
+    }
+    .menu-lateral {
+      position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 84vw); z-index: 40;
+      background: var(--marinho-2); border-right: 1px solid var(--linha);
+      display: flex; flex-direction: column; padding: 8px 10px 20px;
+      transform: translateX(-100%); transition: transform .2s ease-out;
+    }
+    .menu-lateral.aberto { transform: translateX(0); }
+    .menu-lateral-topo {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 8px 16px; border-bottom: 1px solid var(--linha); margin-bottom: 8px;
+    }
+    .menu-lateral-topo .marca .se7 { color: var(--dourado); }
+    .menu-lateral-topo .marca .sub { color: var(--texto-2); }
+    .btn-fechar-menu {
+      background: none; border: 0; color: var(--texto); font-size: 18px; line-height: 1;
+      cursor: pointer; padding: 6px;
+    }
+    .menu-lateral a {
+      color: var(--texto); text-decoration: none; font-weight: 600; font-size: 15px;
+      padding: 12px 10px; border-radius: 8px;
+    }
+    .menu-lateral a:hover { background: rgba(255,255,255,.08); }
+    .menu-lateral a.destaque { color: var(--dourado); }
+    .menu-lateral-linha { border-top: 1px solid var(--linha); margin: 8px 4px; }
+
     .faixa { padding: 64px 20px; max-width: 1080px; margin: 0 auto; }
     .faixa h2 {
       font-size: 28px; text-align: center; margin: 0 0 34px;
@@ -128,10 +171,13 @@
     }
     .cartao-unidade h3 { font-size: 18px; }
     .cartao-unidade .end { color: var(--texto-2); font-size: 13.5px; line-height: 1.5; flex: 1; }
-    .cartao-unidade a.mapa {
-      color: var(--dourado); font-size: 13.5px; font-weight: 600; text-decoration: none; align-self: flex-start;
+    .acoes-mapa { display: flex; gap: 14px; flex-wrap: wrap; }
+    .mapa {
+      color: var(--dourado); font-size: 13.5px; font-weight: 600; text-decoration: none;
+      background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
     }
-    .cartao-unidade a.mapa:hover { text-decoration: underline; }
+    .mapa:hover { text-decoration: underline; }
+    .mapa-embutido:not([hidden]) { margin-top: 4px; }
 
     .avaliacoes { background: var(--papel-2); }
     .avaliacoes h2 { color: var(--marinho); }
@@ -154,6 +200,17 @@
       font-weight: 700; text-decoration: none; padding: 12px 22px; border-radius: 10px;
     }
     .siga a.instagram:hover { background: var(--dourado-forte); }
+
+    .grade-galeria {
+      display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr);
+      margin: 0 0 28px; border-radius: 14px; overflow: hidden;
+    }
+    .grade-galeria .azulejo {
+      aspect-ratio: 1; overflow: hidden; background: var(--marinho-2); display: block;
+    }
+    .grade-galeria img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .grade-galeria a.azulejo { cursor: pointer; }
+    @media (max-width: 560px) { .grade-galeria { grid-template-columns: repeat(3, 1fr); } }
 
     .rodape {
       border-top: 1px solid var(--linha); padding: 30px 20px 90px; text-align: center;
@@ -182,11 +239,33 @@
 <body>
 
 <header class="topo entrada-topo">
+  <button class="btn-menu" type="button" id="btnAbrirMenu" aria-label="Abrir menu" aria-expanded="false">
+    <span class="tres-barras" aria-hidden="true"></span>
+    <span>Menu</span>
+  </button>
   <div class="marca"><span class="se7">SE7</span><span class="sub">Vôlei de Praia</span></div>
   <div class="espaco"></div>
   <a class="link-nav" href="/portal.html">Portal do aluno</a>
   <a class="link-nav destaque" href="/matricula.html">Faça sua matrícula</a>
 </header>
+
+<!-- A barra lateral fica fora da vista até alguém clicar em "Menu" — não é
+     mais uma lista de atalhos junto do cabeçalho, é uma gaveta separada, do
+     jeito que o site atual já faz. -->
+<div class="veu-menu" id="veuMenu" hidden></div>
+<nav class="menu-lateral" id="menuLateral" aria-label="Menu principal">
+  <div class="menu-lateral-topo">
+    <div class="marca"><span class="se7">SE7</span><span class="sub">Vôlei de Praia</span></div>
+    <button class="btn-fechar-menu" type="button" id="btnFecharMenu" aria-label="Fechar menu">✕</button>
+  </div>
+  <a href="#sobre">Sobre nós</a>
+  <a href="#unidades">Unidades</a>
+  <a href="#avaliacoes">Depoimentos</a>
+  <a href="#siga">Siga-nos</a>
+  <div class="menu-lateral-linha"></div>
+  <a href="/portal.html">Portal do aluno</a>
+  <a href="/matricula.html" class="destaque">Faça sua matrícula</a>
+</nav>
 
 <section class="hero">
   <div class="selo-anos">🏐 Há mais de 10 anos na areia</div>
@@ -254,7 +333,7 @@
   </div>
 </section>
 
-<section class="faixa avaliacoes">
+<section class="faixa avaliacoes" id="avaliacoes">
   <h2>O que dizem sobre a gente</h2>
   <div class="selo-google">
     <span class="estrelas">★★★★★</span>
@@ -274,8 +353,9 @@
   </div>
 </section>
 
-<section class="faixa siga">
+<section class="faixa siga" id="siga">
   <h2>Siga-nos</h2>
+  <div id="galeriaFotos" class="grade-galeria" hidden></div>
   <a class="instagram" href="https://www.instagram.com/se7.voleidepraia/" target="_blank" rel="noopener noreferrer">
     📷 @se7.voleidepraia no Instagram
   </a>
@@ -314,11 +394,31 @@ async function iniciar() {
     document.getElementById("listaUnidades").innerHTML =
       `<div class="cartao-unidade"><span class="end">Não foi possível carregar as unidades agora.</span></div>`;
   }
+  // Numa aba própria: a galeria não pode travar a lista de unidades (que
+  // decide se a matrícula funciona) se ela por acaso falhar.
+  try {
+    pintarGaleria(await api("/publico/galeria"));
+  } catch {
+    // Sem galeria, a seção "Siga-nos" cai para só o botão do Instagram —
+    // ela já nasce preparada pra esse estado, então não precisa de nada aqui.
+  }
 }
 
-function linkDoMapa(nome, endereco) {
+function linkExternoDoMapa(nome, endereco) {
   const consulta = encodeURIComponent(`${nome} - SE7 Vôlei de Praia, ${endereco || ""}`);
   return `https://www.google.com/maps/search/?api=1&query=${consulta}`;
+}
+
+/**
+ * O mapa embutido usa o truque conhecido de `output=embed` — funciona sem
+ * chave de API, mas não é um contrato oficial do Google, então pode mudar um
+ * dia. O link "Abrir no Google Maps" ao lado é o caminho garantido: se o
+ * embutido algum dia parar de carregar, a rota até a unidade continua
+ * funcionando por ele.
+ */
+function linkEmbutidoDoMapa(nome, endereco) {
+  const consulta = encodeURIComponent(`${nome} - SE7 Vôlei de Praia, ${endereco || ""}`);
+  return `https://maps.google.com/maps?q=${consulta}&z=15&output=embed`;
 }
 
 function pintarUnidades(unidades) {
@@ -327,12 +427,44 @@ function pintarUnidades(unidades) {
     alvo.innerHTML = `<div class="cartao-unidade"><span class="end">Nenhuma turma com matrícula aberta no momento.</span></div>`;
     return;
   }
-  alvo.innerHTML = unidades.map((u) => `
+  alvo.innerHTML = unidades.map((u, i) => `
     <div class="cartao-unidade">
       <h3>${escapar(u.nome)}</h3>
       <span class="end">${u.endereco ? escapar(u.endereco) : "Endereço a confirmar"}</span>
-      <a class="mapa" href="${linkDoMapa(u.nome, u.endereco)}" target="_blank" rel="noopener noreferrer">Ver no mapa</a>
+      <div class="acoes-mapa">
+        <button class="mapa" type="button" data-alternar-mapa="${i}">Ver no mapa</button>
+        <a class="mapa" href="${linkExternoDoMapa(u.nome, u.endereco)}" target="_blank" rel="noopener noreferrer">Abrir no Google Maps</a>
+      </div>
+      <div class="mapa-embutido" id="mapa-${i}" hidden></div>
     </div>`).join("");
+
+  alvo.querySelectorAll("[data-alternar-mapa]").forEach((botao) => {
+    botao.addEventListener("click", () => {
+      const i = Number(botao.dataset.alternarMapa);
+      const caixa = document.getElementById(`mapa-${i}`);
+      const u = unidades[i];
+      if (!caixa.dataset.carregado) {
+        caixa.innerHTML = `<iframe src="${linkEmbutidoDoMapa(u.nome, u.endereco)}" loading="lazy"
+             style="width:100%;height:220px;border:0;border-radius:10px;display:block"
+             title="Mapa de ${escapar(u.nome)}"></iframe>`;
+        caixa.dataset.carregado = "1";
+      }
+      caixa.hidden = !caixa.hidden;
+      botao.textContent = caixa.hidden ? "Ver no mapa" : "Esconder mapa";
+    });
+  });
+}
+
+function pintarGaleria(fotos) {
+  if (!fotos.length) return; // sem foto nenhuma cadastrada, só o botão do Instagram fica
+  const alvo = document.getElementById("galeriaFotos");
+  alvo.hidden = false;
+  alvo.innerHTML = fotos.map((f) => {
+    const img = `<img src="${f.imagemBase64}" alt="${escapar(f.legenda || "Foto do SE7 Vôlei de Praia")}" loading="lazy">`;
+    return f.linkInstagram
+      ? `<a class="azulejo" href="${escapar(f.linkInstagram)}" target="_blank" rel="noopener noreferrer">${img}</a>`
+      : `<span class="azulejo">${img}</span>`;
+  }).join("");
 }
 
 function pintarWhatsapp(numero) {
@@ -343,6 +475,29 @@ function pintarWhatsapp(numero) {
   botao.hidden = false;
 }
 
+// ------------------------------------------------------------- menu lateral
+function ligarMenu() {
+  const menu = document.getElementById("menuLateral");
+  const veu = document.getElementById("veuMenu");
+  const botaoAbrir = document.getElementById("btnAbrirMenu");
+  const abrir = () => {
+    menu.classList.add("aberto");
+    veu.hidden = false;
+    botaoAbrir.setAttribute("aria-expanded", "true");
+  };
+  const fechar = () => {
+    menu.classList.remove("aberto");
+    veu.hidden = true;
+    botaoAbrir.setAttribute("aria-expanded", "false");
+  };
+
+  botaoAbrir.addEventListener("click", abrir);
+  document.getElementById("btnFecharMenu").addEventListener("click", fechar);
+  veu.addEventListener("click", fechar);
+  menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", fechar));
+}
+
+ligarMenu();
 iniciar();
 </script>
 

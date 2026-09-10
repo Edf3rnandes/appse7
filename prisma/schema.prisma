@@ -723,3 +723,32 @@ model FechamentoDiario {
   @@map("fechamentos_diarios")
   @@schema("hub")
 }
+
+// ---------------------------------------------------------------------------
+// Galeria da página de entrada — a "seção Instagram" que não depende do
+// Instagram. Uma integração ao vivo com a API do Meta precisa de um app no
+// Facebook Developers, uma conta Business ligada e um token que expira a cada
+// 60 dias — trabalho que só o dono da conta pode autorizar, não algo que dá
+// para "achar um jeito" de contornar. Isso aqui é o caminho que não depende
+// disso: quem cuida do site sobe as fotos, na mesma tela que já cuida do
+// cronograma. Mesmo padrão de imagem (data URL, comprimida no navegador antes
+// de enviar) — ver conteudo.routes.ts.
+// ---------------------------------------------------------------------------
+
+model GaleriaFoto {
+  id            String   @id @default(uuid())
+  imagemBase64  String
+  imagemNome    String?
+  legenda       String?
+  // Link para o post de verdade no Instagram, se quiser — opcional: a foto
+  // aparece na página de entrada com ou sem ele.
+  linkInstagram String?
+  ordem         Int      @default(0)
+  ativa         Boolean  @default(true)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([ativa, ordem])
+  @@map("galeria_fotos")
+  @@schema("hub")
+}
