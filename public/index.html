@@ -184,10 +184,34 @@
     }
 
     .cartaz { text-align: center; }
-    .cartaz img {
-      max-width: 100%; width: 460px; border-radius: 16px;
-      box-shadow: var(--sombra-fixa); display: inline-block;
+
+    /* Carrossel com passador — usado nos cartazes de horários e valores,
+       que podem ter mais de uma foto (a semana toda, ou plano por plano). */
+    .carrossel-cartaz { max-width: 460px; margin: 0 auto; }
+    .carrossel-fotos {
+      position: relative; aspect-ratio: 4/5; border-radius: 16px; overflow: hidden;
+      box-shadow: var(--sombra-fixa); background: var(--marinho-2);
     }
+    .carrossel-cartaz .carrossel-fotos img {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+      opacity: 0; transition: opacity .6s ease;
+    }
+    .carrossel-cartaz .carrossel-fotos img.ativa { opacity: 1; }
+    .carrossel-seta {
+      position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+      width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+      background: rgba(11,20,64,.6); color: #fff; font-size: 19px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .carrossel-seta:hover { background: rgba(11,20,64,.85); }
+    .carrossel-seta.anterior { left: 10px; }
+    .carrossel-seta.proxima { right: 10px; }
+    .carrossel-pontos { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+    .carrossel-pontos .ponto {
+      width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+      background: var(--linha);
+    }
+    .carrossel-pontos .ponto.ativo { background: var(--dourado); }
 
     .categorias-grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
     .categoria-item {
@@ -368,7 +392,7 @@
 
 <section class="faixa cartaz" id="secao-horarios" hidden>
   <h2>Horários</h2>
-  <img alt="">
+  <div class="carrossel-cartaz" id="carrossel-horarios"></div>
 </section>
 
 <section class="faixa unidades" id="unidades">
@@ -380,7 +404,7 @@
 
 <section class="faixa cartaz" id="secao-valores" hidden>
   <h2>Valores</h2>
-  <img alt="">
+  <div class="carrossel-cartaz" id="carrossel-valores"></div>
 </section>
 
 <section class="faixa avaliacoes" id="avaliacoes">
@@ -566,13 +590,12 @@ function pintarImagens({ carrossel, sobreNos, horarios, valores }) {
     }
   }
 
-  for (const [id, imagem] of [["horarios", horarios], ["valores", valores]]) {
-    if (!imagem) continue;
+  // Horários e valores podem ter mais de uma foto (a semana toda, plano por
+  // plano) — cada seção só aparece quando tem pelo menos uma.
+  for (const [id, imagens] of [["horarios", horarios], ["valores", valores]]) {
+    if (!imagens?.length) continue;
     const secao = document.getElementById(`secao-${id}`);
-    const img = secao.querySelector("img");
-    img.src = imagem.imagemBase64;
-    img.alt = imagem.legenda || "";
-    img.loading = "lazy";
+    pintarCarrosselCartaz(document.getElementById(`carrossel-${id}`), imagens);
     secao.hidden = false;
   }
 }
@@ -592,6 +615,55 @@ function pintarCarrossel(imagens) {
     atual = (atual + 1) % fotos.length;
     fotos[atual].classList.add("ativa");
   }, 5000);
+}
+
+/**
+ * Carrossel dos cartazes (horários, valores) — mesma troca automática do
+ * carrossel do topo, mas com setas ‹ › e pontinhos: um cartaz de horários
+ * pode ter uma foto por unidade ou por turno, e ali faz sentido deixar a
+ * pessoa passar na mão em vez de esperar os 5 segundos.
+ */
+function pintarCarrosselCartaz(alvo, imagens) {
+  const fotos = imagens.map((img, i) =>
+    `<img src="${img.imagemBase64}" alt="${escapar(img.legenda || "")}" class="${i === 0 ? "ativa" : ""}">`,
+  ).join("");
+
+  const comSetas = imagens.length > 1;
+  alvo.innerHTML = `
+    <div class="carrossel-fotos">
+      ${fotos}
+      ${comSetas ? `
+        <button class="carrossel-seta anterior" type="button" aria-label="Foto anterior">‹</button>
+        <button class="carrossel-seta proxima" type="button" aria-label="Próxima foto">›</button>` : ""}
+    </div>
+    ${comSetas ? `<div class="carrossel-pontos">
+      ${imagens.map((_, i) => `<button class="ponto ${i === 0 ? "ativo" : ""}" type="button" aria-label="Foto ${i + 1}"></button>`).join("")}
+    </div>` : ""}`;
+
+  if (!comSetas) return;
+
+  const imgs = alvo.querySelectorAll(".carrossel-fotos img");
+  const pontos = alvo.querySelectorAll(".ponto");
+  let atual = 0;
+  let timer;
+
+  const irPara = (i) => {
+    imgs[atual].classList.remove("ativa");
+    pontos[atual].classList.remove("ativo");
+    atual = (i + imgs.length) % imgs.length;
+    imgs[atual].classList.add("ativa");
+    pontos[atual].classList.add("ativo");
+  };
+  const reiniciarTimer = () => {
+    clearInterval(timer);
+    timer = setInterval(() => irPara(atual + 1), 5000);
+  };
+
+  alvo.querySelector(".anterior").addEventListener("click", () => { irPara(atual - 1); reiniciarTimer(); });
+  alvo.querySelector(".proxima").addEventListener("click", () => { irPara(atual + 1); reiniciarTimer(); });
+  pontos.forEach((p, i) => p.addEventListener("click", () => { irPara(i); reiniciarTimer(); }));
+
+  reiniciarTimer();
 }
 
 /** As avaliações do Google Maps, quando a integração está configurada e respondeu. */

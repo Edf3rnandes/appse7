@@ -288,14 +288,18 @@ export async function publicoRoutes(app: FastifyInstance) {
       select: { slot: true, imagemBase64: true, legenda: true },
     });
 
-    const porSlot = (slot: string) => imagens.filter((i) => i.slot === slot);
-    const primeira = (slot: string) => porSlot(slot)[0] ?? null;
+    const porSlot = (slot: string) =>
+      imagens.filter((i) => i.slot === slot).map((i) => ({ imagemBase64: i.imagemBase64, legenda: i.legenda }));
 
     return {
-      carrossel: porSlot("CARROSSEL").map((i) => ({ imagemBase64: i.imagemBase64, legenda: i.legenda })),
-      sobreNos: primeira("SOBRE_NOS"),
-      horarios: primeira("HORARIOS"),
-      valores: primeira("VALORES"),
+      carrossel: porSlot("CARROSSEL"),
+      // "Sobre nós" é foto única — a primeira ativa, se houver mais de uma.
+      sobreNos: porSlot("SOBRE_NOS")[0] ?? null,
+      // Horários e valores viraram carrossel também — várias fotos, a
+      // página passa entre elas sozinha (e com setas, pra quem quiser
+      // adiantar na mão).
+      horarios: porSlot("HORARIOS"),
+      valores: porSlot("VALORES"),
     };
   });
 

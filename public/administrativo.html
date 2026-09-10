@@ -3942,9 +3942,13 @@ const SLOTS_INFO = {
   SOBRE_NOS: { titulo: "Foto de “Sobre nós”",
     ajuda: "Substitui o quadro “Foto da escola em breve”.", multiplo: false },
   HORARIOS: { titulo: "Cartaz de horários",
-    ajuda: "Opcional — a seção só aparece na página quando há uma foto aqui.", multiplo: false },
+    ajuda: "Opcional — a seção só aparece na página quando há foto aqui. Pode ter várias " +
+      "(por exemplo, uma por unidade); a página passa entre elas sozinha, com setas pra " +
+      "quem quiser adiantar na mão.", multiplo: true },
   VALORES: { titulo: "Cartaz de valores",
-    ajuda: "Opcional — a seção só aparece na página quando há uma foto aqui.", multiplo: false },
+    ajuda: "Opcional — a seção só aparece na página quando há foto aqui. Pode ter várias " +
+      "(por exemplo, uma por plano); a página passa entre elas sozinha, com setas pra " +
+      "quem quiser adiantar na mão.", multiplo: true },
 };
 
 async function carregarSiteImagens() {

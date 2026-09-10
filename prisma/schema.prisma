@@ -795,10 +795,12 @@ enum SlotPaginaImagem {
 // ---------------------------------------------------------------------------
 // Imagens de conteúdo fixo da página de entrada — o carrossel do topo, a foto
 // de "Sobre nós", e os cartazes de horários e valores que a escola já usa nas
-// redes sociais. Um slot só (CARROSSEL) aceita mais de uma imagem ativa ao
-// mesmo tempo; os outros mostram a primeira ativa (menor `ordem`) e ignoram
-// o resto — mesma tabela, para não multiplicar telas de administração quase
-// iguais.
+// redes sociais. Só SOBRE_NOS é de propósito uma foto só (mostra a primeira
+// ativa, pela `ordem`, e ignora o resto); os outros três slots aceitam
+// várias — CARROSSEL e o par HORARIOS/VALORES viram carrossel na página, o
+// segundo com setas e pontinhos, porque ali faz sentido passar na mão (uma
+// foto por unidade, uma por plano). Mesma tabela para os quatro, pra não
+// multiplicar telas de administração quase iguais.
 // ---------------------------------------------------------------------------
 
 model PaginaImagem {
