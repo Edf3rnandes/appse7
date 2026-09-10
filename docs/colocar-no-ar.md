@@ -65,7 +65,12 @@ aluno continua lá).
 ## 2 · Criar o serviço no Render
 
 O arquivo é **`render.yaml`**, na raiz do repositório. Render → **New → Blueprint**
-→ aponte para o repositório e o ramo `claude/se7-volei-praia-code-review-ds0fmj`.
+→ aponte para o repositório → **Apply**.
+
+O ramo **está escrito dentro do arquivo** (`claude/se7-volei-praia-code-review-ds0fmj`),
+então não há o que escolher e não há como errar. Isso importa: o ramo padrão do
+repositório não tem nada deste sistema, e sem essa linha o serviço subiria
+verde, servindo o código errado.
 
 Ele já traz build, start, health check e a lista de variáveis. Só estas
 precisam ser preenchidas à mão:
@@ -81,6 +86,16 @@ precisam ser preenchidas à mão:
 
 `JWT_SECRET` o Render gera sozinho. `TZ` e `CEP_BASE_URL` já vêm preenchidas.
 As quatro `LEGACY_MYSQL_*` podem ficar vazias — não são mais necessárias.
+
+`DIRECT_URL` não precisa existir aqui: ela só serve ao CLI do Prisma, e o
+código a iguala à `DATABASE_URL` quando está vazia.
+
+**Sobre o plano gratuito.** Ele hiberna depois de alguns minutos parado, e a
+primeira visita depois disso demora uns 30 segundos. O fechamento das 23:59 não
+se perde por causa disso: ao voltar, o sistema reconstrói os dias que faltaram e
+marca cada um como `RECONSTRUIDO`, para a tela dos sócios não mostrar
+reconstrução com cara de número exato. Para o número do dia ser sempre exato, o
+plano pago.
 
 **Por que `SOCIO_EMAILS` é separada de `ADMIN_EMAILS`:** ADMIN administra a
 escola; SÓCIO vê a distribuição do resultado. Somar os dois automaticamente
@@ -180,3 +195,9 @@ vocês:
   só acrescentou a coluna `observacoes`;
 - as 46 turmas e os 43 planos entraram;
 - as cinco telas abriram, sem um único erro de JavaScript.
+
+E o passo 2 foi ensaiado do jeito que o Render executa: `npm run build`, depois
+`node dist/db/seed.js && node dist/server.js` — exatamente os comandos do
+`render.yaml`, a partir do código compilado, e não do `tsx` do dia a dia.
+O `/health` respondeu, as cinco páginas e os arquivos estáticos vieram com 200,
+o login por senha funcionou e as seis rotas da área dos sócios responderam.

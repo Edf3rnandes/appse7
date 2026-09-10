@@ -4,15 +4,26 @@
 # na hospedagem do Laravel. Os tres rodam ao mesmo tempo durante a transicao.
 #
 # O banco nao esta descrito aqui de proposito: o Hub usa O MESMO Postgres do
-# Supabase que o se7-cobrancas ja usa — DATABASE_URL e DIRECT_URL recebem
-# exatamente os mesmos valores daquele servico. As tabelas do Hub ficam no
-# schema `hub`, criadas por prisma/instalar-no-supabase.sql.
+# Supabase que o se7-cobrancas ja usa — DATABASE_URL recebe exatamente o mesmo
+# valor daquele servico. DIRECT_URL nao entra na lista: ela so serve ao CLI do
+# Prisma, e o codigo a iguala a DATABASE_URL quando esta vazia. As tabelas do
+# Hub ficam no schema `hub`, criadas por prisma/instalar-no-supabase.sql.
 services:
   - type: web
     name: se7-hub
     runtime: node
+    # O plano gratuito hiberna depois de alguns minutos parado, e a primeira
+    # visita depois disso demora uns 30s. O fechamento das 23:59 nao se perde
+    # por causa disso: na volta o sistema reconstroi os dias que faltaram e
+    # marca cada um como RECONSTRUIDO, para a tela nao apresentar reconstrucao
+    # com cara de exato. Para o numero do dia ser sempre exato, o plano pago.
     plan: free
     region: oregon
+    # O ramo fica escrito aqui de proposito. O Blueprint do Render, sem esta
+    # linha, constroi o ramo padrao do repositorio — que NAO tem nada disto — e
+    # o servico subiria verde, com o codigo errado. Uma linha aqui vale mais do
+    # que uma instrucao para lembrar de trocar o ramo na tela.
+    branch: claude/se7-volei-praia-code-review-ds0fmj
     buildCommand: npm install && npm run build
     # `prisma db push` nao roda aqui: em producao a conexao e pelo pooler de
     # transacao, por onde mudanca de schema nao passa. O schema vem de
