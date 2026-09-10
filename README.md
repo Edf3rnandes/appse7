@@ -103,7 +103,7 @@ Servidas como arquivos estáticos pelo próprio Hub, em `public/` — sem build 
 
 | Página | Para quem |
 |---|---|
-| `/` | **Portal do responsável** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
+| `/` | **Portal do aluno** — alunos, frequência dos últimos 6 meses, faturas com 2ª via e cadastro |
 | `/professor.html` | **Área do professor** — chamada, turmas, programação da semana e agenda do mês |
 | `/administrativo.html` | **Administrativo** — cadastra o cronograma das semanas e os eventos que o professor vê |
 

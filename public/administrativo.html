@@ -44,49 +44,54 @@
   <div class="layout">
     <!-- O menu segue os grupos do sistema atual, na mesma ordem: quem já
          trabalha na escola não precisa reaprender onde as coisas ficam.
-         "Comunicação" é o que não existe lá. -->
+         "Comunicação" é o que não existe lá.
+
+         Cada grupo é um <details>: abre e fecha sem uma linha de JS para o
+         gesto em si (o navegador já sabe fazer isso). O script só entra para
+         lembrar o que cada pessoa deixou aberto — ver "grupos do menu"
+         abaixo. -->
     <nav class="menu" id="menu" aria-label="Seções">
       <button class="item-menu" data-painel="painelInicio" aria-current="true">Início</button>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Administrativo</div>
+      <details class="grupo" open data-grupo="administrativo">
+        <summary class="grupo-titulo">Administrativo</summary>
         <button class="item-menu" data-painel="painelTurmas">Turmas</button>
         <button class="item-menu" data-painel="painelFreqTurma">Frequência por turma</button>
         <button class="item-menu" data-painel="painelFreqAluno">Frequência por aluno</button>
-      </div>
+      </details>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Clientes</div>
+      <details class="grupo" open data-grupo="clientes">
+        <summary class="grupo-titulo">Clientes</summary>
         <button class="item-menu" data-painel="painelAlunos">Alunos</button>
         <button class="item-menu" data-painel="painelMatriculas">Matrículas</button>
-      </div>
+      </details>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Configurações</div>
+      <details class="grupo" open data-grupo="configuracoes">
+        <summary class="grupo-titulo">Configurações</summary>
         <button class="item-menu" data-painel="painelUnidades">Unidades</button>
         <button class="item-menu" data-painel="painelPlanos">Planos</button>
         <button class="item-menu" data-painel="painelAcessos">Colaboradores</button>
-      </div>
+      </details>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Financeiro</div>
+      <details class="grupo" open data-grupo="financeiro">
+        <summary class="grupo-titulo">Financeiro</summary>
         <button class="item-menu" data-painel="painelVencidas">Cobranças vencidas</button>
         <button class="item-menu" data-painel="painelExpiradas">Matrículas expiradas</button>
-      </div>
+      </details>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Relatórios</div>
+      <details class="grupo" open data-grupo="relatorios">
+        <summary class="grupo-titulo">Relatórios</summary>
         <button class="item-menu" data-painel="painelRelAlunos">Alunos por turma</button>
         <button class="item-menu" data-painel="painelRelCancelados">Cancelamentos</button>
         <button class="item-menu" data-painel="painelRelOcupacao">Ocupação</button>
-      </div>
+      </details>
 
-      <div class="grupo">
-        <div class="grupo-titulo">Comunicação</div>
+      <details class="grupo" open data-grupo="comunicacao">
+        <summary class="grupo-titulo">Comunicação</summary>
         <button class="item-menu" data-painel="painelSemanas">Cronograma</button>
         <button class="item-menu" data-painel="painelEventos">Eventos</button>
         <button class="item-menu" data-painel="painelAvisos">Avisos</button>
-      </div>
+      </details>
     </nav>
 
     <div class="veu oculto" id="veu"></div>
@@ -242,6 +247,35 @@ function invalidarSecao(id) {
 
 itensMenu.forEach((item) =>
   item.addEventListener("click", () => abrirSecao(item.dataset.painel)));
+
+// Grupos do menu (Administrativo, Clientes, …): lembra o que cada pessoa
+// deixou aberto ou fechado, para não fechar de novo a cada F5. A chave do
+// grupo (data-grupo) é fixa no HTML — não muda se o rótulo mudar.
+const CHAVE_GRUPOS = "se7_administrativo_grupos_fechados";
+
+function grupoFechados() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(CHAVE_GRUPOS) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+document.querySelectorAll(".menu .grupo[data-grupo]").forEach((grupo) => {
+  const chave = grupo.dataset.grupo;
+  if (grupoFechados().has(chave)) grupo.open = false;
+
+  grupo.addEventListener("toggle", () => {
+    const fechados = grupoFechados();
+    grupo.open ? fechados.delete(chave) : fechados.add(chave);
+    try {
+      localStorage.setItem(CHAVE_GRUPOS, JSON.stringify([...fechados]));
+    } catch {
+      // Sem localStorage (aba anônima, por exemplo) o grupo ainda abre e
+      // fecha normalmente — só não lembra na próxima visita.
+    }
+  });
+});
 
 // ------------------------------------------------------------ gaveta
 function abrirMenu(abrir) {

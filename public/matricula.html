@@ -19,7 +19,7 @@
 </main>
 
 <script type="module">
-import { api, ErroApi, fmt, escapar } from "/app.js";
+import { api, ErroApi, fmt, escapar, idadeEm } from "/app.js";
 
 /**
  * Matrícula pelo site.
@@ -72,9 +72,6 @@ const estado = {
   passo: 0,
   catalogo: null,
   aluno: { nome: "", nascimento: "", telefone: "", email: "", cpf: "" },
-  // O adulto se matricula sozinho; para menor, os dados são do responsável
-  // financeiro.
-  ehMenor: false,
   resp: { nome: "", cpf: "", telefone: "", email: "" },
   // Endereço do responsável financeiro. Fica fora de `aluno`/`resp` de
   // propósito: é a mesma pessoa nos dois casos, e duplicar daria dois lugares
@@ -108,11 +105,24 @@ const turma = () => unidade()?.turmas.find((t) => t.id === estado.turmaId);
 const plano = () => turma()?.planos.find((p) => p.id === estado.planoId);
 
 /**
+ * Se o aluno é menor de idade — calculado da data de nascimento, nunca
+ * marcado à mão. Antes existia uma caixa "o aluno é menor de 18 anos" que a
+ * família precisava lembrar de marcar; ela podia ficar desmarcada por
+ * esquecimento com um aluno de 12 anos, e a matrícula seguia sem responsável
+ * nenhum. Sem data ainda digitada, o padrão é adulto: os campos do
+ * responsável só aparecem quando a idade sai negativa de 18, nunca antes.
+ */
+const ehMenorDeIdade = () => {
+  const idade = idadeEm(estado.aluno.nascimento);
+  return idade !== null && idade < 18;
+};
+
+/**
  * O responsável financeiro: o próprio aluno quando adulto, ou o responsável
  * quando ele é menor.
  */
 const responsavelFinanceiro = () =>
-  estado.ehMenor
+  ehMenorDeIdade()
     ? estado.resp
     : { nome: estado.aluno.nome, cpf: estado.aluno.cpf, telefone: estado.aluno.telefone, email: estado.aluno.email };
 
@@ -126,7 +136,7 @@ function passoValido() {
         estado.aluno.nascimento &&
         digitos(estado.aluno.telefone).length >= 10 &&
         digitos(p.cpf).length === 11 &&
-        (!estado.ehMenor || estado.resp.nome.trim().length > 2) &&
+        (!ehMenorDeIdade() || estado.resp.nome.trim().length > 2) &&
         enderecoValido()
       );
     case 1: return Boolean(estado.turmaId);
@@ -186,13 +196,11 @@ function passoAluno() {
           <input id="alEmail" type="email" data-aluno="email" value="${escapar(a.email)}" autocomplete="email">
         </div>
 
-        <label class="marcavel">
-          <input type="checkbox" id="ehMenor" ${estado.ehMenor ? "checked" : ""}>
-          <span>O aluno é menor de 18 anos</span>
-        </label>
-
-        ${estado.ehMenor ? `
+        ${ehMenorDeIdade() ? `
           <div class="rotulo" style="margin-top:4px">Responsável financeiro</div>
+          <p class="meta" style="margin:-6px 0 4px">
+            O aluno é menor de idade — pela data de nascimento informada.
+          </p>
           <div class="campo">
             <label class="rotulo" for="rNome">Nome do responsável</label>
             <input id="rNome" data-resp="nome" value="${escapar(estado.resp.nome)}">
@@ -320,7 +328,6 @@ function passoTurma() {
           <button class="escolha ${t.id === estado.turmaId ? "escolhida" : ""}" type="button" data-turma="${t.id}">
             <span class="escolha-titulo">${escapar(t.nome)}</span>
             <span class="escolha-linha">${escapar(horarioLegivel(t.horarios))}</span>
-            ${t.vagas === null ? "" : `<span class="escolha-meta">${t.vagas} vaga${t.vagas === 1 ? "" : "s"}</span>`}
           </button>`).join("")}`;
 }
 
@@ -363,7 +370,7 @@ function passoConfirmacao() {
     <div class="cartao">
       ${linha("Aluno", estado.aluno.nome)}
       ${linha("Data nasc.", fmt.data(estado.aluno.nascimento))}
-      ${estado.ehMenor ? linha("Responsável", estado.resp.nome) : ""}
+      ${ehMenorDeIdade() ? linha("Responsável", estado.resp.nome) : ""}
       ${linha("Telefone", p.telefone)}
       ${linha("E-mail", p.email || "não informado")}
       ${linha("CPF", fmt.cpf(p.cpf))}
@@ -456,6 +463,14 @@ function ligar() {
       atualizarAvancar();
     }));
 
+  // A data de nascimento decide se os campos do responsável aparecem — mas
+  // só em "change" (data fechada), nunca em "input": esse campo é o único
+  // dos de cima que precisa de um redesenho completo para mostrar ou
+  // esconder o bloco do responsável, e redesenhar a cada dígito digitado
+  // tiraria o foco de quem ainda está escolhendo a data. Em "change" isso não
+  // acontece — o navegador só dispara o evento com a data já fechada.
+  el("alNasc")?.addEventListener("change", () => pintar());
+
   document.querySelectorAll("[data-resp]").forEach((c) =>
     c.addEventListener("input", (e) => {
       estado.resp[e.target.dataset.resp] = e.target.value;
@@ -475,11 +490,6 @@ function ligar() {
   el("btnCep")?.addEventListener("click", () => {
     ultimoCepBuscado = "";
     buscarEndereco();
-  });
-
-  el("ehMenor")?.addEventListener("change", (e) => {
-    estado.ehMenor = e.target.checked;
-    pintar();
   });
 
   el("selUnidade")?.addEventListener("change", (e) => {
@@ -593,9 +603,9 @@ async function enviar() {
           planoId: estado.planoId,
         },
         irmaos: [],
-        responsavelEhOAluno: !estado.ehMenor,
+        responsavelEhOAluno: !ehMenorDeIdade(),
         responsavel: {
-          nome: estado.ehMenor ? estado.resp.nome.trim() : undefined,
+          nome: ehMenorDeIdade() ? estado.resp.nome.trim() : undefined,
           cpf: p.cpf,
           telefone: p.telefone.trim(),
           email: (p.email || "").trim(),

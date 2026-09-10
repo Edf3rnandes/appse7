@@ -413,10 +413,22 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .titulo-secao { font-size: 21px; margin: 0 0 16px; }
 
 .menu .grupo { margin-top: 16px; display: flex; flex-direction: column; gap: 3px; }
+/* O <summary> já abre/fecha o <details> sozinho — o triângulo padrão do
+   navegador é trocado por uma seta própria, que gira com o estado, porque o
+   padrão vem plantado à esquerda e empurra o texto do grupo fora do lugar. */
 .menu .grupo-titulo {
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--ink-3); font-weight: 700; padding: 0 10px 5px;
+  color: var(--ink-3); font-weight: 700; padding: 4px 10px 5px;
+  cursor: pointer; user-select: none; list-style: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
 }
+.menu .grupo-titulo::-webkit-details-marker { display: none; }
+.menu .grupo-titulo::after {
+  content: "▸"; font-size: 10px; color: var(--ink-3);
+  transition: transform .15s ease;
+}
+.menu .grupo[open] > .grupo-titulo::after { transform: rotate(90deg); }
+.menu .grupo-titulo:hover { color: var(--ink); }
 .item-menu {
   border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 14.5px;
   text-align: left; padding: 9px 11px; border-radius: 8px; cursor: pointer; width: 100%;

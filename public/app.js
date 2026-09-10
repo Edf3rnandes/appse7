@@ -286,7 +286,7 @@ export function areasDisponiveis(eu, atual) {
     areas.push({ chave: "professor", nome: "Professor", href: "/professor.html" });
   }
   if (eu?.responsavelId != null) {
-    areas.push({ chave: "portal", nome: "Portal", href: "/" });
+    areas.push({ chave: "portal", nome: "Portal do aluno", href: "/" });
   }
 
   return areas.filter((a) => a.chave !== atual);
@@ -505,4 +505,21 @@ export function funcoesDisponiveisPara(papeisAtuais, souSocio) {
   return FUNCOES_CONCEDIVEIS.filter(
     (f) => !papeisAtuais.includes(f) && (f !== "SOCIO" || souSocio),
   );
+}
+
+/**
+ * Idade em anos completos na data de nascimento informada ("AAAA-MM-DD"), ou
+ * null sem data (ou data inválida). Usada pela matrícula do site para decidir
+ * sozinha se mostra os campos do responsável, sem depender de a família
+ * lembrar de marcar uma caixa "é menor de idade".
+ */
+export function idadeEm(nascimentoIso, hoje = new Date()) {
+  if (!nascimentoIso) return null;
+  const nasc = new Date(`${nascimentoIso}T00:00:00`);
+  if (Number.isNaN(nasc.getTime())) return null;
+
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const aniversarioEsteAno = new Date(hoje.getFullYear(), nasc.getMonth(), nasc.getDate());
+  if (hoje < aniversarioEsteAno) idade--;
+  return idade;
 }

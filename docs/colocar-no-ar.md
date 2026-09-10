@@ -125,7 +125,7 @@ Com o serviço no ar, cinco endereços:
 | Tela | Endereço | Quem entra |
 |---|---|---|
 | Matrícula pelo site | `/matricula.html` | qualquer pessoa, sem login |
-| Portal do responsável | `/` | responsável, com Google ou senha |
+| Portal do aluno | `/` | responsável, com Google ou senha |
 | Área do professor | `/professor.html` | professor, por convite |
 | Administrativo | `/administrativo.html` | ADMIN e ADMINISTRATIVO |
 | Sócios | `/socios.html` | SÓCIO |
