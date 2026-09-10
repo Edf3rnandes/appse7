@@ -116,7 +116,7 @@
 
 <script type="module">
 import { Sessao, ErroApi, api, fmt, escapar, montarLogin, prepararImagem, pintarNavegacao,
-         gradeDoMes, juntarColaboradores } from "/app.js";
+         gradeDoMes, juntarColaboradores, funcoesDisponiveisPara } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semPermissao: el("telaSemPermissao"), app: el("telaApp") };
@@ -3656,6 +3656,10 @@ const estadoCol = {
   // sem isto os dois vinham com a mesma marcação: quem clicava em Convidar
   // preenchia o e-mail, salvava, e não saía convite nenhum.
   convidarAoAbrir: null,
+  // Diferente de "novo" e "editar": aqui a pessoa já tem conta, e o
+  // formulário não mexe em cadastro nem em e-mail — só soma uma função à
+  // conta que já existe. { nome, email, papeisAtuais } ou null.
+  concedendo: null,
 };
 
 async function carregarAcessos() {
@@ -3745,6 +3749,8 @@ function recadoColaborador() {
 }
 
 function formColaborador() {
+  if (estadoCol.concedendo) return formConcessao();
+
   const prof = estadoCol.editando
     ? professores.find((p) => p.id === estadoCol.editando)
     : null;
@@ -3820,6 +3826,58 @@ function formColaborador() {
     </div>`;
 }
 
+/**
+ * "Conceder outra função" — para quem já tem conta e vai ganhar mais uma,
+ * sem mexer em cadastro nem em e-mail. Administrativo, administrador e sócio
+ * se somam ao que a pessoa já tem: um professor pode também ser
+ * administrativo, e ninguém perde o que já tinha ao ganhar outro papel — é o
+ * mesmo `papel.upsert` que já aplica o primeiro convite de qualquer um.
+ *
+ * Professor fica de fora da lista: virar professor exige um cadastro de
+ * turma, que é outra tela (Novo colaborador).
+ */
+function formConcessao() {
+  const alvo = estadoCol.concedendo;
+  const disponiveis = funcoesDisponiveisPara(alvo.papeisAtuais, souSocio);
+  const r = estadoCol.rascunho ?? { perfil: disponiveis[0] ?? "", validade: "14" };
+
+  return `
+    <div class="cartao" style="margin-bottom:22px">
+      <div class="linha" style="margin-bottom:6px">
+        <strong>Conceder outra função a ${escapar(alvo.nome)}</strong>
+        <button class="botao fantasma" type="button" id="btnFecharColaborador">Fechar</button>
+      </div>
+      <p class="meta" style="margin:0 0 16px">
+        Hoje ela entra como ${escapar(alvo.papeisAtuais.map((p) => PAPEIS[p] || p).join(", "))}.
+        A função nova se soma a essa quando o convite for aceito — nenhuma troca lugar.
+      </p>
+      ${disponiveis.length === 0
+        ? `<p class="meta">Não sobrou função para conceder: ela já tem todas as que você pode dar.</p>`
+        : `
+      <div class="form-grade">
+        <div class="campo">
+          <label class="rotulo" for="colPerfil">Nova função</label>
+          <select id="colPerfil">
+            ${disponiveis.map((f) => `<option value="${f}" ${r.perfil === f ? "selected" : ""}>${PAPEIS[f]}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="colValidade">Validade do convite</label>
+          <select id="colValidade">
+            <option value="7" ${r.validade === "7" ? "selected" : ""}>7 dias</option>
+            <option value="14" ${r.validade === "14" ? "selected" : ""}>14 dias</option>
+            <option value="30" ${r.validade === "30" ? "selected" : ""}>30 dias</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="aviso erro ${estadoCol.erro ? "" : "oculto"}" id="erroColaborador">${escapar(estadoCol.erro)}</div>
+      <div class="barra-acoes" style="margin-top:16px">
+        <button class="botao" type="button" id="btnSalvarColaborador">Convidar</button>
+      </div>`}
+    </div>`;
+}
+
 function listaColaboradores() {
   const linhas = colaboradores();
   if (!linhas.length) {
@@ -3837,7 +3895,8 @@ function listaColaboradores() {
         papeisDaLinha(l),
         l.professor ? `${l.turmas} turma(s)` : null,
         l.conta?.ultimoLoginEm ? `último acesso ${fmt.data(l.conta.ultimoLoginEm)}` : null,
-        !l.conta && l.convite && !l.convite.usadoEm ? `vale até ${fmt.data(l.convite.expiraEm)}` : null,
+        !l.conta && l.convite ? `vale até ${fmt.data(l.convite.expiraEm)}` : null,
+        l.conviteExtra ? `+ ${PAPEIS[l.conviteExtra.papel] || l.conviteExtra.papel} pendente, vale até ${fmt.data(l.conviteExtra.expiraEm)}` : null,
       ].filter(Boolean).join(" · ");
 
       return `<div class="item" ${apagada ? 'style="opacity:.55"' : ""}>
@@ -3878,10 +3937,30 @@ function acoesDaLinha(l) {
         ${l.professor.ativo === false ? "Reativar" : "Desativar"}</button>`);
   }
 
-  if (l.conta && souAdmin) {
-    botoes.push(`<button class="botao fantasma pequeno" type="button"
-        data-usuario="${l.conta.id}" data-ativo="${l.conta.ativo}">
-        ${l.conta.ativo ? "Tirar acesso" : "Devolver acesso"}</button>`);
+  if (l.conta) {
+    if (l.conviteExtra) {
+      // A função extra tem o mesmo caminho de aceite que o primeiro convite:
+      // WhatsApp, copiar, cancelar. Só não tem "Convidar", porque já foi
+      // convidada — é o próprio conviteExtra.
+      botoes.push(`<a class="link-botao" href="${escapar(linkWhatsapp(l.conviteExtra, l.telefone))}"
+          target="_blank" rel="noopener noreferrer">WhatsApp</a>`);
+      botoes.push(`<button class="botao secundario pequeno" type="button"
+          data-copiar-convite="${l.conviteExtra.id}">Copiar</button>`);
+      botoes.push(`<button class="botao fantasma pequeno" type="button"
+          data-cancelar-convite="${l.conviteExtra.id}">Cancelar convite</button>`);
+    } else if (
+      l.conta.ativo
+      && funcoesDisponiveisPara(l.conta.papeis, souSocio).length > 0
+    ) {
+      botoes.push(`<button class="botao secundario pequeno" type="button"
+          data-conceder="${l.conta.id}">+ Outra função</button>`);
+    }
+
+    if (souAdmin) {
+      botoes.push(`<button class="botao fantasma pequeno" type="button"
+          data-usuario="${l.conta.id}" data-ativo="${l.conta.ativo}">
+          ${l.conta.ativo ? "Tirar acesso" : "Devolver acesso"}</button>`);
+    }
   }
 
   return botoes.join("");
@@ -3924,7 +4003,13 @@ function listaFamilias() {
 // qual conta, e nada de jargão. O e-mail aparece porque é ele que decide se o
 // convite pega — entrar com outra conta Google não funciona.
 function mensagemConvite(c) {
-  const area = c.papel === "PROFESSOR" ? "professor.html" : "administrativo.html";
+  // Sócio puro (sem ADMIN/ADMINISTRATIVO) não passa da porta de
+  // administrativo.html — ela exige um dos dois papéis antes de mostrar
+  // qualquer tela. socios.html só pede SOCIO, e é para lá que este convite
+  // sempre leva, tenha a pessoa os outros papéis ou não.
+  const area = c.papel === "PROFESSOR" ? "professor.html"
+    : c.papel === "SOCIO" ? "socios.html"
+    : "administrativo.html";
   return [
     "Oi! Seu acesso ao sistema do SE7 está liberado.",
     "",
@@ -3953,6 +4038,7 @@ async function emitirConvite(corpo) {
 function abrirForm(professorId, opcoes = {}) {
   estadoCol.aberto = true;
   estadoCol.editando = professorId ?? null;
+  estadoCol.concedendo = null;
   estadoCol.erro = "";
   estadoCol.recado = opcoes.recado ?? "";
   estadoCol.rascunho = null;
@@ -3960,7 +4046,20 @@ function abrirForm(professorId, opcoes = {}) {
   pintarAcessosComEstado();
 }
 
+function abrirConcessao(linha) {
+  estadoCol.aberto = true;
+  estadoCol.editando = null;
+  estadoCol.concedendo = {
+    nome: linha.nome, email: linha.email, papeisAtuais: linha.conta.papeis,
+  };
+  estadoCol.erro = "";
+  estadoCol.recado = "";
+  estadoCol.rascunho = null;
+  pintarAcessosComEstado();
+}
+
 async function salvarColaborador() {
+  if (estadoCol.concedendo) return salvarConcessao();
   guardarRascunho();
   const r = estadoCol.rascunho;
   const botao = el("btnSalvarColaborador");
@@ -4024,6 +4123,39 @@ async function salvarColaborador() {
   }
 }
 
+async function salvarConcessao() {
+  const alvo = estadoCol.concedendo;
+  const perfil = el("colPerfil")?.value;
+  const validade = el("colValidade")?.value ?? "14";
+  const botao = el("btnSalvarColaborador");
+
+  // Sem função disponível a lista some do formulário (ver formConcessao) e
+  // este botão nem aparece — mas se por algum motivo ele for clicado mesmo
+  // assim, não há o que enviar.
+  if (!perfil) return;
+
+  botao.disabled = true;
+  botao.textContent = "Convidando…";
+
+  try {
+    await emitirConvite({ email: alvo.email, papel: perfil, validadeDias: Number(validade) });
+    estadoCol.aberto = false;
+    estadoCol.concedendo = null;
+    estadoCol.rascunho = null;
+    estadoCol.erro = "";
+    estadoCol.recado = `Convite de ${PAPEIS[perfil] || perfil} criado para ${alvo.email}. `
+      + "A função se soma quando ela entrar de novo — use o botão WhatsApp na linha dela.";
+    await carregarAcessos();
+  } catch (e) {
+    estadoCol.erro = e.message;
+    const campo = el("erroColaborador");
+    campo.textContent = e.message;
+    campo.classList.remove("oculto");
+    botao.disabled = false;
+    botao.textContent = "Convidar";
+  }
+}
+
 function ligarAcessos() {
   const painel = el("painelAcessos");
 
@@ -4031,6 +4163,7 @@ function ligarAcessos() {
   el("btnFecharColaborador")?.addEventListener("click", () => {
     estadoCol.aberto = false;
     estadoCol.editando = null;
+    estadoCol.concedendo = null;
     estadoCol.rascunho = null;
     estadoCol.convidarAoAbrir = null;
     estadoCol.erro = "";
@@ -4040,7 +4173,16 @@ function ligarAcessos() {
 
   // O perfil decide se o nome vira cadastro; redesenhar mantém o texto de
   // ajuda coerente com o que foi escolhido, sem perder o que já foi digitado.
-  el("colPerfil")?.addEventListener("change", pintarAcessos);
+  // No formulário de conceder função nada mais depende do perfil escolhido, e
+  // redesenhar ali jogaria fora a escolha: guardarRascunho() não acha #colNome
+  // nesse formulário e volta sem gravar nada.
+  if (!estadoCol.concedendo) el("colPerfil")?.addEventListener("change", pintarAcessos);
+
+  painel.querySelectorAll("[data-conceder]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const linha = colaboradores().find((l) => l.conta?.id === b.dataset.conceder);
+      if (linha) abrirConcessao(linha);
+    }));
 
   painel.querySelectorAll("[data-editar-colaborador]").forEach((b) =>
     b.addEventListener("click", () => abrirForm(b.dataset.editarColaborador)));

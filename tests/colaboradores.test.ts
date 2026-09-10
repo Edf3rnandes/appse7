@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 // @ts-expect-error — módulo do navegador, sem tipos. É o mesmo arquivo que a
 // página carrega: testar uma cópia não provaria nada sobre a tela.
-import { juntarColaboradores } from "../public/app.js";
+import { juntarColaboradores, funcoesDisponiveisPara } from "../public/app.js";
 
 /**
  * A promessa da tela de Colaboradores: uma pessoa, uma linha.
@@ -129,5 +129,73 @@ describe("colaboradores: uma pessoa, uma linha", () => {
 
     const linhas = juntarColaboradores([p], [c], []);
     assert.equal(linhas[0].email, "rafael@gmail.com");
+  });
+});
+
+describe("colaboradores: outra função para quem já tem conta", () => {
+  it("mostra a função extra na MESMA linha de quem já tem conta — não some, não duplica", () => {
+    // Este é o defeito que uma primeira versão desta tela teria: convitesSoltos
+    // pulava qualquer convite cujo e-mail já tivesse conta, então "conceder
+    // outra função" criava um convite que sumia da tela sem deixar rastro.
+    const adm = conta("u1", { email: "paulo@escola.com", papeis: ["ADMINISTRATIVO"] });
+    const extra = convite("paulo@escola.com", { papel: "SOCIO" });
+
+    const linhas = juntarColaboradores([], [adm], [extra]);
+
+    assert.equal(linhas.length, 1, "não pode virar uma segunda linha");
+    assert.equal(linhas[0].convite, null, "a conta já existe: isto não é porta de entrada");
+    assert.ok(linhas[0].conviteExtra, "a função extra pendente precisa aparecer");
+    assert.equal(linhas[0].conviteExtra.papel, "SOCIO");
+  });
+
+  it("o mesmo vale para quem tem cadastro de professor além da conta", () => {
+    const p = professor("p1", { email: "ana@escola.com" });
+    const c = conta("u1", {
+      email: "ana@escola.com", papeis: ["PROFESSOR"],
+      vinculos: [{ tipo: "PROFESSOR", nome: "Ana", professorId: "p1" }],
+    });
+    const extra = convite("ana@escola.com", { papel: "ADMINISTRATIVO" });
+
+    const linhas = juntarColaboradores([p], [c], [extra]);
+
+    assert.equal(linhas.length, 1);
+    assert.ok(linhas[0].professor);
+    assert.ok(linhas[0].conta);
+    assert.equal(linhas[0].conviteExtra.papel, "ADMINISTRATIVO");
+  });
+
+  it("quem ainda não tem conta não ganha conviteExtra — o convite dela é a entrada, não um extra", () => {
+    const linhas = juntarColaboradores(
+      [professor("p1", { email: "bruno@escola.com" })],
+      [],
+      [convite("bruno@escola.com", { professorId: "p1" })],
+    );
+
+    assert.ok(linhas[0].convite, "o convite de quem ainda não entrou é a porta de entrada");
+    assert.equal(linhas[0].conviteExtra, null);
+  });
+});
+
+describe("funcoesDisponiveisPara", () => {
+  it("oferece administrativo e administrador a um professor, sem sócio para quem não é sócio", () => {
+    assert.deepEqual(
+      funcoesDisponiveisPara(["PROFESSOR"], false),
+      ["ADMINISTRATIVO", "ADMIN"],
+    );
+  });
+
+  it("inclui sócio quando quem está convidando é sócio", () => {
+    assert.deepEqual(
+      funcoesDisponiveisPara(["PROFESSOR"], true),
+      ["ADMINISTRATIVO", "ADMIN", "SOCIO"],
+    );
+  });
+
+  it("não repete uma função que a pessoa já tem", () => {
+    assert.deepEqual(funcoesDisponiveisPara(["ADMINISTRATIVO"], true), ["ADMIN", "SOCIO"]);
+  });
+
+  it("fica vazia quando não sobra nada para conceder", () => {
+    assert.deepEqual(funcoesDisponiveisPara(["ADMIN", "ADMINISTRATIVO", "SOCIO"], true), []);
   });
 });

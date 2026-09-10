@@ -439,38 +439,53 @@ export function juntarColaboradores(professores, usuarios, convites) {
     else if ((u.papeis || []).some((pp) => pp !== "RESPONSAVEL")) contasSemCadastro.push(u);
   }
 
+  // Um e-mail tem no máximo um convite pendente (o banco garante isso por
+  // upsert), então um mapa por e-mail não perde nada.
+  const pendentes = convites.filter((c) => !c.usadoEm);
   const conviteDoProfessor = new Map();
-  const convitesSoltos = [];
-  for (const c of convites) {
-    if (c.usadoEm) continue;
+  const conviteDoEmail = new Map();
+  for (const c of pendentes) {
     if (c.professorId) conviteDoProfessor.set(c.professorId, c);
-    else convitesSoltos.push(c);
+    conviteDoEmail.set(c.email.toLowerCase(), c);
   }
 
-  const linhas = professores.map((p) => ({
-    chave: `prof:${p.id}`,
-    nome: p.nome,
-    email: p.email || contaDoProfessor.get(p.id)?.email || "",
-    telefone: p.telefone || "",
-    turmas: p._count?.turmas ?? 0,
-    professor: p,
-    conta: contaDoProfessor.get(p.id) || null,
-    convite: conviteDoProfessor.get(p.id) || null,
-  }));
+  const linhas = professores.map((p) => {
+    const conta = contaDoProfessor.get(p.id) || null;
+    const email = p.email || conta?.email || "";
+    return {
+      chave: `prof:${p.id}`,
+      nome: p.nome,
+      email,
+      telefone: p.telefone || "",
+      turmas: p._count?.turmas ?? 0,
+      professor: p,
+      conta,
+      // Sem conta, o convite encontrado é a porta de entrada da pessoa. Com
+      // conta, um convite pendente é outra função além da que ela já tem — e
+      // aparece junto da linha, não no lugar do que já funciona.
+      convite: conta ? null : (conviteDoProfessor.get(p.id) || null),
+      conviteExtra: conta ? (conviteDoEmail.get(email.toLowerCase()) || null) : null,
+    };
+  });
 
   for (const u of contasSemCadastro) {
     linhas.push({
       chave: `conta:${u.id}`, nome: u.nome, email: u.email, telefone: "",
       turmas: 0, professor: null, conta: u, convite: null,
+      conviteExtra: conviteDoEmail.get(u.email.toLowerCase()) || null,
     });
   }
 
-  for (const c of convitesSoltos) {
-    // O convite de quem já virou conta aparece na linha da conta, não duas vezes.
-    if (usuarios.some((u) => (u.email || "").toLowerCase() === c.email.toLowerCase())) continue;
+  const emailsComConta = new Set(usuarios.map((u) => (u.email || "").toLowerCase()));
+  for (const c of pendentes) {
+    // O convite de professor já apareceu na linha do cadastro dele, mesmo sem
+    // conta ainda — não duplica. O de quem já tem conta virou conviteExtra
+    // acima — também não duplica.
+    if (c.professorId) continue;
+    if (emailsComConta.has(c.email.toLowerCase())) continue;
     linhas.push({
       chave: `convite:${c.id}`, nome: c.email, email: c.email, telefone: "",
-      turmas: 0, professor: null, conta: null, convite: c,
+      turmas: 0, professor: null, conta: null, convite: c, conviteExtra: null,
     });
   }
 
@@ -479,4 +494,15 @@ export function juntarColaboradores(professores, usuarios, convites) {
   const ordem = (l) => (l.conta ? 2 : l.convite ? 1 : 0);
   return linhas.sort((a, b) =>
     ordem(a) - ordem(b) || a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+/** As funções que dá para conceder a quem já tem conta, sem passar por um
+ * cadastro de professor (que exige turma e uma tela própria). */
+export const FUNCOES_CONCEDIVEIS = ["ADMINISTRATIVO", "ADMIN", "SOCIO"];
+
+/** Quais dessas funções esta pessoa ainda não tem — o que sobra para oferecer. */
+export function funcoesDisponiveisPara(papeisAtuais, souSocio) {
+  return FUNCOES_CONCEDIVEIS.filter(
+    (f) => !papeisAtuais.includes(f) && (f !== "SOCIO" || souSocio),
+  );
 }
