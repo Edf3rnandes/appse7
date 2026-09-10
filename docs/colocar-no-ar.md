@@ -17,15 +17,18 @@ O arquivo é **`prisma/instalar-no-supabase.sql`**. No painel do Supabase, o
 mesmo projeto do se7-cobrancas: **SQL Editor → New query →** cole o arquivo
 inteiro → **Run**.
 
+Uma coisa só. **Não há passo anterior**, e ele serve tanto para a primeira vez
+quanto para reinstalar por cima de uma tentativa que deu errado.
+
 O que ele faz:
 
-- cria o schema `hub` e as **22 tabelas** do sistema;
-- acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
+1. confere se há cadastro de verdade no schema `hub` — e **para** se houver;
+2. cria o schema `hub` e as **22 tabelas** do sistema;
+3. acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
 
-O que ele **não** faz: encostar em qualquer outra coisa fora do `hub`. As
-tabelas do se7-cobrancas (`central_cards`, `cobranca_registros`, `loja_*`,
-`usuarios`…) ficam exatamente como estão. Não há `DROP`, `DELETE` nem
-`TRUNCATE` em nenhuma linha do arquivo.
+O que ele **não** faz: encostar em qualquer coisa fora do `hub`. As tabelas do
+se7-cobrancas (`central_cards`, `cobranca_registros`, `loja_*`, `usuarios`…)
+ficam exatamente como estão.
 
 Para conferir depois:
 
@@ -37,40 +40,27 @@ select table_schema, count(*)
 -- hub deve dar 22; public, o mesmo número de antes.
 ```
 
-### Se ele parar dizendo que algo "already exists"
+### Sobre a conferência do passo 1
+
+O arquivo contém um `DROP SCHEMA hub CASCADE` — é o que permite colá-lo por
+cima de uma instalação anterior sem parar com `already exists`.
+
+Um DROP num arquivo pronto para colar é uma armadilha, **a não ser que ele se
+recuse a rodar quando houver o que perder**. É o que a conferência faz: se
+houver qualquer aluno ou matrícula no `hub`, o script para com esta mensagem e
+não apaga nada:
 
 ```
-ERROR: 42710: type "Provedor" already exists
+ERROR: NAO APAGUEI NADA. O schema hub tem 1 aluno(s) e 0 matricula(s)
+cadastrados. Isso e cadastro de verdade, e apagar nao tem volta.
 ```
 
-Quer dizer que o schema `hub` já tem uma instalação anterior. O script não
-altera o que existe — ele para. É de propósito: continuar por cima de uma
-versão antiga daria um banco meio de um jeito, meio de outro.
+Se isso aparecer, **pare e me diga** — tem cadastro real ali, e o caminho passa
+a ser outro.
 
-**Antes de apagar, veja o que tem lá.** Rode isto:
-
-```sql
-select 'turmas'      as tabela, count(*) from hub.turmas
-union all select 'planos',      count(*) from hub.planos
-union all select 'alunos',      count(*) from hub.alunos
-union all select 'matriculas',  count(*) from hub.matriculas
-union all select 'usuarios',    count(*) from hub.usuarios;
-```
-
-- **Alunos e matrículas em zero** — é a instalação de experimento. Pode apagar.
-- **Alunos ou matrículas com número** — pare e me diga o que apareceu. Tem
-  cadastro de verdade ali, e apagar é definitivo.
-
-Sendo o primeiro caso, rode **este comando sozinho**, conferindo que está
-escrito `hub` e não `public`, e depois cole o script inteiro de novo:
-
-```sql
-DROP SCHEMA "hub" CASCADE;
-```
-
-Ele apaga só o schema do Hub. As tabelas do se7-cobrancas vivem em `public` e
-não são tocadas — conferido: depois do DROP e da reinstalação, `public`
-continuou com exatamente as mesmas tabelas de antes.
+Testado nos três estados possíveis: banco sem `hub` nenhum (instala), `hub` já
+instalado e vazio (reinstala), e `hub` com um aluno cadastrado (recusa, e o
+aluno continua lá).
 
 ## 2 · Criar o serviço no Render
 

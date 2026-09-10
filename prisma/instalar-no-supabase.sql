@@ -1,12 +1,24 @@
 -- ===========================================================================
 -- SE7 Hub — instalação no Supabase
 --
--- Cole isto inteiro no SQL Editor do Supabase (o mesmo projeto do
--- se7-inadimplencia) e clique em Run.
+-- Cole ISTO INTEIRO no SQL Editor do Supabase (o mesmo projeto do
+-- se7-inadimplencia) e clique em Run. Uma coisa só, sem passo anterior, e
+-- funciona tanto na primeira vez quanto para reinstalar.
 --
 -- O QUE ELE FAZ
---   1. Cria o schema `hub` e as 22 tabelas do sistema.
---   2. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
+--   1. Confere se há cadastro de verdade no schema `hub` — e PARA se houver.
+--   2. Cria o schema `hub` e as 22 tabelas do sistema.
+--   3. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
+--
+-- SOBRE O PASSO 1, QUE É O QUE IMPORTA
+-- Este arquivo contém um `DROP SCHEMA hub CASCADE`, para poder ser colado por
+-- cima de uma instalação anterior sem parar com "already exists". Um DROP num
+-- arquivo pronto para colar é uma armadilha — a não ser que ele se recuse a
+-- rodar quando houver o que perder. É o que a conferência faz: se houver
+-- QUALQUER aluno ou matrícula, o script para com uma mensagem e não apaga nada.
+--
+-- Assim a decisão de apagar deixa de depender de alguém lembrar de ler um
+-- comentário antes de clicar em Run.
 --
 -- O QUE ELE NÃO TOCA
 --   Nada fora do schema `hub`. As tabelas do se7-inadimplencia
@@ -14,44 +26,45 @@
 --   ...) vivem em `public` e seguem exatamente como estão. A única alteração
 --   ali é a coluna `observacoes`, aditiva, que aquele sistema não consulta.
 --
---   Não há DROP, DELETE nem TRUNCATE em nenhuma linha deste arquivo.
---
--- ---------------------------------------------------------------------------
--- SE ELE PARAR COM 'already exists'
---
---   ERROR: 42710: type "Provedor" already exists
---
--- O schema `hub` ja tem uma instalacao anterior. Este script nao altera o que
--- existe: ele para. Continuar por cima de uma versao antiga daria um banco meio
--- de um jeito, meio de outro.
---
--- ANTES DE APAGAR, veja o que tem la:
---
---   select 'turmas' as tabela, count(*) from hub.turmas
---   union all select 'planos',     count(*) from hub.planos
---   union all select 'alunos',     count(*) from hub.alunos
---   union all select 'matriculas', count(*) from hub.matriculas;
---
--- Alunos e matriculas em zero e a instalacao de experimento, e pode ir. Com
--- numero, PARE: ha cadastro de verdade ali, e apagar e definitivo.
---
---   Feita a conferencia, rode ESTE comando sozinho, primeiro, conferindo que
---   esta escrito "hub" e nao "public":
---
---       DROP SCHEMA "hub" CASCADE;
---
---   Ele apaga as tabelas do Hub e nada mais. Deixei fora deste arquivo de
---   propósito: apagar dados tem de ser um clique consciente, não uma linha
---   perdida no meio de quinhentas.
---
---   Se houver algo no `hub` que você queira guardar, salve antes.
--- ---------------------------------------------------------------------------
---
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
 --   -- hub deve ter 22; public, o mesmo número de antes.
 -- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1. Confere e apaga — nesta ordem, e só se for seguro.
+-- ---------------------------------------------------------------------------
+DO $reinstalar$
+DECLARE
+  qtd_alunos     bigint := 0;
+  qtd_matriculas bigint := 0;
+BEGIN
+  -- `to_regclass` devolve NULL quando a tabela não existe, o que evita ter de
+  -- adivinhar em que estado o schema está: primeira instalação e reinstalação
+  -- passam pelo mesmo caminho.
+  IF to_regclass('hub.alunos') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM hub.alunos' INTO qtd_alunos;
+  END IF;
+
+  IF to_regclass('hub.matriculas') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM hub.matriculas' INTO qtd_matriculas;
+  END IF;
+
+  IF qtd_alunos > 0 OR qtd_matriculas > 0 THEN
+    RAISE EXCEPTION
+      'NAO APAGUEI NADA. O schema hub tem % aluno(s) e % matricula(s) cadastrados. Isso e cadastro de verdade, e apagar nao tem volta. Fale com quem cuida do sistema antes de seguir.',
+      qtd_alunos, qtd_matriculas;
+  END IF;
+
+  DROP SCHEMA IF EXISTS "hub" CASCADE;
+  RAISE NOTICE 'Schema hub apagado (estava sem alunos e sem matriculas). Recriando...';
+END
+$reinstalar$;
+
+-- ---------------------------------------------------------------------------
+-- 2. Daqui para baixo é idêntico a instalar-no-supabase.sql.
+-- ---------------------------------------------------------------------------
 
 -- Observações do treino para o professor (maré, quadra, material). Aditiva: o
 -- se7-inadimplencia não consulta esta coluna e segue funcionando igual.
