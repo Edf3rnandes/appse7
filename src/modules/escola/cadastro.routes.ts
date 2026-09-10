@@ -56,6 +56,9 @@ const unidadeSchema = z.object({
   nome: z.string({ required_error: "Nome é obrigatório." }).min(1, "Nome é obrigatório.").max(120),
   descricao: z.string().max(500).optional(),
   endereco: z.string().max(300).optional(),
+  // Ausente: mantém a foto atual (só faz sentido em edição). null: apaga.
+  // string: troca. Mesmo padrão de imagem do resto do sistema — ver LIMITE_IMAGEM acima.
+  fotoBase64: imagemDataUrl.nullable().optional(),
   ativa: z.boolean().default(true),
 });
 

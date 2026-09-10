@@ -8,6 +8,9 @@
   <title>SE7 Vôlei de Praia</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     /*
       Página de entrada — a única do Hub com identidade própria.
@@ -41,7 +44,16 @@
       --texto-escuro: #1a2033; --texto-escuro-2: #4b5370;
       --sombra-fixa: 0 8px 24px -14px rgba(11,20,64,.35);
     }
-    body { background: var(--marinho); color: var(--texto); }
+    /*
+      A fonte do resto do Hub (app.css) é a padrão do sistema operacional —
+      certo para uma ferramenta de trabalho, neutra demais para uma vitrine.
+      Poppins é a família geométrica e arredondada mais comum em escolas e
+      academias esportivas no Brasil hoje, e casa com o dourado e o
+      marinho da marca. Não tenho como abrir o site real agora pra
+      conferir a fonte exata dele — se não for esta, é só mandar um
+      close da letra que eu troco.
+    */
+    body { background: var(--marinho); color: var(--texto); font-family: "Poppins", system-ui, sans-serif; }
 
     .entrada-topo {
       position: sticky; top: 0; z-index: 20;
@@ -113,13 +125,26 @@
 
     .hero { padding: 84px 20px 70px; text-align: center; position: relative; overflow: hidden; }
     .hero::before {
-      /* O "mar ao entardecer" que o site atual usa em foto — aqui é gradiente,
-         porque o Hub não tem nenhuma foto real da escola ainda (ver aviso no
-         resumo). Troca por uma foto de verdade é só editar este background. */
+      /* Gradiente de fundo — o que aparece enquanto não há foto (ou vídeo)
+         nenhum cadastrado no carrossel do topo, na tela Site → Fotos da
+         página. Some sozinho embaixo das fotos quando elas existem, porque
+         está no mesmo z-index e o carrossel vem depois no HTML. */
       content: ""; position: absolute; inset: 0; z-index: -1;
       background:
         radial-gradient(ellipse 900px 500px at 50% -10%, var(--marinho-3), transparent),
         linear-gradient(180deg, var(--marinho) 0%, var(--marinho-2) 100%);
+    }
+    .hero-carrossel { position: absolute; inset: 0; z-index: -1; }
+    .hero-carrossel img {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+      opacity: 0; transition: opacity 1.2s ease;
+    }
+    .hero-carrossel img.ativa { opacity: 1; }
+    .hero-carrossel::after {
+      /* Escurece a foto por baixo do texto — sem isto o dourado e o branco
+         somem contra uma foto clara. */
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(11,20,64,.45), rgba(11,20,64,.88));
     }
     .hero h1 { font-size: 40px; line-height: 1.15; max-width: 720px; margin: 0 auto 16px; }
     .hero p.sub { font-size: 17px; color: var(--texto-2); max-width: 560px; margin: 0 auto 30px; }
@@ -147,11 +172,21 @@
     .sobre-numeros div b { display: block; font-size: 26px; color: var(--dourado); }
     .sobre-numeros div span { font-size: 13px; color: var(--texto-2); }
     .sobre-placeholder {
-      /* Sem foto real da escola ainda — ver aviso no resumo da entrega. */
+      /* Enquanto não há foto cadastrada em Site → Fotos da página. */
       aspect-ratio: 4/3; border-radius: 16px; border: 1px solid var(--linha);
       background: linear-gradient(135deg, var(--marinho-2), var(--marinho-3));
       display: flex; align-items: center; justify-content: center;
       color: var(--texto-2); font-size: 14px; text-align: center; padding: 20px;
+    }
+    .sobre-foto {
+      aspect-ratio: 4/3; border-radius: 16px; border: 1px solid var(--linha);
+      width: 100%; object-fit: cover; display: block;
+    }
+
+    .cartaz { text-align: center; }
+    .cartaz img {
+      max-width: 100%; width: 460px; border-radius: 16px;
+      box-shadow: var(--sombra-fixa); display: inline-block;
     }
 
     .categorias-grade { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
@@ -167,7 +202,11 @@
     .grade-unidades { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
     .cartao-unidade {
       background: var(--marinho-2); border: 1px solid var(--linha); border-radius: 14px; padding: 20px;
-      display: flex; flex-direction: column; gap: 10px;
+      display: flex; flex-direction: column; gap: 10px; overflow: hidden;
+    }
+    .foto-unidade {
+      aspect-ratio: 16/10; object-fit: cover; width: calc(100% + 40px);
+      margin: -20px -20px 0; display: block;
     }
     .cartao-unidade h3 { font-size: 18px; }
     .cartao-unidade .end { color: var(--texto-2); font-size: 13.5px; line-height: 1.5; flex: 1; }
@@ -268,6 +307,7 @@
 </nav>
 
 <section class="hero">
+  <div class="hero-carrossel" id="heroCarrossel" hidden></div>
   <div class="selo-anos">🏐 Há mais de 10 anos na areia</div>
   <h1>Vôlei de praia para toda a família</h1>
   <p class="sub">
@@ -326,11 +366,21 @@
   </p>
 </section>
 
+<section class="faixa cartaz" id="secao-horarios" hidden>
+  <h2>Horários</h2>
+  <img alt="">
+</section>
+
 <section class="faixa unidades" id="unidades">
   <h2>Unidades</h2>
   <div id="listaUnidades" class="grade-unidades">
     <div class="cartao-unidade"><span class="end">Carregando…</span></div>
   </div>
+</section>
+
+<section class="faixa cartaz" id="secao-valores" hidden>
+  <h2>Valores</h2>
+  <img alt="">
 </section>
 
 <section class="faixa avaliacoes" id="avaliacoes">
@@ -378,29 +428,53 @@
 import { api, escapar } from "/app.js";
 
 /**
- * Unidades e o botão de WhatsApp vêm do mesmo catálogo que a matrícula usa
- * (/publico/catalogo) — não existe uma segunda lista de unidades mantida à
- * mão aqui. É exatamente o problema que o site atual tem hoje (duas seções
- * "Sobre Nós" com números diferentes, uma unidade encerrada que continua
- * aparecendo): sem fonte única, o texto desalinha da realidade e ninguém
- * percebe até uma família ligar perguntando por uma unidade que já fechou.
+ * O botão de WhatsApp vem do /publico/catalogo (é lá que WHATSAPP_COMERCIAL
+ * aparece). As unidades desta página vêm de /publico/unidades, não do
+ * catálogo: o catálogo só lista quem tem turma com vaga aberta agora (é o
+ * funil de matrícula), e a vitrine da página de entrada não deveria sumir
+ * uma unidade real só porque as turmas da vez estão cheias — mesmo
+ * problema do site atual em espelho: lá, uma unidade FECHADA (Lagoa
+ * Grande) continuava aparecendo; aqui o risco oposto seria pior.
+ *
+ * Cada seção roda em sua própria tentativa: uma falhar (galeria fora do ar,
+ * Instagram sem token válido, Google sem chave) não pode travar as outras —
+ * a página inteira não depende de nenhuma integração externa para existir.
  */
 async function iniciar() {
   try {
-    const catalogo = await api("/publico/catalogo");
-    pintarUnidades(catalogo.unidades);
-    pintarWhatsapp(catalogo.whatsapp);
+    pintarWhatsapp((await api("/publico/catalogo")).whatsapp);
+  } catch {
+    // Botão já nasce escondido — sem WHATSAPP_COMERCIAL ou com o catálogo
+    // fora do ar, o efeito na tela é o mesmo.
+  }
+
+  try {
+    pintarUnidades(await api("/publico/unidades"));
   } catch {
     document.getElementById("listaUnidades").innerHTML =
       `<div class="cartao-unidade"><span class="end">Não foi possível carregar as unidades agora.</span></div>`;
   }
-  // Numa aba própria: a galeria não pode travar a lista de unidades (que
-  // decide se a matrícula funciona) se ela por acaso falhar.
+
   try {
-    pintarGaleria(await api("/publico/galeria"));
+    pintarImagens(await api("/publico/imagens"));
   } catch {
-    // Sem galeria, a seção "Siga-nos" cai para só o botão do Instagram —
-    // ela já nasce preparada pra esse estado, então não precisa de nada aqui.
+    // Carrossel, "Sobre nós", horários e valores ficam no estado padrão
+    // (placeholder ou seção escondida) — nenhum é obrigatório.
+  }
+
+  try {
+    const posts = await api("/publico/instagram");
+    if (posts.length) pintarGaleria(posts, true);
+    else pintarGaleria(await api("/publico/galeria"), false);
+  } catch {
+    // Sem galeria nem Instagram, a seção "Siga-nos" cai para só o botão —
+    // ela já nasce preparada pra esse estado.
+  }
+
+  try {
+    pintarAvaliacoes(await api("/publico/avaliacoes"));
+  } catch {
+    // Fica com os depoimentos fixos que já estão na página.
   }
 }
 
@@ -424,11 +498,12 @@ function linkEmbutidoDoMapa(nome, endereco) {
 function pintarUnidades(unidades) {
   const alvo = document.getElementById("listaUnidades");
   if (!unidades.length) {
-    alvo.innerHTML = `<div class="cartao-unidade"><span class="end">Nenhuma turma com matrícula aberta no momento.</span></div>`;
+    alvo.innerHTML = `<div class="cartao-unidade"><span class="end">Nenhuma unidade cadastrada no momento.</span></div>`;
     return;
   }
   alvo.innerHTML = unidades.map((u, i) => `
     <div class="cartao-unidade">
+      ${u.fotoBase64 ? `<img class="foto-unidade" src="${u.fotoBase64}" alt="${escapar(u.nome)}" loading="lazy">` : ""}
       <h3>${escapar(u.nome)}</h3>
       <span class="end">${u.endereco ? escapar(u.endereco) : "Endereço a confirmar"}</span>
       <div class="acoes-mapa">
@@ -455,16 +530,91 @@ function pintarUnidades(unidades) {
   });
 }
 
-function pintarGaleria(fotos) {
-  if (!fotos.length) return; // sem foto nenhuma cadastrada, só o botão do Instagram fica
+/**
+ * Mesma grade para os dois casos: posts de verdade do Instagram (quando a
+ * integração está conectada, ver Site → Integrações) e a galeria manual
+ * (quando não está, ou quando ela ainda não trouxe nada). `ehInstagram`
+ * escolhe os nomes de campo certos — só isso muda entre os dois.
+ */
+function pintarGaleria(fotos, ehInstagram) {
+  if (!fotos.length) return; // sem foto nenhuma, só o botão do Instagram fica
   const alvo = document.getElementById("galeriaFotos");
   alvo.hidden = false;
   alvo.innerHTML = fotos.map((f) => {
-    const img = `<img src="${f.imagemBase64}" alt="${escapar(f.legenda || "Foto do SE7 Vôlei de Praia")}" loading="lazy">`;
-    return f.linkInstagram
-      ? `<a class="azulejo" href="${escapar(f.linkInstagram)}" target="_blank" rel="noopener noreferrer">${img}</a>`
+    const src = ehInstagram ? f.imagemUrl : f.imagemBase64;
+    const link = ehInstagram ? f.permalink : f.linkInstagram;
+    const img = `<img src="${src}" alt="${escapar(f.legenda || "Foto do SE7 Vôlei de Praia")}" loading="lazy">`;
+    return link
+      ? `<a class="azulejo" href="${escapar(link)}" target="_blank" rel="noopener noreferrer">${img}</a>`
       : `<span class="azulejo">${img}</span>`;
   }).join("");
+}
+
+/** Carrossel do topo, "Sobre nós", e os cartazes de horários e valores — ver PaginaImagem no schema. */
+function pintarImagens({ carrossel, sobreNos, horarios, valores }) {
+  if (carrossel?.length) pintarCarrossel(carrossel);
+
+  if (sobreNos) {
+    const placeholder = document.querySelector(".sobre-placeholder");
+    if (placeholder) {
+      const img = document.createElement("img");
+      img.className = "sobre-foto";
+      img.src = sobreNos.imagemBase64;
+      img.alt = sobreNos.legenda || "Foto da escola";
+      img.loading = "lazy";
+      placeholder.replaceWith(img);
+    }
+  }
+
+  for (const [id, imagem] of [["horarios", horarios], ["valores", valores]]) {
+    if (!imagem) continue;
+    const secao = document.getElementById(`secao-${id}`);
+    const img = secao.querySelector("img");
+    img.src = imagem.imagemBase64;
+    img.alt = imagem.legenda || "";
+    img.loading = "lazy";
+    secao.hidden = false;
+  }
+}
+
+function pintarCarrossel(imagens) {
+  const alvo = document.getElementById("heroCarrossel");
+  alvo.hidden = false;
+  alvo.innerHTML = imagens.map((img, i) =>
+    `<img src="${img.imagemBase64}" alt="${escapar(img.legenda || "SE7 Vôlei de Praia")}" class="${i === 0 ? "ativa" : ""}">`,
+  ).join("");
+
+  if (imagens.length <= 1) return;
+  const fotos = alvo.querySelectorAll("img");
+  let atual = 0;
+  setInterval(() => {
+    fotos[atual].classList.remove("ativa");
+    atual = (atual + 1) % fotos.length;
+    fotos[atual].classList.add("ativa");
+  }, 5000);
+}
+
+/** As avaliações do Google Maps, quando a integração está configurada e respondeu. */
+function pintarAvaliacoes(resposta) {
+  if (!resposta?.configurado || !resposta.disponivel) return; // fica com os depoimentos fixos
+  const { nota, total, avaliacoes } = resposta.dados;
+  const estrelas = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
+
+  if (nota != null) {
+    const selo = document.querySelector("#avaliacoes .selo-google");
+    selo.innerHTML = `
+      <span class="estrelas">${estrelas(nota)}</span>
+      <span>${nota.toFixed(1)} — ${total ?? 0} avaliações no Google</span>`;
+  }
+
+  if (avaliacoes.length) {
+    document.querySelector("#avaliacoes .grade-depoimentos").innerHTML = avaliacoes.slice(0, 4).map((a) => `
+      <div class="depoimento">
+        <div class="estrelas">${estrelas(a.nota)}</div>
+        <p>"${escapar(a.texto || "")}"</p>
+        <div class="quem">${escapar(a.autor)}</div>
+      </div>`).join("");
+  }
 }
 
 function pintarWhatsapp(numero) {

@@ -19,6 +19,7 @@ import {
   agendarCopiaDeOcupacao,
   copiarOcupacaoParaCobrancas,
 } from "./modules/socios/ocupacao-cobrancas.js";
+import { agendarSincronizacaoInstagram, sincronizarInstagram } from "./modules/publico/instagram.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
 import { tratadorDeErro } from "./lib/erros.js";
@@ -135,6 +136,12 @@ async function main() {
       if (r.gravado) app.log.info({ turmas: r.turmas }, "ocupacao copiada para o se7-cobrancas");
     })
     .catch((erro) => app.log.error({ erro }, "falha ao copiar ocupacao para o se7-cobrancas"));
+
+  // Posts do Instagram: mesmo padrão — roda uma vez agora (sem efeito se a
+  // integração não estiver configurada, ver instagram.ts) e agenda a
+  // próxima janela diária, de madrugada.
+  agendarSincronizacaoInstagram();
+  sincronizarInstagram().catch((erro) => app.log.error({ erro }, "falha ao sincronizar Instagram"));
 }
 
 main().catch((err) => {

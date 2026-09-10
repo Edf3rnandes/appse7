@@ -23,7 +23,7 @@ quanto para reinstalar por cima de uma tentativa que deu errado.
 O que ele faz:
 
 1. confere se há cadastro de verdade no schema `hub` — e **para** se houver;
-2. cria o schema `hub` e as **23 tabelas** do sistema;
+2. cria o schema `hub` e as **25 tabelas** do sistema;
 3. acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
 
 O que ele **não** faz: encostar em qualquer coisa fora do `hub`. As tabelas do
@@ -84,6 +84,7 @@ precisam ser preenchidas à mão:
 | `GOOGLE_CLIENT_ID` | o ID do projeto no Google Cloud | só para o login com Google |
 | `ASAAS_API_KEY` | a chave da conta | só para ver cobranças; **ela sozinha não emite nada** |
 | `WHATSAPP_COMERCIAL` | o número da escola, só dígitos com DDI (ex. `5583999999999`) | só para o botão "Fale conosco" da página de entrada |
+| `GOOGLE_PLACES_API_KEY` | uma chave da Places API, no mesmo projeto do Google Cloud do login | só para as avaliações de verdade do Google Maps na página de entrada |
 
 `JWT_SECRET` o Render gera sozinho. `TZ` e `CEP_BASE_URL` já vêm preenchidas.
 As quatro `LEGACY_MYSQL_*` podem ficar vazias — não são mais necessárias.
@@ -169,8 +170,16 @@ celular.
 
 Tudo, menos os alunos que ainda estão lá:
 
-- página de entrada com informação da escola — unidades, endereços e mapa —
-  puxada das mesmas unidades cadastradas, nunca digitada duas vezes;
+- página de entrada com informação da escola — unidades (com foto), endereços
+  e mapa embutido — puxada das mesmas unidades cadastradas, nunca digitada
+  duas vezes; carrossel do topo, foto de "Sobre nós" e cartazes de horários e
+  valores, todos editáveis pelo Administrativo (Site → Fotos da página), sem
+  precisar de deploy para trocar uma imagem;
+- últimos posts do Instagram de verdade na página de entrada, e avaliações de
+  verdade do Google Maps — as duas integrações precisam de uma configuração
+  de uma vez só, feita pelo dono da conta (Administrativo → Site →
+  Integrações explica o passo a passo). Sem configurar, a página mostra uma
+  galeria editável à mão e os depoimentos fixos — nunca fica vazia;
 - as 46 turmas e os 43 planos, com horários e condições contratuais;
 - matrícula pelo site, nos quatro passos, com endereço e busca por CEP;
 - cadastro de aluno, matrícula de família e renovação pelo administrativo;
@@ -200,7 +209,7 @@ Este roteiro foi executado inteiro num banco Postgres limpo, com o schema
 `public` já ocupado por tabelas de outro sistema, para reproduzir o Supabase de
 vocês:
 
-- o script criou 23 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
+- o script criou 25 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
   só acrescentou a coluna `observacoes`;
 - as 46 turmas e os 43 planos entraram;
 - as cinco telas abriram, sem um único erro de JavaScript.

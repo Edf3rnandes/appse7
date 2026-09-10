@@ -91,7 +91,13 @@
         <button class="item-menu" data-painel="painelSemanas">Cronograma</button>
         <button class="item-menu" data-painel="painelEventos">Eventos</button>
         <button class="item-menu" data-painel="painelAvisos">Avisos</button>
-        <button class="item-menu" data-painel="painelGaleria">Site: galeria</button>
+      </details>
+
+      <details class="grupo" open data-grupo="site">
+        <summary class="grupo-titulo">Site</summary>
+        <button class="item-menu" data-painel="painelSiteImagens">Fotos da página</button>
+        <button class="item-menu" data-painel="painelGaleria">Galeria (Instagram manual)</button>
+        <button class="item-menu" data-painel="painelIntegracoes">Integrações</button>
       </details>
     </nav>
 
@@ -117,6 +123,8 @@
       <section id="painelEventos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelAvisos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelGaleria" hidden><div class="carregando">Carregando…</div></section>
+      <section id="painelSiteImagens" hidden><div class="carregando">Carregando…</div></section>
+      <section id="painelIntegracoes" hidden><div class="carregando">Carregando…</div></section>
     </div>
   </div>
 </main>
@@ -218,7 +226,9 @@ const SECOES = {
   painelSemanas:     { titulo: "Cronograma",  carregar: () => carregarSemanas() },
   painelEventos:     { titulo: "Eventos",     carregar: () => carregarEventos() },
   painelAvisos:      { titulo: "Avisos",      carregar: () => carregarAvisos() },
-  painelGaleria:     { titulo: "Site: galeria", carregar: () => carregarGaleria() },
+  painelGaleria:     { titulo: "Galeria (Instagram manual)", carregar: () => carregarGaleria() },
+  painelSiteImagens: { titulo: "Fotos da página de entrada", carregar: () => carregarSiteImagens() },
+  painelIntegracoes: { titulo: "Integrações",  carregar: () => carregarIntegracoes() },
 };
 
 const jaCarregadas = new Set();
@@ -2770,7 +2780,9 @@ function ligarFormularioTurma() {
 // histórico de quem já tinha passado pela escola.
 
 function cadastroSimples(config) {
-  const estado = { itens: [], editando: null, aberto: false, erro: "" };
+  // imagens: nome do campo -> dataURL nova escolhida nesta sessão de edição.
+  // Ausente = mantém a foto que já está gravada; string = trocar; null = apagar.
+  const estado = { itens: [], editando: null, aberto: false, erro: "", imagens: {} };
 
   async function carregar() {
     const painel = el(config.painelId);
@@ -2815,6 +2827,7 @@ function cadastroSimples(config) {
       estado.editando = null;
       estado.aberto = true;
       estado.erro = "";
+      estado.imagens = {};
       pintar();
     });
 
@@ -2823,6 +2836,7 @@ function cadastroSimples(config) {
         estado.editando = estado.itens.find((i) => i.id === b.dataset.editar);
         estado.aberto = true;
         estado.erro = "";
+        estado.imagens = {};
         pintar();
       }));
 
@@ -2860,6 +2874,24 @@ function cadastroSimples(config) {
                 <span>${escapar(c.rotulo)}</span>
               </label>`;
             }
+            if (c.tipo === "imagem") {
+              const pendente = estado.imagens[c.nome];
+              // undefined = ainda não mexeu (mostra a foto gravada, se houver);
+              // null = marcou "remover"; string = já escolheu uma nova.
+              const preview = pendente === undefined ? atual[c.nome] : pendente;
+              return `<div class="campo largo">
+                <label class="rotulo" for="campo_${c.nome}">${escapar(c.rotulo)}</label>
+                <input type="file" id="campo_${c.nome}" accept="image/*">
+                <div id="campo_${c.nome}_previa" style="margin-top:10px">
+                  ${preview
+                    ? `<img src="${preview}" alt="Prévia" style="max-width:200px;border-radius:10px;display:block">`
+                    : `<div class="vazio-arte">Nenhuma foto.</div>`}
+                </div>
+                <span class="ajuda" id="campo_${c.nome}_info"></span>
+                ${preview ? `<button class="botao fantasma pequeno" type="button" data-remover-imagem="${c.nome}" style="margin-top:6px;align-self:flex-start">Remover foto</button>` : ""}
+                ${c.ajuda ? `<span class="meta">${escapar(c.ajuda)}</span>` : ""}
+              </div>`;
+            }
             return `<div class="campo">
               <label class="rotulo" for="campo_${c.nome}">${escapar(c.rotulo)}</label>
               <input id="campo_${c.nome}" type="${c.tipo ?? "text"}"
@@ -2884,6 +2916,29 @@ function cadastroSimples(config) {
       pintar();
     });
 
+    for (const c of config.campos) {
+      if (c.tipo !== "imagem") continue;
+      el(`campo_${c.nome}`).addEventListener("change", async (evento) => {
+        const arquivo = evento.target.files?.[0];
+        if (!arquivo) return;
+        const info = el(`campo_${c.nome}_info`);
+        info.textContent = "Preparando a imagem…";
+        try {
+          const { dataUrl } = await prepararImagem(arquivo);
+          estado.imagens[c.nome] = dataUrl;
+          pintar();
+        } catch (e) {
+          info.textContent = e.message;
+        }
+      });
+    }
+
+    painel.querySelectorAll("[data-remover-imagem]").forEach((b) =>
+      b.addEventListener("click", () => {
+        estado.imagens[b.dataset.removerImagem] = null;
+        pintar();
+      }));
+
     painel.querySelector("[data-salvar]").addEventListener("click", async () => {
       const botao = painel.querySelector("[data-salvar]");
       botao.disabled = true;
@@ -2891,6 +2946,20 @@ function cadastroSimples(config) {
 
       const corpo = {};
       for (const c of config.campos) {
+        if (c.tipo === "imagem") {
+          const pendente = estado.imagens[c.nome];
+          // undefined: não mexeu, mantém a foto atual (nem manda o campo).
+          if (pendente !== undefined) corpo[c.nome] = pendente;
+          else if (!estado.editando && c.obrigatorio) {
+            estado.erro = `Escolha uma foto para "${c.rotulo}".`;
+            botao.disabled = false;
+            botao.textContent = "Salvar";
+            painel.querySelector("[data-recado]").textContent = estado.erro;
+            painel.querySelector("[data-recado]").classList.remove("oculto");
+            return;
+          }
+          continue;
+        }
         const campo = el(`campo_${c.nome}`);
         if (c.tipo === "checkbox") corpo[c.nome] = campo.checked;
         else if (c.tipo === "number") {
@@ -2914,6 +2983,7 @@ function cadastroSimples(config) {
         estado.aberto = false;
         estado.editando = null;
         estado.erro = "";
+        estado.imagens = {};
         await carregar();
         config.aoMudar?.();
       } catch (e) {
@@ -2947,7 +3017,9 @@ const carregarUnidades = cadastroSimples({
     { nome: "nome", rotulo: "Nome", obrigatorio: true, dica: "Cabo Branco" },
     { nome: "endereco", rotulo: "Endereço", dica: "Av. Cabo Branco, altura do posto 3" },
     { nome: "descricao", rotulo: "Observação" },
-    { nome: "ativa", rotulo: "Ativa", tipo: "checkbox", padrao: true },
+    { nome: "fotoBase64", rotulo: "Foto (aparece na página de entrada)", tipo: "imagem" },
+    { nome: "ativa", rotulo: "Ativa — aparece na página de entrada e na matrícula",
+      tipo: "checkbox", padrao: true },
   ],
   resumo: (u) => ({
     titulo: u.nome,
@@ -3851,6 +3923,356 @@ function ligarFormGaleria(editandoId = null) {
         painel.insertAdjacentHTML("afterbegin", aviso(e));
       }
     }));
+}
+
+// ============================================================ FOTOS DA PÁGINA
+//
+// Carrossel do topo, "Sobre nós", horários e valores — as quatro seções de
+// imagem da página de entrada (ver PaginaImagem no schema). Mesmo slot só
+// aceita mais de uma foto ativa no carrossel; nos outros três, apagar a
+// foto atual é o jeito de trocar — evita a ambiguidade de duas fotos de
+// "Sobre nós" ativas ao mesmo tempo.
+let paginaImagens = [];
+let imagemPaginaEmEdicao;
+let imagemPaginaSlotAtual = null;
+
+const SLOTS_INFO = {
+  CARROSSEL: { titulo: "Carrossel do topo",
+    ajuda: "Aparecem em rotação no topo da página. Pode ter várias.", multiplo: true },
+  SOBRE_NOS: { titulo: "Foto de “Sobre nós”",
+    ajuda: "Substitui o quadro “Foto da escola em breve”.", multiplo: false },
+  HORARIOS: { titulo: "Cartaz de horários",
+    ajuda: "Opcional — a seção só aparece na página quando há uma foto aqui.", multiplo: false },
+  VALORES: { titulo: "Cartaz de valores",
+    ajuda: "Opcional — a seção só aparece na página quando há uma foto aqui.", multiplo: false },
+};
+
+async function carregarSiteImagens() {
+  const painel = el("painelSiteImagens");
+  try {
+    paginaImagens = await api("/conteudo/imagens");
+    pintarSiteImagens();
+  } catch (e) {
+    painel.innerHTML = aviso(e);
+  }
+}
+
+function pintarSiteImagens() {
+  el("painelSiteImagens").innerHTML =
+    Object.entries(SLOTS_INFO).map(([slot, info]) => cartaoSlotImagem(slot, info)).join("");
+  ligarSiteImagens();
+}
+
+function cartaoSlotImagem(slot, info) {
+  const itens = paginaImagens.filter((i) => i.slot === slot);
+  const podeAdicionar = info.multiplo || itens.length === 0;
+  return `
+    <div class="cartao" style="margin-bottom:16px">
+      <div class="linha" style="margin-bottom:4px"><strong>${escapar(info.titulo)}</strong></div>
+      <p class="meta" style="margin:0 0 12px">${escapar(info.ajuda)}</p>
+      ${itens.length === 0 ? `<div class="vazio">Nenhuma foto ainda.</div>` : `
+        <div class="pilha" style="gap:10px;margin-bottom:12px">
+          ${itens.map((i) => `
+            <div class="item">
+              <div class="corpo" style="display:flex;gap:12px;align-items:center">
+                <img src="${i.imagemBase64}" alt="" width="56" height="56"
+                     style="object-fit:cover;border-radius:8px;flex:none">
+                <div style="min-width:0">
+                  <div class="titulo">${i.legenda ? escapar(i.legenda) : "(sem legenda)"}</div>
+                  ${info.multiplo ? `<div class="detalhe">ordem ${i.ordem}</div>` : ""}
+                </div>
+              </div>
+              <div class="lado">
+                <button class="botao fantasma pequeno" type="button" data-apagar-imagem-pagina="${i.id}">Apagar</button>
+              </div>
+            </div>`).join("")}
+        </div>`}
+      ${imagemPaginaSlotAtual === slot
+        ? formImagemPagina(slot, info, itens.length)
+        : podeAdicionar
+          ? `<button class="botao secundario pequeno" type="button" data-add-imagem-pagina="${slot}">Adicionar foto</button>`
+          : `<span class="meta">Apague a foto atual para trocar.</span>`}
+    </div>`;
+}
+
+function formImagemPagina(slot, info) {
+  return `
+    <form class="cartao" data-form-imagem-pagina="${slot}" style="margin-top:10px;padding:14px">
+      <div class="campo largo">
+        <input type="file" id="arquivoImagemPagina" accept="image/*">
+        <div id="previaImagemPagina" style="margin-top:10px"><div class="vazio-arte">Nenhuma foto escolhida.</div></div>
+        <span class="ajuda" id="infoImagemPagina"></span>
+      </div>
+      <div class="campo largo" style="margin-top:10px">
+        <label class="rotulo" for="legendaImagemPagina">Legenda (opcional)</label>
+        <input id="legendaImagemPagina" maxlength="300">
+      </div>
+      ${info.multiplo ? `
+        <div class="campo" style="margin-top:10px">
+          <label class="rotulo" for="ordemImagemPagina">Ordem</label>
+          <input id="ordemImagemPagina" type="number" value="${paginaImagens.filter((i) => i.slot === slot).length}">
+        </div>` : ""}
+      <div class="aviso erro oculto" id="recadoImagemPagina" style="margin-top:10px"></div>
+      <div class="barra-acoes" style="margin-top:12px">
+        <button class="botao" type="submit">Salvar</button>
+        <button class="botao fantasma" type="button" data-cancelar-imagem-pagina>Cancelar</button>
+      </div>
+    </form>`;
+}
+
+function ligarSiteImagens() {
+  const painel = el("painelSiteImagens");
+
+  painel.querySelectorAll("[data-add-imagem-pagina]").forEach((b) =>
+    b.addEventListener("click", () => {
+      imagemPaginaSlotAtual = b.dataset.addImagemPagina;
+      imagemPaginaEmEdicao = undefined;
+      pintarSiteImagens();
+    }));
+
+  painel.querySelectorAll("[data-cancelar-imagem-pagina]").forEach((b) =>
+    b.addEventListener("click", () => {
+      imagemPaginaSlotAtual = null;
+      pintarSiteImagens();
+    }));
+
+  painel.querySelectorAll("[data-apagar-imagem-pagina]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar esta foto? Não dá para desfazer.")) return;
+      try {
+        await api(`/conteudo/imagens/${b.dataset.apagarImagemPagina}`, { method: "DELETE" });
+        await carregarSiteImagens();
+      } catch (e) {
+        painel.insertAdjacentHTML("afterbegin", aviso(e));
+      }
+    }));
+
+  const form = painel.querySelector("[data-form-imagem-pagina]");
+  if (!form) return;
+  const slot = form.dataset.formImagemPagina;
+  const info = SLOTS_INFO[slot];
+
+  el("arquivoImagemPagina").addEventListener("change", async (evento) => {
+    const arquivo = evento.target.files?.[0];
+    if (!arquivo) return;
+    const infoTexto = el("infoImagemPagina");
+    infoTexto.textContent = "Preparando a imagem…";
+    try {
+      const { dataUrl, largura, altura } = await prepararImagem(arquivo);
+      imagemPaginaEmEdicao = dataUrl;
+      el("previaImagemPagina").innerHTML =
+        `<img src="${dataUrl}" alt="Prévia" style="max-width:200px;border-radius:10px;display:block">`;
+      infoTexto.textContent = `${largura}×${altura}`;
+    } catch (e) {
+      infoTexto.textContent = "";
+      const recado = el("recadoImagemPagina");
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+    }
+  });
+
+  form.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoImagemPagina");
+    recado.classList.add("oculto");
+    if (!imagemPaginaEmEdicao) {
+      recado.textContent = "Escolha uma foto.";
+      recado.classList.remove("oculto");
+      return;
+    }
+    const botao = form.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    botao.textContent = "Salvando…";
+    try {
+      await api("/conteudo/imagens", {
+        method: "POST",
+        body: JSON.stringify({
+          slot,
+          imagemBase64: imagemPaginaEmEdicao,
+          legenda: el("legendaImagemPagina").value.trim() || undefined,
+          ordem: info.multiplo ? Number(el("ordemImagemPagina")?.value || 0) : 0,
+        }),
+      });
+      imagemPaginaSlotAtual = null;
+      imagemPaginaEmEdicao = undefined;
+      await carregarSiteImagens();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+      botao.textContent = "Salvar";
+    }
+  });
+}
+
+// ============================================================== INTEGRAÇÕES
+//
+// Instagram (posts de verdade) e avaliações do Google Maps — as duas
+// dependem de credencial que só o dono da conta consegue gerar, fora deste
+// sistema. Ver o cabeçalho de src/modules/publico/instagram.ts e
+// src/modules/publico/avaliacoes.ts.
+async function carregarIntegracoes() {
+  const painel = el("painelIntegracoes");
+  try {
+    const [instagram, config] = await Promise.all([
+      api("/conteudo/config/instagram"),
+      api("/conteudo/config"),
+    ]);
+    painel.innerHTML = cartaoInstagram(instagram) + cartaoGoogle(config);
+    ligarIntegracoes();
+  } catch (e) {
+    painel.innerHTML = aviso(e);
+  }
+}
+
+function cartaoInstagram(s) {
+  const data = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "—");
+  if (s.conectado) {
+    const falhou = s.ultimaSincronia?.status === "erro";
+    return `
+      <div class="cartao" style="margin-bottom:16px">
+        <div class="linha" style="margin-bottom:8px">
+          <strong>Instagram</strong>
+          <span class="pilula ${falhou ? "erro" : "ok"}">${falhou ? "Com problema" : "Conectado"}</span>
+        </div>
+        <p class="meta" style="margin:0 0 4px">Conta: ${escapar(s.contaId)}</p>
+        <p class="meta" style="margin:0 0 4px">Token válido até ${data(s.expiraEm)} (renova sozinho antes disso)</p>
+        <p class="meta" style="margin:0 0 14px">
+          Última sincronia: ${s.ultimaSincronia
+            ? `${s.ultimaSincronia.status === "ok" ? "OK" : "Falhou"} em ${data(s.ultimaSincronia.em)} — ${escapar(s.ultimaSincronia.mensagem)}`
+            : "ainda não rodou"}
+          · ${s.qtdPosts} post(s) em cache
+        </p>
+        <div class="barra-acoes">
+          <button class="botao secundario" type="button" data-sincronizar-instagram>Sincronizar agora</button>
+          <button class="botao perigo" type="button" data-desconectar-instagram>Desconectar</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="cartao" style="margin-bottom:16px">
+      <div class="linha" style="margin-bottom:8px">
+        <strong>Instagram</strong><span class="pilula neutra">Não conectado</span>
+      </div>
+      <p class="meta" style="margin:0 0 12px">
+        Enquanto não conectar, a página de entrada mostra a galeria manual (aba "Galeria").
+        Passo a passo, uma vez só, feito pelo dono da conta em developers.facebook.com:
+      </p>
+      <ol style="margin:0 0 14px;padding-left:18px;font-size:13.5px;color:var(--ink-3)">
+        <li>Crie um app em developers.facebook.com e adicione o produto "Instagram".</li>
+        <li>Em "Testadores da API do Instagram", adicione a própria conta (precisa ser perfil
+          Business ou Criador de conteúdo) e aceite o convite dentro do app do Instagram.</li>
+        <li>Gere um token de acesso de vida longa com a permissão <code>instagram_business_basic</code>,
+          e pegue o ID da conta (Graph API Explorer, ou <code>GET /me?fields=id,username</code>).</li>
+        <li>Cole os dois abaixo.</li>
+      </ol>
+      <form class="pilha" style="gap:10px" data-form-instagram>
+        <div class="campo">
+          <label class="rotulo" for="instaContaId">ID da conta do Instagram</label>
+          <input id="instaContaId">
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="instaToken">Token de acesso</label>
+          <input id="instaToken" type="password">
+        </div>
+        <div class="aviso erro oculto" id="recadoInstagram"></div>
+        <button class="botao" type="submit">Conectar</button>
+      </form>
+    </div>`;
+}
+
+function cartaoGoogle(config) {
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:8px">
+        <strong>Avaliações do Google Maps</strong>
+        <span class="pilula ${config.googlePlaceId ? "ok" : "neutra"}">${config.googlePlaceId ? "Configurado" : "Não configurado"}</span>
+      </div>
+      <p class="meta" style="margin:0 0 12px">
+        Também precisa da variável de ambiente GOOGLE_PLACES_API_KEY no servidor (Render →
+        Environment), uma chave da Places API do Google Cloud. Sem ela, mesmo com o Place ID
+        certo aqui, a página segue mostrando os depoimentos fixos.
+      </p>
+      <form class="pilha" style="gap:10px" data-form-google>
+        <div class="campo">
+          <label class="rotulo" for="googlePlaceId">Place ID</label>
+          <input id="googlePlaceId" value="${escapar(config.googlePlaceId || "")}" placeholder="ChIJ…">
+          <span class="ajuda">Procure o nome e o endereço da escola em
+            developers.google.com/maps/documentation/places/web-service/place-id e copie o ID.</span>
+        </div>
+        <div class="aviso erro oculto" id="recadoGoogle"></div>
+        <button class="botao" type="submit">Salvar</button>
+      </form>
+    </div>`;
+}
+
+function ligarIntegracoes() {
+  const painel = el("painelIntegracoes");
+
+  painel.querySelector("[data-sincronizar-instagram]")?.addEventListener("click", async (evento) => {
+    const botao = evento.currentTarget;
+    botao.disabled = true;
+    botao.textContent = "Sincronizando…";
+    try {
+      await api("/conteudo/config/instagram/sincronizar", { method: "POST" });
+    } catch {
+      // O estado (ok/erro) já fica registrado no servidor e aparece no recarregamento abaixo.
+    }
+    await carregarIntegracoes();
+  });
+
+  painel.querySelector("[data-desconectar-instagram]")?.addEventListener("click", async () => {
+    if (!confirm("Desconectar o Instagram? A página volta a mostrar a galeria manual.")) return;
+    await api("/conteudo/config/instagram", { method: "DELETE" });
+    await carregarIntegracoes();
+  });
+
+  const formInsta = painel.querySelector("[data-form-instagram]");
+  formInsta?.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoInstagram");
+    recado.classList.add("oculto");
+    const botao = formInsta.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    botao.textContent = "Conectando…";
+    try {
+      await api("/conteudo/config/instagram", {
+        method: "PUT",
+        body: JSON.stringify({
+          contaId: el("instaContaId").value.trim(),
+          accessToken: el("instaToken").value.trim(),
+        }),
+      });
+      await carregarIntegracoes();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+      botao.textContent = "Conectar";
+    }
+  });
+
+  const formGoogle = painel.querySelector("[data-form-google]");
+  formGoogle?.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoGoogle");
+    recado.classList.add("oculto");
+    const botao = formGoogle.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    botao.textContent = "Salvando…";
+    try {
+      await api("/conteudo/config", {
+        method: "PUT",
+        body: JSON.stringify({ googlePlaceId: el("googlePlaceId").value.trim() }),
+      });
+      await carregarIntegracoes();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+      botao.textContent = "Salvar";
+    }
+  });
 }
 
 // ============================================================ COLABORADORES

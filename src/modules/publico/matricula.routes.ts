@@ -13,6 +13,7 @@ import {
   CepInvalidoError,
 } from "../../services/cep/cep.client.js";
 import { whatsappComercial } from "../../config/env.js";
+import { buscarAvaliacoesGoogle } from "./avaliacoes.js";
 
 /**
  * Matrícula pelo site — o que a família preenche.
@@ -251,6 +252,67 @@ export async function publicoRoutes(app: FastifyInstance) {
       where: { ativa: true },
       orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
       select: { id: true, imagemBase64: true, legenda: true, linkInstagram: true },
+    }));
+
+  /**
+   * Os últimos posts do Instagram de verdade, do cache que o job diário
+   * mantém (ver src/modules/publico/instagram.ts) — esta rota nunca fala com
+   * o Instagram direto. Lista vazia quando a integração não está configurada
+   * ou ainda não trouxe nada; a página de entrada cai para /publico/galeria
+   * nesse caso.
+   */
+  app.get("/publico/instagram", leituraPublica, async () =>
+    prisma.instagramPost.findMany({
+      orderBy: { publicadoEm: "desc" },
+      select: { id: true, imagemUrl: true, legenda: true, permalink: true },
+    }));
+
+  /**
+   * As avaliações do Google Maps da escola, se a integração estiver
+   * configurada (GOOGLE_PLACES_API_KEY + Place ID nas configurações). Sem
+   * ela, `configurado: false` — a página de entrada mostra os depoimentos
+   * fixos em vez de esconder a seção inteira.
+   */
+  app.get("/publico/avaliacoes", leituraPublica, async () => buscarAvaliacoesGoogle());
+
+  /**
+   * As imagens de conteúdo fixo da página de entrada — carrossel, "Sobre
+   * nós", horários e valores (ver PaginaImagem no schema). Cada seção some
+   * sozinha na página quando não há imagem ativa pra ela: nenhuma delas é
+   * obrigatória.
+   */
+  app.get("/publico/imagens", leituraPublica, async () => {
+    const imagens = await prisma.paginaImagem.findMany({
+      where: { ativa: true },
+      orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+      select: { slot: true, imagemBase64: true, legenda: true },
+    });
+
+    const porSlot = (slot: string) => imagens.filter((i) => i.slot === slot);
+    const primeira = (slot: string) => porSlot(slot)[0] ?? null;
+
+    return {
+      carrossel: porSlot("CARROSSEL").map((i) => ({ imagemBase64: i.imagemBase64, legenda: i.legenda })),
+      sobreNos: primeira("SOBRE_NOS"),
+      horarios: primeira("HORARIOS"),
+      valores: primeira("VALORES"),
+    };
+  });
+
+  /**
+   * Todas as unidades ativas, com foto — independente de terem turma com
+   * vaga aberta agora. É o que a seção "Unidades" da página de entrada
+   * mostra: uma vitrine da escola, não o funil de matrícula (esse é o
+   * `unidades` dentro de /publico/catalogo, que só lista quem tem turma e
+   * plano disponíveis). Uma unidade sem oferta no momento continua sendo uma
+   * unidade real, com endereço e mapa — não deveria sumir da página só
+   * porque as turmas da vez estão cheias.
+   */
+  app.get("/publico/unidades", leituraPublica, async () =>
+    prisma.unidade.findMany({
+      where: { ativa: true },
+      orderBy: { nome: "asc" },
+      select: { id: true, nome: true, endereco: true, fotoBase64: true },
     }));
 
   app.post("/publico/matricula", async (request, reply) => {

@@ -7,7 +7,7 @@
 --
 -- O QUE ELE FAZ
 --   1. Confere se há cadastro de verdade no schema `hub` — e PARA se houver.
---   2. Cria o schema `hub` e as 23 tabelas do sistema.
+--   2. Cria o schema `hub` e as 25 tabelas do sistema.
 --   3. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
 -- SOBRE O PASSO 1, QUE É O QUE IMPORTA
@@ -29,7 +29,7 @@
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
---   -- hub deve ter 23; public, o mesmo número de antes.
+--   -- hub deve ter 25; public, o mesmo número de antes.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -97,6 +97,8 @@ CREATE TYPE "hub"."DiaDaSemana" AS ENUM ('DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA'
 
 -- CreateEnum
 CREATE TYPE "hub"."StatusMatricula" AS ENUM ('CRIADA', 'PAGAMENTO_PENDENTE', 'CONFIRMADA', 'CANCELADA');
+
+CREATE TYPE "hub"."SlotPaginaImagem" AS ENUM ('CARROSSEL', 'SOBRE_NOS', 'HORARIOS', 'VALORES');
 
 -- CreateTable
 CREATE TABLE "hub"."usuarios" (
@@ -228,6 +230,7 @@ CREATE TABLE "hub"."unidades" (
     "nome" TEXT NOT NULL,
     "descricao" TEXT,
     "endereco" TEXT,
+    "fotoBase64" TEXT,
     "ativa" BOOLEAN NOT NULL DEFAULT true,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "atualizadoEm" TIMESTAMP(3) NOT NULL,
@@ -441,6 +444,38 @@ CREATE TABLE "hub"."galeria_fotos" (
 
 -- CreateIndex
 CREATE INDEX "galeria_fotos_ativa_ordem_idx" ON "hub"."galeria_fotos"("ativa", "ordem");
+
+-- CreateTable
+CREATE TABLE "hub"."instagram_posts" (
+    "id" TEXT NOT NULL,
+    "imagemUrl" TEXT NOT NULL,
+    "legenda" TEXT,
+    "permalink" TEXT NOT NULL,
+    "publicadoEm" TIMESTAMP(3),
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "instagram_posts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "instagram_posts_publicadoEm_idx" ON "hub"."instagram_posts"("publicadoEm");
+
+-- CreateTable
+CREATE TABLE "hub"."pagina_imagens" (
+    "id" TEXT NOT NULL,
+    "slot" "hub"."SlotPaginaImagem" NOT NULL,
+    "imagemBase64" TEXT NOT NULL,
+    "legenda" TEXT,
+    "ordem" INTEGER NOT NULL DEFAULT 0,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "atualizadoEm" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "pagina_imagens_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "pagina_imagens_slot_ativa_ordem_idx" ON "hub"."pagina_imagens"("slot", "ativa", "ordem");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "usuarios_email_key" ON "hub"."usuarios"("email");

@@ -12,6 +12,12 @@ import {
   obterSemanaPorId,
   salvarSemana,
 } from "../../db/compartilhado/cronograma.repository.js";
+import {
+  conectarInstagram,
+  desconectarInstagram,
+  sincronizarInstagram,
+  statusIntegracaoInstagram,
+} from "../publico/instagram.js";
 
 const dataIso = z
   .string()
@@ -77,6 +83,24 @@ const galeriaSchema = z.object({
   ativa: z.boolean().default(true),
 });
 
+const SLOTS_PAGINA = ["CARROSSEL", "SOBRE_NOS", "HORARIOS", "VALORES"] as const;
+
+const paginaImagemSchema = z.object({
+  slot: z.enum(SLOTS_PAGINA),
+  imagemBase64: imagemDataUrl,
+  legenda: z.string().max(300).optional(),
+  ordem: z.number().int().default(0),
+  ativa: z.boolean().default(true),
+});
+
+// Token de acesso de vida longa da Graph API — expira em ~60 dias, mas se
+// renova sozinho (ver src/modules/publico/instagram.ts) sem exigir que
+// alguém volte aqui, contanto que o job diário rode antes do vencimento.
+const instagramConfigSchema = z.object({
+  contaId: z.string().trim().min(1, "Informe o ID da conta do Instagram."),
+  accessToken: z.string().trim().min(1, "Informe o token de acesso."),
+});
+
 // Chaves permitidas, uma a uma. Uma tabela chave/valor sem lista fechada vira
 // depósito de qualquer coisa que o cliente resolva mandar.
 const CHAVE_CANVA = "cronograma.linkCanva";
@@ -94,6 +118,11 @@ const CHAVE_EMISSAO = "asaas.emissaoAtiva";
 // aviso, então mora aqui e não no código.
 const CHAVE_VENCIMENTO = "cobranca.diaVencimento";
 
+// O Place ID do Google Meu Negócio da escola — não é segredo (aparece na
+// própria URL do Google Maps do local), por isso mora aqui, junto do resto
+// da configuração de conteúdo, e não junto do token do Instagram.
+const CHAVE_GOOGLE_PLACE_ID = "google.placeId";
+
 const configSchema = z.object({
   // String vazia apaga o link — é como o administrativo "remove" o documento.
   linkCanva: z.union([z.string().url("Link do Canva inválido.").max(500), z.literal("")]).optional(),
@@ -104,6 +133,7 @@ const configSchema = z.object({
   taxaMatricula: z.number().min(0).max(10000).optional(),
   linkTermos: z.union([z.string().url("Link dos termos inválido.").max(500), z.literal("")]).optional(),
   diaVencimento: z.number().int().min(1).max(28).optional(),
+  googlePlaceId: z.string().trim().max(200).optional(),
 });
 
 /**
@@ -212,6 +242,7 @@ export async function conteudoRoutes(app: FastifyInstance) {
       CHAVE_TAXA,
       corpo.taxaMatricula === undefined ? undefined : String(corpo.taxaMatricula),
     );
+    await gravar(CHAVE_GOOGLE_PLACE_ID, corpo.googlePlaceId);
 
     return lerConfig();
   });
@@ -430,6 +461,88 @@ export async function conteudoRoutes(app: FastifyInstance) {
     await prisma.galeriaFoto.delete({ where: { id } }).catch(() => null);
     return reply.code(204).send();
   });
+
+  // -------------------------------------------------- imagens da entrada
+  //
+  // Carrossel do topo, foto de "Sobre nós", e os cartazes de horários e
+  // valores — ver o cabeçalho de PaginaImagem no schema. `?slot=` filtra;
+  // sem ele, devolve tudo (a tela de administração pinta as quatro seções
+  // de uma vez só).
+  app.get("/conteudo/imagens", somenteEquipe, async (request) => {
+    const { slot } = z.object({ slot: z.enum(SLOTS_PAGINA).optional() }).parse(request.query);
+    return prisma.paginaImagem.findMany({
+      where: slot ? { slot } : undefined,
+      orderBy: [{ slot: "asc" }, { ordem: "asc" }, { criadoEm: "asc" }],
+    });
+  });
+
+  app.post(
+    "/conteudo/imagens",
+    { ...somenteEquipe, bodyLimit: 6_000_000 },
+    async (request, reply) => {
+      const corpo = paginaImagemSchema.parse(request.body);
+      const imagem = await prisma.paginaImagem.create({ data: montarPaginaImagem(corpo) });
+      return reply.code(201).send(imagem);
+    },
+  );
+
+  app.put(
+    "/conteudo/imagens/:id",
+    { ...somenteEquipe, bodyLimit: 6_000_000 },
+    async (request, reply) => {
+      const { id } = idParams.parse(request.params);
+      const corpo = paginaImagemSchema.partial({ imagemBase64: true }).parse(request.body);
+
+      const existe = await prisma.paginaImagem.findUnique({ where: { id } });
+      if (!existe) return reply.code(404).send({ message: "Imagem não encontrada." });
+
+      return prisma.paginaImagem.update({
+        where: { id },
+        data: montarPaginaImagem({ ...corpo, slot: corpo.slot ?? existe.slot }, existe.imagemBase64),
+      });
+    },
+  );
+
+  app.delete("/conteudo/imagens/:id", somenteEquipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    await prisma.paginaImagem.delete({ where: { id } }).catch(() => null);
+    return reply.code(204).send();
+  });
+
+  // --------------------------------------------------- integração Instagram
+  //
+  // Ver o cabeçalho de src/modules/publico/instagram.ts: o token nunca volta
+  // pra tela, nem no GET — só o que basta pra mostrar o estado da conexão.
+  app.get("/conteudo/config/instagram", somenteEquipe, async () => statusIntegracaoInstagram());
+
+  app.put("/conteudo/config/instagram", somenteEquipe, async (request, reply) => {
+    const { contaId, accessToken } = instagramConfigSchema.parse(request.body);
+    const resultado = await conectarInstagram(contaId, accessToken);
+    if (!resultado.sincronizado) {
+      // Não deixa meio conectado: se o primeiro teste já falha, o conta
+      // ID/token errados não deveriam ficar gravados como se fosse uma
+      // conexão que funcionou um dia e só parou depois (esse caso, sim,
+      // fica registrado — é o job diário, não esta rota).
+      await desconectarInstagram();
+      return reply.code(400).send({
+        message: "Não consegui buscar os posts com esses dados. Confira o ID da conta e o token.",
+      });
+    }
+    return statusIntegracaoInstagram();
+  });
+
+  app.delete("/conteudo/config/instagram", somenteEquipe, async () => {
+    await desconectarInstagram();
+    return statusIntegracaoInstagram();
+  });
+
+  // Força uma sincronização fora do horário do job diário — útil pra
+  // conferir na hora que a conexão continua funcionando, sem esperar o dia
+  // seguinte.
+  app.post("/conteudo/config/instagram/sincronizar", somenteEquipe, async () => {
+    await sincronizarInstagram();
+    return statusIntegracaoInstagram();
+  });
 }
 
 function montarEvento(corpo: z.infer<typeof eventoSchema>) {
@@ -456,6 +569,21 @@ function montarGaleriaFoto(corpo: Partial<z.infer<typeof galeriaSchema>>, imagem
     imagemNome: corpo.imagemNome ?? null,
     legenda: corpo.legenda ?? null,
     linkInstagram: corpo.linkInstagram || null,
+    ordem: corpo.ordem ?? 0,
+    ativa: corpo.ativa ?? true,
+  };
+}
+
+function montarPaginaImagem(
+  corpo: Partial<z.infer<typeof paginaImagemSchema>> & { slot: z.infer<typeof paginaImagemSchema>["slot"] },
+  imagemAtual?: string,
+) {
+  const imagem = corpo.imagemBase64 ?? imagemAtual;
+  if (!imagem) throw new Error("Faltou a imagem.");
+  return {
+    slot: corpo.slot,
+    imagemBase64: imagem,
+    legenda: corpo.legenda ?? null,
     ordem: corpo.ordem ?? 0,
     ativa: corpo.ativa ?? true,
   };
@@ -516,7 +644,9 @@ export async function lerConfig() {
   const registros = await prisma.configuracao
     .findMany({
       where: {
-        chave: { in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS, CHAVE_EMISSAO, CHAVE_VENCIMENTO] },
+        chave: {
+          in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS, CHAVE_EMISSAO, CHAVE_VENCIMENTO, CHAVE_GOOGLE_PLACE_ID],
+        },
       },
     })
     .catch(() => []);
@@ -531,5 +661,6 @@ export async function lerConfig() {
     // Só a string exata "true" liga. Qualquer outra coisa — ausente, vazio,
     // lixo — deixa desligado: o padrão seguro é não cobrar.
     emissaoAtiva: valor(CHAVE_EMISSAO) === "true",
+    googlePlaceId: valor(CHAVE_GOOGLE_PLACE_ID) ?? "",
   };
 }

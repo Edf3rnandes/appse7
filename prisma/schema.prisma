@@ -350,7 +350,11 @@ model Unidade {
   nome      String
   descricao String?
   endereco  String?
-  ativa     Boolean @default(true)
+  // Foto da unidade na página de entrada. `ativa = false` já a tira de lá
+  // (mesma regra do resto do sistema) — não existe uma segunda chave "mostrar
+  // no site": uma unidade fechada não deveria aparecer em lugar nenhum.
+  fotoBase64 String?
+  ativa      Boolean @default(true)
 
   turmas     Turma[]
   matriculas Matricula[]
@@ -725,14 +729,15 @@ model FechamentoDiario {
 }
 
 // ---------------------------------------------------------------------------
-// Galeria da página de entrada — a "seção Instagram" que não depende do
-// Instagram. Uma integração ao vivo com a API do Meta precisa de um app no
-// Facebook Developers, uma conta Business ligada e um token que expira a cada
-// 60 dias — trabalho que só o dono da conta pode autorizar, não algo que dá
-// para "achar um jeito" de contornar. Isso aqui é o caminho que não depende
-// disso: quem cuida do site sobe as fotos, na mesma tela que já cuida do
-// cronograma. Mesmo padrão de imagem (data URL, comprimida no navegador antes
-// de enviar) — ver conteudo.routes.ts.
+// Galeria da página de entrada — fotos subidas à mão pela equipe.
+//
+// Existe uma integração de verdade com o Instagram agora (ver InstagramPost,
+// mais abaixo): quando ela está configurada e funcionando, é ela que aparece
+// em "Siga-nos". Esta tabela continua existindo como o que a página mostra
+// quando a integração não está configurada, ou quando o token expirou e
+// ainda não foi renovado — reserva, não a fonte principal. Mesmo padrão de
+// imagem (data URL, comprimida no navegador antes de enviar) — ver
+// conteudo.routes.ts.
 // ---------------------------------------------------------------------------
 
 model GaleriaFoto {
@@ -750,5 +755,63 @@ model GaleriaFoto {
 
   @@index([ativa, ordem])
   @@map("galeria_fotos")
+  @@schema("hub")
+}
+
+// ---------------------------------------------------------------------------
+// Últimos posts do Instagram de verdade, buscados pela Graph API do Meta e
+// guardados aqui — a página de entrada lê esta tabela, nunca o Instagram
+// direto (evita expor o token e evita a página travar se o Instagram estiver
+// fora do ar). Um job diário (ver src/modules/publico/instagram.ts) renova o
+// token antes que ele expire e busca as fotos mais recentes; o token e o
+// resto da configuração ficam em Configuracao, chave a chave, do mesmo jeito
+// que taxaMatricula e linkTermos.
+// ---------------------------------------------------------------------------
+
+model InstagramPost {
+  // O id de mídia do próprio Instagram — reaproveitado como chave primária de
+  // propósito: um upsert por id já resolve "postou de novo" sem duplicar.
+  id           String    @id
+  imagemUrl    String
+  legenda      String?
+  permalink    String
+  publicadoEm  DateTime?
+  atualizadoEm DateTime  @updatedAt
+
+  @@index([publicadoEm])
+  @@map("instagram_posts")
+  @@schema("hub")
+}
+
+enum SlotPaginaImagem {
+  CARROSSEL
+  SOBRE_NOS
+  HORARIOS
+  VALORES
+
+  @@schema("hub")
+}
+
+// ---------------------------------------------------------------------------
+// Imagens de conteúdo fixo da página de entrada — o carrossel do topo, a foto
+// de "Sobre nós", e os cartazes de horários e valores que a escola já usa nas
+// redes sociais. Um slot só (CARROSSEL) aceita mais de uma imagem ativa ao
+// mesmo tempo; os outros mostram a primeira ativa (menor `ordem`) e ignoram
+// o resto — mesma tabela, para não multiplicar telas de administração quase
+// iguais.
+// ---------------------------------------------------------------------------
+
+model PaginaImagem {
+  id           String           @id @default(uuid())
+  slot         SlotPaginaImagem
+  imagemBase64 String
+  legenda      String?
+  ordem        Int              @default(0)
+  ativa        Boolean          @default(true)
+  criadoEm     DateTime         @default(now())
+  atualizadoEm DateTime         @updatedAt
+
+  @@index([slot, ativa, ordem])
+  @@map("pagina_imagens")
   @@schema("hub")
 }
