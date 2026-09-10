@@ -174,7 +174,12 @@ Tudo, menos os alunos que ainda estão lá:
 - portal do responsável: alunos, frequência, faturas, endereço e foto;
 - painel dos sócios: receita prevista, adesão, turmas ociosas e com demanda;
 - fechamento diário às 23:59, que começa a gravar no primeiro dia no ar;
-- cronograma, eventos e avisos.
+- cronograma, eventos e avisos;
+- cópia diária da ocupação real das turmas para o se7-cobrancas (o painel da
+  secretaria, hoje publicado como serviço `se7-cobrancas`), no mesmo horário
+  do fechamento. Ele mostrava esse número digitado à mão numa planilha; agora
+  recebe o de verdade. Sem efeito se esse serviço não existir ao lado — ver
+  `src/modules/socios/ocupacao-cobrancas.ts`.
 
 O que depende de outra coisa, e diz isso na tela em vez de quebrar:
 

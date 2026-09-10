@@ -15,6 +15,10 @@ import { publicoRoutes } from "./modules/publico/matricula.routes.js";
 import { cobrancaRoutes } from "./modules/financeiro/cobranca.routes.js";
 import { sociosRoutes } from "./modules/socios/socios.routes.js";
 import { agendarFechamento, preencherDiasEmFalta } from "./modules/socios/fechamento.js";
+import {
+  agendarCopiaDeOcupacao,
+  copiarOcupacaoParaCobrancas,
+} from "./modules/socios/ocupacao-cobrancas.js";
 import { encerrarPoolLegado } from "./db/legacy/pool.js";
 import { prisma } from "./lib/prisma.js";
 import { tratadorDeErro } from "./lib/erros.js";
@@ -120,6 +124,17 @@ async function main() {
       if (dias.length) app.log.info({ dias: dias.length }, "fechamentos reconstruidos");
     })
     .catch((erro) => app.log.error({ erro }, "falha ao reconstruir fechamentos"));
+
+  // Cópia da ocupação real das turmas para o se7-cobrancas — ver o cabeçalho
+  // de ocupacao-cobrancas.ts. Sem efeito num Hub instalado sozinho, sem esse
+  // vizinho ao lado. Roda uma vez agora (pra não esperar até 23:59 no
+  // primeiro dia) e agenda a próxima pro mesmo horário do fechamento diário.
+  agendarCopiaDeOcupacao();
+  copiarOcupacaoParaCobrancas()
+    .then((r) => {
+      if (r.gravado) app.log.info({ turmas: r.turmas }, "ocupacao copiada para o se7-cobrancas");
+    })
+    .catch((erro) => app.log.error({ erro }, "falha ao copiar ocupacao para o se7-cobrancas"));
 }
 
 main().catch((err) => {
