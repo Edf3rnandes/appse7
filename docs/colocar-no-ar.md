@@ -104,6 +104,24 @@ troca de área pelo canto superior direito, sem sair.
 
 ---
 
+## Uma conta com vários papéis
+
+A mesma pessoa pode ser dono, administrador, professor e pai de aluno — e no
+seu caso vai ser. O sistema foi feito assim de propósito: `Usuario` é uma
+**pessoa**, não um perfil, e por isso papel e vínculo são tabelas separadas.
+
+Na prática, com os quatro papéis:
+
+- as áreas aparecem como atalhos no canto superior direito, e trocar entre elas
+  não pede login de novo;
+- cada área continua mostrando só o que é dela — o professor vê as turmas dele,
+  o portal mostra os filhos dele;
+- no celular a barra do topo quebra em duas linhas para caber.
+
+Verificado com uma conta carregando os cinco papéis ao mesmo tempo: as cinco
+telas abrem, os atalhos aparecem em todas, e nenhuma estoura a largura no
+celular.
+
 ## Como cada pessoa entra pela primeira vez
 
 - **Você** — já entra, pelas variáveis do passo 2.

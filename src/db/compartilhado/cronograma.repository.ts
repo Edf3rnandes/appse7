@@ -14,7 +14,8 @@ import { prisma } from "../../lib/prisma.js";
  *   2. Todo SQL fica neste arquivo. Nenhum outro módulo escreve nome de tabela
  *      do sistema vizinho.
  *   3. As colunas são as que já existem lá, com uma exceção documentada:
- *      `observacoes`, que o Hub acrescenta (ver prisma/compartilhado.sql).
+ *      `observacoes`, que o Hub acrescenta — prisma/instalar-no-supabase.sql
+ *      faz isso junto com as tabelas.
  *
  * Assim o cronograma tem uma fonte da verdade só: o administrativo preenche pelo
  * Hub ou pelo painel antigo, e os dois leem a mesma linha.
@@ -23,8 +24,9 @@ import { prisma } from "../../lib/prisma.js";
 export class CronogramaIndisponivelError extends Error {
   constructor(causa?: string) {
     super(
-      "A tabela compartilhada do cronograma não está acessível." +
-        (causa ? ` (${causa})` : ""),
+      "O cronograma vive na tabela `public.cronograma_semanas`, que pertence ao " +
+        "se7-inadimplencia. Confira se a DATABASE_URL é a mesma daquele sistema." +
+        (causa ? ` Postgres disse: ${causa}` : ""),
     );
   }
 }
@@ -80,7 +82,13 @@ async function consultar<T>(sql: Prisma.Sql): Promise<T[]> {
     const mensagem = erro instanceof Error ? erro.message : "";
     if (/relation .* does not exist|column .* does not exist/i.test(mensagem)) {
       throw new CronogramaIndisponivelError(
-        "rode prisma/compartilhado.sql no banco do se7-inadimplencia",
+        // A mensagem cita a coluna que faltou porque as duas causas pedem
+        // remédios diferentes: `cronograma_semanas` inteira ausente significa
+        // que o Hub está apontado para um Postgres que não é o do
+        // se7-inadimplencia; uma coluna só ausente significa que aquele sistema
+        // mudou de forma. Mandar "rode o script de instalação" nos dois casos
+        // manda a pessoa refazer algo que já está feito.
+        mensagem.replace(/\s+/g, " ").trim(),
       );
     }
     throw erro;
@@ -203,7 +211,13 @@ export async function apagarSemana(id: string): Promise<void> {
     const mensagem = erro instanceof Error ? erro.message : "";
     if (/relation .* does not exist|column .* does not exist/i.test(mensagem)) {
       throw new CronogramaIndisponivelError(
-        "rode prisma/compartilhado.sql no banco do se7-inadimplencia",
+        // A mensagem cita a coluna que faltou porque as duas causas pedem
+        // remédios diferentes: `cronograma_semanas` inteira ausente significa
+        // que o Hub está apontado para um Postgres que não é o do
+        // se7-inadimplencia; uma coluna só ausente significa que aquele sistema
+        // mudou de forma. Mandar "rode o script de instalação" nos dois casos
+        // manda a pessoa refazer algo que já está feito.
+        mensagem.replace(/\s+/g, " ").trim(),
       );
     }
     throw erro;

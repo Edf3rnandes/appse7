@@ -102,10 +102,21 @@ function sair() {
 }
 
 // ------------------------------------------------------------------ entrar
-function concluirLogin(r) {
+async function concluirLogin(r) {
   Sessao.token = r.token;
   Sessao.usuario = r.usuario;
   pintarUsuario();
+
+  // Os atalhos para as outras áreas. Sem esta linha o portal só os mostrava
+  // quando já havia sessão salva — quem acabava de entrar caía num beco sem
+  // saída, e só via as outras áreas depois de recarregar a página.
+  try {
+    pintarNavegacao(el("areas"), await api("/auth/eu"), "portal");
+  } catch {
+    // Sem os atalhos dá para usar o portal. Falhar aqui não pode impedir a
+    // entrada de quem só é responsável, que é a maioria.
+  }
+
   r.usuario.vinculoPendente ? mostrar("vinculo") : abrirPortal();
 }
 
