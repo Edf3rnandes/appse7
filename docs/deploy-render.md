@@ -84,8 +84,15 @@ Rodando localmente, com `DATABASE_URL` apontando para o Supabase, ou pelo Shell
 do Render. A saída lista o que foi ligado e avisa se alguma turma ficou sem
 plano — turma sem plano não aceita matrícula.
 
-Alunos, responsáveis e matrículas ainda não têm importador: dependem dos dados
-do MySQL do Laravel (ver `docs/acesso-mysql.md`).
+Alunos, responsáveis e matrículas vêm de um dump do MySQL do Laravel, num
+comando só:
+
+```bash
+npm run importar:dump -- caminho/para/se7volei-dados.sql
+```
+
+Como gerar o arquivo e como ler o relatório: `docs/importar-a-escola.md`. A
+importação pode ser repetida — ela atualiza em vez de duplicar.
 
 ## 3. Google Cloud, para o login
 

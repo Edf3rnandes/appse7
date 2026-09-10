@@ -1,5 +1,10 @@
 # Pedido de acesso somente leitura ao MySQL
 
+> **Existe um caminho mais simples.** Se a ideia é só trazer os dados para o
+> sistema novo, não precisa de acesso ao banco: um `mysqldump` num arquivo
+> resolve, e está descrito em [`importar-a-escola.md`](importar-a-escola.md).
+> Este documento aqui serve para quem quer ou já tem a conexão pela rede.
+
 Documento para encaminhar a quem administra o servidor do sistema atual (o
 Laravel). Ele responde de antemão as três perguntas que qualquer pessoa
 responsável faz: **o que vai ser lido, com que permissão, e como sei que não
