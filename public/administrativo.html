@@ -551,6 +551,8 @@ const mat = {
   familia: {},
   busca: "",
   status: "",
+  pagina: 1,
+  limite: 20,
   turmas: [],
   // Estado do formulário de nova matrícula. `aberto` false = só a lista.
   novo: novaMatriculaVazia(false),
@@ -575,17 +577,71 @@ async function carregarMatriculas() {
   const painel = el("painelMatriculas");
   try {
     const [lista, turmas, financeiro] = await Promise.all([
-      api(`/escola/matriculas?limite=50${mat.status ? `&status=${mat.status}` : ""}${mat.busca ? `&busca=${encodeURIComponent(mat.busca)}` : ""}`),
+      api(`/escola/matriculas?limite=${mat.limite}&pagina=${mat.pagina}` +
+        (mat.status ? `&status=${mat.status}` : "") +
+        (mat.busca ? `&busca=${encodeURIComponent(mat.busca)}` : "")),
       mat.turmas.length ? Promise.resolve(mat.turmas) : api("/escola/turmas"),
       mat.financeiro ?? api("/financeiro/estado").catch(() => null),
     ]);
     mat.itens = lista.itens;
     mat.turmas = turmas;
     mat.financeiro = financeiro;
+    // Uma busca ou um filtro pode render a página atual vazia (ex: filtrando
+    // "Canceladas" estando na página 5 de "Todas"). Volta pra 1 e busca de
+    // novo, em vez de mostrar uma lista vazia que parece bug.
+    if (lista.itens.length === 0 && mat.pagina > 1 && lista.total > 0) {
+      mat.pagina = 1;
+      return carregarMatriculas();
+    }
     pintarMatriculas(lista.total);
   } catch (e) {
     painel.innerHTML = aviso(e);
   }
+}
+
+/**
+ * Números de página ao redor da atual, com a primeira e a última sempre
+ * visíveis — "1 … 4 5 6 … 57" em vez de 57 botões numa lista de celular.
+ */
+function paginasParaMostrar(atual, totalPaginas) {
+  const janela = 2;
+  const paginas = new Set([1, totalPaginas]);
+  for (let p = atual - janela; p <= atual + janela; p++) {
+    if (p >= 1 && p <= totalPaginas) paginas.add(p);
+  }
+  const ordenadas = [...paginas].sort((a, b) => a - b);
+  const comReticencias = [];
+  let anterior = 0;
+  for (const p of ordenadas) {
+    if (p - anterior > 1) comReticencias.push("…");
+    comReticencias.push(p);
+    anterior = p;
+  }
+  return comReticencias;
+}
+
+/** Contador + navegação de página — a mesma régua de "Mostrando de X até Y de Z" do sistema antigo. */
+function paginador(total) {
+  const totalPaginas = Math.max(1, Math.ceil(total / mat.limite));
+  const inicio = total === 0 ? 0 : (mat.pagina - 1) * mat.limite + 1;
+  const fim = Math.min(mat.pagina * mat.limite, total);
+
+  return `
+    <div class="barra-acoes" style="margin-top:14px;justify-content:space-between;align-items:center">
+      <span class="meta">${total === 0 ? "Nenhum registro" : `Mostrando de ${inicio} até ${fim} de ${total}`}</span>
+      <div class="barra-acoes" style="gap:6px;flex:0 1 auto">
+        <select class="selecao" id="matLimite" style="flex:0 0 auto">
+          ${[10, 20, 50, 100].map((n) => `
+            <option value="${n}" ${mat.limite === n ? "selected" : ""}>${n} por página</option>`).join("")}
+        </select>
+        ${totalPaginas <= 1 ? "" : `
+          <button class="botao fantasma" type="button" data-pagina="${mat.pagina - 1}" ${mat.pagina <= 1 ? "disabled" : ""}>Anterior</button>
+          ${paginasParaMostrar(mat.pagina, totalPaginas).map((p) => p === "…"
+            ? `<span class="meta" style="padding:0 4px">…</span>`
+            : `<button class="botao ${p === mat.pagina ? "" : "fantasma"}" type="button" data-pagina="${p}">${p}</button>`).join("")}
+          <button class="botao fantasma" type="button" data-pagina="${mat.pagina + 1}" ${mat.pagina >= totalPaginas ? "disabled" : ""}>Próximo</button>`}
+      </div>
+    </div>`;
 }
 
 function pintarMatriculas(total) {
@@ -600,7 +656,7 @@ function pintarMatriculas(total) {
     <div class="cartao">
       <div class="barra-acoes" style="margin-bottom:14px">
         <div class="campo" style="flex:1 1 190px">
-          <input id="buscaMatricula" placeholder="Buscar pelo nome do aluno…" value="${escapar(mat.busca)}">
+          <input id="buscaMatricula" placeholder="Buscar pelo nome do aluno, do responsável ou CPF…" value="${escapar(mat.busca)}">
         </div>
         <select class="selecao" id="filtroStatus" style="flex:0 1 190px">
           ${[["", "Todas as situações"], ["CONFIRMADA", "Confirmadas"], ["PAGAMENTO_PENDENTE", "Pgto pendente"],
@@ -613,7 +669,7 @@ function pintarMatriculas(total) {
         ? `<div class="vazio">Nenhuma matrícula encontrada.</div>`
         : mat.itens.map(linhaMatricula).join("")}
 
-      ${total > mat.itens.length ? `<p class="meta" style="margin-top:12px">Mostrando ${mat.itens.length} de ${total}.</p>` : ""}
+      ${paginador(total)}
     </div>`;
 
   el("btnNovaMatricula")?.addEventListener("click", () => {
@@ -623,12 +679,25 @@ function pintarMatriculas(total) {
 
   el("buscaMatricula").addEventListener("change", (e) => {
     mat.busca = e.target.value.trim();
+    mat.pagina = 1;
     carregarMatriculas();
   });
   el("filtroStatus").addEventListener("change", (e) => {
     mat.status = e.target.value;
+    mat.pagina = 1;
     carregarMatriculas();
   });
+
+  el("matLimite")?.addEventListener("change", (e) => {
+    mat.limite = Number(e.target.value);
+    mat.pagina = 1;
+    carregarMatriculas();
+  });
+  painel.querySelectorAll("[data-pagina]").forEach((b) =>
+    b.addEventListener("click", () => {
+      mat.pagina = Number(b.dataset.pagina);
+      carregarMatriculas();
+    }));
 
   painel.querySelectorAll("[data-acao]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -929,7 +998,14 @@ function linhaMatricula(m) {
   return `
     <div class="registro">
       <div class="linha">
-        <span class="titulo">${escapar(m.aluno.nome)}</span>
+        <span class="titulo" style="display:flex;align-items:center;gap:10px">
+          <span class="retrato pequeno">
+            ${m.aluno.fotoMiniatura
+              ? `<img src="${escapar(m.aluno.fotoMiniatura)}" alt="">`
+              : `<span>${escapar(iniciais(m.aluno.nome))}</span>`}
+          </span>
+          ${escapar(m.aluno.nome)}
+        </span>
         <span class="pilula ${tom}">${escapar(texto)}</span>
       </div>
       <div class="meta" style="margin-top:3px">

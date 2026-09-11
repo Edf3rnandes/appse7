@@ -816,12 +816,23 @@ export async function cadastroRoutes(app: FastifyInstance) {
       })
       .parse(request.query);
 
+    // Busca por nome (aluno ou responsável) ou CPF — o mesmo campo faz as
+    // três coisas, porque quem atende no balcão às vezes só tem o CPF em
+    // mãos e às vezes só o nome. Dígitos do CPF, sem pontuação, porque é
+    // assim que o responsável costuma ditar por telefone.
+    const cpfBuscado = busca ? somenteDigitos(busca) : "";
     const where = {
       ...(incluirArquivados ? {} : { arquivadoEm: null }),
       ...(status ? { status } : {}),
       ...(turmaId ? { turmaId } : {}),
       ...(busca
-        ? { aluno: { nome: { contains: busca, mode: Prisma.QueryMode.insensitive } } }
+        ? {
+            OR: [
+              { aluno: { nome: { contains: busca, mode: Prisma.QueryMode.insensitive } } },
+              { responsavel: { nome: { contains: busca, mode: Prisma.QueryMode.insensitive } } },
+              ...(cpfBuscado.length >= 3 ? [{ responsavel: { cpf: { contains: cpfBuscado } } }] : []),
+            ],
+          }
         : {}),
     };
 
@@ -833,7 +844,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
         skip: (pagina - 1) * limite,
         take: limite,
         include: {
-          aluno: { select: { id: true, nome: true } },
+          aluno: { select: { id: true, nome: true, fotoMiniatura: true } },
           responsavel: { select: { id: true, nome: true, telefone: true, cpf: true } },
           turma: { select: { id: true, nome: true } },
           unidade: { select: { id: true, nome: true } },
