@@ -876,13 +876,19 @@ const folha = {
   fpDados: null,
   ciMes: mesAtual(),
   ciDados: null,
+  turmasCheias: [],
+  // { "turmaId|professorId": true|false } — desmarcadas por padrão só quando
+  // o professor daquele par não tem perfil de folha (não tem pra quem lançar).
+  bonusTurmasMarcados: {},
+  bonusTurmasData: fmt.hojeIso(),
+  bonusTurmasResultado: null,
 };
 
 async function carregarFolha() {
   const alvo = el("secFolha");
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
   try {
-    const [colaboradores, disponiveis, grade, valores, unidades, lancamentos, feriados, ferias] = await Promise.all([
+    const [colaboradores, disponiveis, grade, valores, unidades, lancamentos, feriados, ferias, turmas] = await Promise.all([
       api("/folha/colaboradores"),
       api("/folha/colaboradores/disponiveis"),
       api("/folha/grade"),
@@ -891,6 +897,7 @@ async function carregarFolha() {
       api("/folha/lancamentos"),
       api("/folha/feriados"),
       api("/folha/ferias"),
+      api("/socios/turmas"),
     ]);
     folha.colaboradores = colaboradores;
     folha.disponiveis = disponiveis;
@@ -900,6 +907,9 @@ async function carregarFolha() {
     folha.lancamentos = lancamentos;
     folha.feriados = feriados;
     folha.ferias = ferias;
+    // Turmas cheias (80%+) puxam a ocupação AO VIVO — matrícula real da
+    // escola, não uma planilha colada toda semana como no sistema antigo.
+    folha.turmasCheias = turmas.turmas.filter((t) => (t.ocupacao ?? 0) >= 80);
     pintarFolha();
     await Promise.all([carregarFolhaPagamento(), carregarControleInterno()]);
   } catch (e) {
@@ -1663,6 +1673,92 @@ function ligarFolhaValores() {
   });
 }
 
+/**
+ * Bônus por turma cheia (80%+ de ocupação) — ao vivo.
+ *
+ * O sistema original comparava contra um snapshot colado toda semana à mão;
+ * aqui a ocupação vem da matrícula de verdade (mesma conta de /socios/turmas
+ * que alimenta o Painel), e quem dá a turma já está ligado a ela (Turmas →
+ * Professores), então não tem professor pra escolher — só pra conferir e
+ * desmarcar quem não deve levar bônus daquela vez.
+ */
+function paresBonusTurmas() {
+  const pares = [];
+  for (const t of folha.turmasCheias) {
+    for (const p of t.professores) {
+      const colaborador = folha.colaboradores.find((c) => c.professorId === p.id);
+      pares.push({
+        chave: `${t.turmaId}|${p.id}`, turmaId: t.turmaId, turma: t.turma, unidade: t.unidade,
+        ocupacao: t.ocupacao, professorId: p.id, nome: p.nome, colaboradorId: colaborador?.id || null,
+      });
+    }
+  }
+  return pares;
+}
+
+function folhaBonusTurmasHTML() {
+  const pares = paresBonusTurmas();
+  return `
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Bônus por turma cheia (80%+ de ocupação)</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Ocupação ao vivo da matrícula (mesma conta do Painel → Turmas), não uma lista colada. R$ 25,00 por professor,
+        um lançamento por linha marcada.
+      </p>
+      ${pares.length ? `
+        <div class="campo" style="max-width:200px;margin-bottom:10px"><label class="rotulo" for="bt_data">Data do lançamento</label>
+          <input id="bt_data" type="date" value="${escapar(folha.bonusTurmasData)}"></div>
+        <table class="tabelinha">
+          <tr><th></th><th>Unidade</th><th>Turma</th><th class="num">% Ocup.</th><th>Professor</th></tr>
+          ${pares.map((p) => {
+            const marcado = folha.bonusTurmasMarcados[p.chave] ?? !!p.colaboradorId;
+            return `
+            <tr ${p.colaboradorId ? "" : 'style="opacity:.55"'}>
+              <td><input type="checkbox" data-bonus-turma="${p.chave}" ${marcado ? "checked" : ""} ${p.colaboradorId ? "" : "disabled"}></td>
+              <td>${escapar(p.unidade)}</td>
+              <td>${escapar(p.turma)}</td>
+              <td class="num">${p.ocupacao}%</td>
+              <td>${escapar(p.nome)}${p.colaboradorId ? "" : " (sem perfil de folha)"}</td>
+            </tr>`;
+          }).join("")}
+        </table>
+        <button class="botao" type="button" id="btnGerarBonusTurmas" style="margin-top:10px">Gerar lançamentos de bônus</button>
+        ${folha.bonusTurmasResultado ? `<div class="aviso info" style="margin-top:10px">${folha.bonusTurmasResultado} lançamento(s) de bônus criado(s).</div>` : ""}
+      ` : `<div class="vazio">Nenhuma turma com 80% ou mais de ocupação agora.</div>`}
+    </div>`;
+}
+
+function ligarFolhaBonusTurmas() {
+  const secao = el("secFolha");
+  el("bt_data")?.addEventListener("change", (e) => { folha.bonusTurmasData = e.target.value; });
+  secao.querySelectorAll("[data-bonus-turma]").forEach((cb) =>
+    cb.addEventListener("change", (e) => {
+      folha.bonusTurmasMarcados[e.target.dataset.bonusTurma] = e.target.checked;
+    }));
+  el("btnGerarBonusTurmas")?.addEventListener("click", async () => {
+    const pares = paresBonusTurmas().filter((p) => p.colaboradorId && (folha.bonusTurmasMarcados[p.chave] ?? true));
+    if (!pares.length) return;
+    const botao = el("btnGerarBonusTurmas");
+    botao.disabled = true;
+    try {
+      for (const p of pares) {
+        await api("/folha/lancamentos", {
+          method: "POST",
+          body: JSON.stringify({
+            colaboradorId: p.colaboradorId, data: folha.bonusTurmasData, tipo: "BONUS", nivel: 1, horas: 0,
+            usaVt: false, motivo: `Turma cheia: ${p.turma} (${p.ocupacao}%)`,
+          }),
+        });
+      }
+      folha.bonusTurmasResultado = pares.length;
+      await carregarFolha();
+    } catch (e) {
+      botao.disabled = false;
+      alert(e.message);
+    }
+  });
+}
+
 // -------------------------------------------------------------- lançamentos
 function folhaLancamentosHTML() {
   const r = folha.rascunhoLancamento;
@@ -1781,6 +1877,8 @@ function folhaLancamentosHTML() {
       </div>
     </div>
 
+    ${folhaBonusTurmasHTML()}
+
     <div class="cartao" style="margin-top:14px">
       <div class="linha" style="margin-bottom:10px"><strong>Todos os lançamentos</strong></div>
       ${linhasOrdenadas.length ? `
@@ -1810,6 +1908,8 @@ function folhaLancamentosHTML() {
 function ligarFolhaLancamentos() {
   const secao = el("secFolha");
   const r = folha.rascunhoLancamento;
+
+  ligarFolhaBonusTurmas();
 
   const campos = ["colab", "data", "tipo", "nivel", "horas", "motivo"];
   const chave = { colab: "colaboradorId" };

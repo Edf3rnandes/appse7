@@ -191,8 +191,10 @@ Tudo, menos os alunos que ainda estão lá:
   banco próprio. Em andamento por fases — Colaboradores, Grade Horária e
   Valores (fase 1); Lançamentos, Extrato do Colaborador e Fechamento Mensal
   (fase 2); Folha de Pagamento e Controle Interno, com feriados, férias e
-  correções manuais editáveis (fase 3). O módulo financeiro (extrato
-  bancário, DRE) e a reconstrução de Turmas vêm nas fases seguintes;
+  correções manuais editáveis (fase 3); Bônus por turma cheia, lido ao vivo
+  da matrícula real em vez da lista colada toda semana que o sistema
+  original usava (fase 4). O módulo financeiro (extrato bancário, DRE) vem
+  na fase seguinte;
 - fechamento diário às 23:59, que começa a gravar no primeiro dia no ar;
 - cronograma, eventos e avisos;
 - cópia diária da ocupação real das turmas para o se7-cobrancas (o painel da

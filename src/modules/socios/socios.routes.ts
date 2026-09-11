@@ -358,6 +358,7 @@ export async function sociosRoutes(app: FastifyInstance) {
         aceitaNovasMatriculas: true,
         unidade: { select: { nome: true } },
         horarios: { select: { dia: true, inicio: true, fim: true }, orderBy: { inicio: "asc" } },
+        professores: { select: { professor: { select: { id: true, nome: true } } } },
         // Os planos da turma dão o preço de referência quando ela está vazia e
         // não há aluno de onde tirar ticket médio.
         planos: { select: { plano: { select: { valor: true, ativo: true } } } },
@@ -419,6 +420,7 @@ export async function sociosRoutes(app: FastifyInstance) {
         categoria: t.categoria,
         unidade: t.unidade.nome,
         horarios: t.horarios.map((h) => ({ dia: h.dia, inicio: h.inicio, fim: h.fim })),
+        professores: t.professores.map((pt) => ({ id: pt.professor.id, nome: pt.professor.nome })),
         aceitaNovas: t.aceitaNovasMatriculas,
         ativas: ativas.length,
         capacidade,
