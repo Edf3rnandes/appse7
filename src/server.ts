@@ -14,6 +14,7 @@ import { cadastroRoutes } from "./modules/escola/cadastro.routes.js";
 import { publicoRoutes } from "./modules/publico/matricula.routes.js";
 import { cobrancaRoutes } from "./modules/financeiro/cobranca.routes.js";
 import { sociosRoutes } from "./modules/socios/socios.routes.js";
+import { folhaRoutes } from "./modules/socios/folha.routes.js";
 import { agendarFechamento, preencherDiasEmFalta } from "./modules/socios/fechamento.js";
 import {
   agendarCopiaDeOcupacao,
@@ -62,6 +63,7 @@ async function main() {
   await app.register(cadastroRoutes);
   await app.register(cobrancaRoutes);
   await app.register(sociosRoutes);
+  await app.register(folhaRoutes);
 
   // Aberto na internet, com limite próprio — ver o cabeçalho do módulo.
   await app.register(publicoRoutes);

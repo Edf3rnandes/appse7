@@ -79,6 +79,7 @@
     <button role="tab" data-aba="adesao" aria-selected="false">Adesão</button>
     <button role="tab" data-aba="caixa" aria-selected="false">Caixa e inadimplência</button>
     <button role="tab" data-aba="sociedade" aria-selected="false">Sociedade</button>
+    <button role="tab" data-aba="folha" aria-selected="false">Folha</button>
   </div>
 
   <section id="secPainel"></section>
@@ -86,6 +87,7 @@
   <section id="secAdesao" hidden></section>
   <section id="secCaixa" hidden></section>
   <section id="secSociedade" hidden></section>
+  <section id="secFolha" hidden></section>
 </main>
 
 <script type="module">
@@ -164,6 +166,7 @@ const ABAS = {
   adesao: { secao: "secAdesao", carregar: () => carregarAdesao() },
   caixa: { secao: "secCaixa", carregar: () => carregarCaixa() },
   sociedade: { secao: "secSociedade", carregar: () => carregarSociedade() },
+  folha: { secao: "secFolha", carregar: () => carregarFolha() },
 };
 
 const carregadas = new Set();
@@ -771,6 +774,499 @@ function concluirLogin(r) {
   Sessao.usuario = r.usuario;
   pintarUsuario();
   decidirTela();
+}
+
+// ================================================================== FOLHA
+//
+// Controle de horas, faltas e valores da equipe — reconstrução nativa de
+// uma plataforma que já existia separada. Fase 1: Colaboradores, Grade
+// Horária e Valores (a base de cadastro; lançamentos e folha calculada
+// vêm nas fases seguintes).
+
+const TIPO_FOLHA_LABEL = { PROFESSOR: "Professor", ESTAGIARIO: "Estagiário" };
+const CATEGORIA_FOLHA_LABEL = {
+  PROFESSOR: "Professor", ESTAGIARIO: "Estagiário", AVULSO: "Avulso (não entra na Folha)",
+};
+const CODIGO_DIAS_LABEL = {
+  TQ: "TQ — Terça e Quinta", SQS: "SQS — Segunda, Quarta e Sexta", SQ: "SQ — Segunda e Quarta",
+  QS: "QS — Quarta e Sexta", SEX: "SEX — Sexta", SAB: "SAB — Sábado",
+};
+
+const RASCUNHO_COLAB_VAZIO = () => ({ nome: "", unidadeTexto: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "" });
+const RASCUNHO_GRADE_VAZIO = () => ({
+  colaboradorId: "", unidadeId: "", turma: "", codigo: "TQ", horario: "", duracaoHoras: "",
+  tipo: "PROFESSOR", nivel: "1", semVt: false, dataInicio: "", dataFim: "",
+});
+
+const folha = {
+  sub: "colaboradores",
+  colaboradores: [],
+  grade: [],
+  valores: [],
+  unidades: [],
+  editandoColaborador: null,
+  rascunhoColaborador: RASCUNHO_COLAB_VAZIO(),
+  erroColaborador: "",
+  editandoGrade: null,
+  rascunhoGrade: RASCUNHO_GRADE_VAZIO(),
+  erroGrade: "",
+};
+
+async function carregarFolha() {
+  const alvo = el("secFolha");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+  try {
+    const [colaboradores, grade, valores, unidades] = await Promise.all([
+      api("/folha/colaboradores"),
+      api("/folha/grade"),
+      api("/folha/valores"),
+      api("/escola/unidades"),
+    ]);
+    folha.colaboradores = colaboradores;
+    folha.grade = grade;
+    folha.valores = valores;
+    folha.unidades = unidades.filter((u) => u.ativa);
+    pintarFolha();
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+function pintarFolha() {
+  const alvo = el("secFolha");
+  const SUBS = [
+    ["colaboradores", "Colaboradores"],
+    ["grade", "Grade Horária"],
+    ["valores", "Valores"],
+  ];
+  alvo.innerHTML = `
+    <div class="abas-socio" role="tablist" style="margin-bottom:14px">
+      ${SUBS.map(([chave, rotulo]) => `
+        <button role="tab" data-sub-folha="${chave}" aria-selected="${folha.sub === chave}">${rotulo}</button>
+      `).join("")}
+    </div>
+    <div id="folhaConteudo"></div>`;
+
+  alvo.querySelectorAll("[data-sub-folha]").forEach((b) =>
+    b.addEventListener("click", () => {
+      folha.sub = b.dataset.subFolha;
+      pintarFolha();
+    }));
+
+  const conteudo = el("folhaConteudo");
+  if (folha.sub === "colaboradores") conteudo.innerHTML = folhaColaboradoresHTML();
+  else if (folha.sub === "grade") conteudo.innerHTML = folhaGradeHTML();
+  else conteudo.innerHTML = folhaValoresHTML();
+
+  if (folha.sub === "colaboradores") ligarFolhaColaboradores();
+  else if (folha.sub === "grade") ligarFolhaGrade();
+  else ligarFolhaValores();
+}
+
+// ------------------------------------------------------------ colaboradores
+function folhaColaboradoresHTML() {
+  const r = folha.rascunhoColaborador;
+  const ativos = folha.colaboradores.filter((c) => c.ativo);
+  const desligados = folha.colaboradores.filter((c) => !c.ativo);
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${folha.editandoColaborador ? "Editar colaborador" : "Novo colaborador"}</strong>
+        ${folha.editandoColaborador ? `<button class="botao fantasma" type="button" id="btnCancelarColab">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div class="campo"><label class="rotulo" for="cf_nome">Nome</label>
+          <input id="cf_nome" value="${escapar(r.nome)}"></div>
+        <div class="campo"><label class="rotulo" for="cf_unidade">Unidade(s) — texto livre</label>
+          <input id="cf_unidade" placeholder="ex.: Cabo Branco / Bessa" value="${escapar(r.unidadeTexto)}"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
+            <select id="cf_tipo">
+              <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
+              <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+            </select></div>
+          <div class="campo" style="flex:0 0 120px"><label class="rotulo" for="cf_nivel">Nível padrão</label>
+            <select id="cf_nivel">
+              <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
+              <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
+              <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
+            </select></div>
+        </div>
+        <div class="campo"><label class="rotulo" for="cf_categoria">Aparece na Folha como</label>
+          <select id="cf_categoria">
+            <option value="" ${!r.categoriaFolha ? "selected" : ""}>(igual ao Tipo)</option>
+            <option value="PROFESSOR" ${r.categoriaFolha === "PROFESSOR" ? "selected" : ""}>Professor</option>
+            <option value="ESTAGIARIO" ${r.categoriaFolha === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+            <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
+          </select>
+          <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
+        </div>
+        <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
+        <button class="botao" type="button" id="btnSalvarColab">${folha.editandoColaborador ? "Salvar" : "Adicionar colaborador"}</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Colaboradores ativos</strong></div>
+      ${ativos.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Nome</th><th>Unidade</th><th>Tipo</th><th class="num">Nível</th><th>Folha como</th><th></th></tr>
+            ${ativos.map((c) => `
+              <tr>
+                <td><strong>${escapar(c.nome)}</strong></td>
+                <td>${escapar(c.unidadeTexto || "—")}</td>
+                <td>${TIPO_FOLHA_LABEL[c.tipo]}</td>
+                <td class="num">${c.nivel}</td>
+                <td>${c.categoriaFolha ? CATEGORIA_FOLHA_LABEL[c.categoriaFolha] : `(igual ao Tipo: ${TIPO_FOLHA_LABEL[c.tipo]})`}</td>
+                <td class="num" style="white-space:nowrap">
+                  <button class="botao fantasma" type="button" data-editar-colab="${c.id}">Editar</button>
+                  <button class="botao fantasma" type="button" data-demitir-colab="${c.id}">Demitir</button>
+                </td>
+              </tr>`).join("")}
+          </table>
+        </div>` : `<div class="vazio">Nenhum colaborador cadastrado ainda.</div>`}
+    </div>
+
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-size:12.5px;color:var(--ink-3);font-weight:600">
+        Ver colaboradores desligados (${desligados.length})
+      </summary>
+      <p class="meta" style="margin-top:10px">
+        Desligados não aparecem mais no quadro ativo nem nas grades — mas o histórico continua disponível.
+      </p>
+      ${desligados.length ? `
+        <table class="tabelinha">
+          <tr><th>Nome</th><th>Unidade</th><th>Tipo</th><th>Desligado em</th><th></th></tr>
+          ${desligados.map((c) => `
+            <tr>
+              <td>${escapar(c.nome)}</td>
+              <td>${escapar(c.unidadeTexto || "—")}</td>
+              <td>${TIPO_FOLHA_LABEL[c.tipo]}</td>
+              <td>${c.dataDesligamento ? fmt.data(c.dataDesligamento) : "—"}</td>
+              <td class="num" style="white-space:nowrap">
+                <button class="botao fantasma" type="button" data-reativar-colab="${c.id}">Reativar</button>
+                <button class="botao fantasma" type="button" data-excluir-colab="${c.id}">Excluir</button>
+              </td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio">Nenhum colaborador desligado.</div>`}
+    </details>`;
+}
+
+function ligarFolhaColaboradores() {
+  const secao = el("secFolha");
+
+  el("cf_nome").addEventListener("input", (e) => { folha.rascunhoColaborador.nome = e.target.value; });
+  el("cf_unidade").addEventListener("input", (e) => { folha.rascunhoColaborador.unidadeTexto = e.target.value; });
+  el("cf_tipo").addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
+  el("cf_nivel").addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
+  el("cf_categoria").addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
+
+  el("btnCancelarColab")?.addEventListener("click", () => {
+    folha.editandoColaborador = null;
+    folha.erroColaborador = "";
+    folha.rascunhoColaborador = RASCUNHO_COLAB_VAZIO();
+    pintarFolha();
+  });
+
+  el("btnSalvarColab").addEventListener("click", async () => {
+    const r = folha.rascunhoColaborador;
+    if (!r.nome.trim()) { folha.erroColaborador = "Digite o nome do colaborador."; pintarFolha(); return; }
+    const corpo = {
+      nome: r.nome.trim(),
+      unidadeTexto: r.unidadeTexto.trim(),
+      tipo: r.tipo,
+      nivel: Number(r.nivel),
+      categoriaFolha: r.categoriaFolha || "",
+    };
+    try {
+      if (folha.editandoColaborador) {
+        await api(`/folha/colaboradores/${folha.editandoColaborador}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api("/folha/colaboradores", { method: "POST", body: JSON.stringify(corpo) });
+      }
+      folha.editandoColaborador = null;
+      folha.erroColaborador = "";
+      folha.rascunhoColaborador = RASCUNHO_COLAB_VAZIO();
+      await carregarFolha();
+    } catch (e) {
+      folha.erroColaborador = e.message;
+      pintarFolha();
+    }
+  });
+
+  secao.querySelectorAll("[data-editar-colab]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = folha.colaboradores.find((x) => x.id === b.dataset.editarColab);
+      if (!c) return;
+      folha.editandoColaborador = c.id;
+      folha.erroColaborador = "";
+      folha.rascunhoColaborador = {
+        nome: c.nome, unidadeTexto: c.unidadeTexto || "", tipo: c.tipo,
+        nivel: String(c.nivel), categoriaFolha: c.categoriaFolha || "",
+      };
+      pintarFolha();
+      el("cf_nome")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+
+  secao.querySelectorAll("[data-demitir-colab]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const c = folha.colaboradores.find((x) => x.id === b.dataset.demitirColab);
+      const hoje = new Date().toISOString().slice(0, 10);
+      const data = prompt(`Data de desligamento de ${c.nome} (AAAA-MM-DD) — a partir do mês dela ele some do quadro ativo:`, hoje);
+      if (!data) return;
+      try {
+        await api(`/folha/colaboradores/${c.id}/demitir`, { method: "POST", body: JSON.stringify({ dataDesligamento: data }) });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+
+  secao.querySelectorAll("[data-reativar-colab]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const c = folha.colaboradores.find((x) => x.id === b.dataset.reativarColab);
+      if (!confirm(`Reativar ${c.nome}? Ele volta a aparecer no quadro ativo.`)) return;
+      try {
+        await api(`/folha/colaboradores/${c.id}/reativar`, { method: "POST" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+
+  secao.querySelectorAll("[data-excluir-colab]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const c = folha.colaboradores.find((x) => x.id === b.dataset.excluirColab);
+      if (!confirm(`Excluir o cadastro de ${c.nome} por completo? Isso apaga também a grade e os lançamentos dele. Não dá para desfazer — se ele já tem histórico, prefira deixar como desligado.`)) return;
+      try {
+        await api(`/folha/colaboradores/${c.id}`, { method: "DELETE" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+}
+
+// -------------------------------------------------------------------- grade
+function folhaGradeHTML() {
+  const r = folha.rascunhoGrade;
+  const colaboradoresAtivos = folha.colaboradores.filter((c) => c.ativo).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const linhasOrdenadas = [...folha.grade].sort((a, b) => {
+    const nomeA = folha.colaboradores.find((c) => c.id === a.colaboradorId)?.nome || "";
+    const nomeB = folha.colaboradores.find((c) => c.id === b.colaboradorId)?.nome || "";
+    return nomeA.localeCompare(nomeB, "pt-BR") || a.turma.localeCompare(b.turma, "pt-BR");
+  });
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${folha.editandoGrade ? "Editar horário" : "Adicionar horário"}</strong>
+        ${folha.editandoGrade ? `<button class="botao fantasma" type="button" id="btnCancelarGrade">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="gf_colab">Colaborador</label>
+            <select id="gf_colab">
+              <option value="">Escolha…</option>
+              ${colaboradoresAtivos.map((c) => `<option value="${c.id}" ${r.colaboradorId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+            </select></div>
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="gf_unidade">Unidade</label>
+            <select id="gf_unidade">
+              <option value="">Escolha…</option>
+              ${folha.unidades.map((u) => `<option value="${u.id}" ${r.unidadeId === u.id ? "selected" : ""}>${escapar(u.nome)}</option>`).join("")}
+            </select></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="gf_turma">Turma</label>
+            <input id="gf_turma" placeholder="ex.: Escolinha TQ" value="${escapar(r.turma)}"></div>
+          <div class="campo" style="flex:0 0 200px"><label class="rotulo" for="gf_codigo">Dias</label>
+            <select id="gf_codigo">
+              ${Object.entries(CODIGO_DIAS_LABEL).map(([v, l]) => `<option value="${v}" ${r.codigo === v ? "selected" : ""}>${l}</option>`).join("")}
+            </select></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:140px"><label class="rotulo" for="gf_horario">Horário</label>
+            <input id="gf_horario" placeholder="ex.: 18:00 - 21:00" value="${escapar(r.horario)}"></div>
+          <div class="campo" style="flex:0 0 130px"><label class="rotulo" for="gf_duracao">Duração (h)</label>
+            <input id="gf_duracao" type="number" step="0.5" min="0" value="${escapar(r.duracaoHoras)}"></div>
+          <div class="campo" style="flex:0 0 150px"><label class="rotulo" for="gf_tipo">Tipo</label>
+            <select id="gf_tipo">
+              <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
+              <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+            </select></div>
+          <div class="campo" style="flex:0 0 90px"><label class="rotulo" for="gf_nivel">Nível</label>
+            <select id="gf_nivel">
+              <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
+              <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
+              <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
+            </select></div>
+        </div>
+        <label class="marcavel" style="width:fit-content">
+          <input type="checkbox" id="gf_semvt" ${r.semVt ? "checked" : ""}>
+          <span>Não conta para VT (turma muito curta, por exemplo)</span>
+        </label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="gf_inicio">Vigente a partir de (opcional)</label>
+            <input id="gf_inicio" type="date" value="${escapar(r.dataInicio)}"></div>
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="gf_fim">Vigente até (opcional)</label>
+            <input id="gf_fim" type="date" value="${escapar(r.dataFim)}"></div>
+        </div>
+        <div class="aviso erro ${folha.erroGrade ? "" : "oculto"}">${escapar(folha.erroGrade)}</div>
+        <button class="botao" type="button" id="btnSalvarGrade">${folha.editandoGrade ? "Salvar" : "+ Adicionar horário"}</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Turmas cadastradas</strong></div>
+      ${linhasOrdenadas.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Colaborador</th><th>Unidade</th><th>Turma</th><th>Dias</th><th>Horário</th>
+              <th class="num">Duração</th><th>Tipo</th><th class="num">Nível</th><th>VT?</th><th>Desde</th><th>Até</th><th></th></tr>
+            ${linhasOrdenadas.map((g) => {
+              const nome = folha.colaboradores.find((c) => c.id === g.colaboradorId)?.nome || "—";
+              return `
+              <tr>
+                <td>${escapar(nome)}</td>
+                <td>${escapar(g.unidade?.nome || "—")}</td>
+                <td>${escapar(g.turma)}</td>
+                <td>${g.codigo}</td>
+                <td>${escapar(g.horario || "—")}</td>
+                <td class="num">${Number(g.duracaoHoras)}h</td>
+                <td>${TIPO_FOLHA_LABEL[g.tipo]}</td>
+                <td class="num">${g.nivel}</td>
+                <td>${g.semVt ? "Não" : "Sim"}</td>
+                <td>${g.dataInicio ? fmt.data(g.dataInicio) : "—"}</td>
+                <td>${g.dataFim ? fmt.data(g.dataFim) : "—"}</td>
+                <td class="num" style="white-space:nowrap">
+                  <button class="botao fantasma" type="button" data-editar-grade="${g.id}">Editar</button>
+                  <button class="botao fantasma" type="button" data-apagar-grade="${g.id}">Apagar</button>
+                </td>
+              </tr>`;
+            }).join("")}
+          </table>
+        </div>` : `<div class="vazio">Nenhum horário cadastrado ainda.</div>`}
+    </div>`;
+}
+
+function ligarFolhaGrade() {
+  const secao = el("secFolha");
+  const campos = ["colab", "unidade", "turma", "codigo", "horario", "duracao", "tipo", "nivel", "inicio", "fim"];
+  const chave = { colab: "colaboradorId", unidade: "unidadeId", duracao: "duracaoHoras", inicio: "dataInicio", fim: "dataFim" };
+  campos.forEach((c) => {
+    const input = el(`gf_${c}`);
+    input?.addEventListener(input.tagName === "SELECT" || input.type === "date" ? "change" : "input", (e) => {
+      folha.rascunhoGrade[chave[c] || c] = e.target.value;
+    });
+  });
+  el("gf_semvt").addEventListener("change", (e) => { folha.rascunhoGrade.semVt = e.target.checked; });
+
+  el("btnCancelarGrade")?.addEventListener("click", () => {
+    folha.editandoGrade = null;
+    folha.erroGrade = "";
+    folha.rascunhoGrade = RASCUNHO_GRADE_VAZIO();
+    pintarFolha();
+  });
+
+  el("btnSalvarGrade").addEventListener("click", async () => {
+    const r = folha.rascunhoGrade;
+    if (!r.colaboradorId) { folha.erroGrade = "Escolha o colaborador."; pintarFolha(); return; }
+    if (!r.unidadeId) { folha.erroGrade = "Escolha a unidade."; pintarFolha(); return; }
+    if (!r.turma.trim()) { folha.erroGrade = "Escreva o nome da turma."; pintarFolha(); return; }
+    const corpo = {
+      unidadeId: r.unidadeId, turma: r.turma.trim(), codigo: r.codigo, horario: r.horario.trim(),
+      duracaoHoras: Number(r.duracaoHoras) || 0, tipo: r.tipo, nivel: Number(r.nivel), semVt: r.semVt,
+      dataInicio: r.dataInicio, dataFim: r.dataFim,
+    };
+    try {
+      if (folha.editandoGrade) {
+        await api(`/folha/grade/${folha.editandoGrade}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api(`/folha/grade/${r.colaboradorId}`, { method: "POST", body: JSON.stringify(corpo) });
+      }
+      folha.editandoGrade = null;
+      folha.erroGrade = "";
+      folha.rascunhoGrade = RASCUNHO_GRADE_VAZIO();
+      await carregarFolha();
+    } catch (e) {
+      folha.erroGrade = e.message;
+      pintarFolha();
+    }
+  });
+
+  secao.querySelectorAll("[data-editar-grade]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const g = folha.grade.find((x) => x.id === b.dataset.editarGrade);
+      if (!g) return;
+      folha.editandoGrade = g.id;
+      folha.erroGrade = "";
+      folha.rascunhoGrade = {
+        colaboradorId: g.colaboradorId, unidadeId: g.unidadeId, turma: g.turma, codigo: g.codigo,
+        horario: g.horario || "", duracaoHoras: String(g.duracaoHoras), tipo: g.tipo, nivel: String(g.nivel),
+        semVt: g.semVt, dataInicio: g.dataInicio ? String(g.dataInicio).slice(0, 10) : "",
+        dataFim: g.dataFim ? String(g.dataFim).slice(0, 10) : "",
+      };
+      pintarFolha();
+      el("gf_colab")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+
+  secao.querySelectorAll("[data-apagar-grade]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar este horário da grade?")) return;
+      try {
+        await api(`/folha/grade/${b.dataset.apagarGrade}`, { method: "DELETE" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+}
+
+// ----------------------------------------------------------------- valores
+function folhaValoresHTML() {
+  const linhas = [];
+  for (const tipo of ["PROFESSOR", "ESTAGIARIO"]) {
+    for (const nivel of [1, 2, 3]) {
+      const existente = folha.valores.find((v) => v.tipo === tipo && v.nivel === nivel);
+      linhas.push({ tipo, nivel, valorHora: existente?.valorHora ?? 0, valorVt: existente?.valorVt ?? 0 });
+    }
+  }
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Valores por nível</strong></div>
+      <p class="meta" style="margin-bottom:10px">Editáveis — todos os lançamentos e a folha calculam a partir daqui.</p>
+      <table class="tabelinha">
+        <tr><th>Tipo</th><th class="num">Nível</th><th class="num">Valor Hora-Aula (R$)</th><th class="num">Valor VT ida e volta (R$)</th></tr>
+        ${linhas.map((l) => `
+          <tr>
+            <td>${TIPO_FOLHA_LABEL[l.tipo]}</td>
+            <td class="num">${l.nivel}</td>
+            <td class="num"><input type="number" step="0.01" min="0" value="${Number(l.valorHora)}"
+              data-valor-hora="${l.tipo}-${l.nivel}" style="width:110px;text-align:right"></td>
+            <td class="num"><input type="number" step="0.01" min="0" value="${Number(l.valorVt)}"
+              data-valor-vt="${l.tipo}-${l.nivel}" style="width:110px;text-align:right"></td>
+          </tr>`).join("")}
+      </table>
+    </div>`;
+}
+
+function ligarFolhaValores() {
+  const secao = el("secFolha");
+  const salvar = async (tipo, nivel) => {
+    const inputHora = secao.querySelector(`[data-valor-hora="${tipo}-${nivel}"]`);
+    const inputVt = secao.querySelector(`[data-valor-vt="${tipo}-${nivel}"]`);
+    try {
+      await api("/folha/valores", {
+        method: "PUT",
+        body: JSON.stringify({
+          tipo, nivel, valorHora: Number(inputHora.value) || 0, valorVt: Number(inputVt.value) || 0,
+        }),
+      });
+      const i = folha.valores.findIndex((v) => v.tipo === tipo && v.nivel === nivel);
+      const novo = { tipo, nivel, valorHora: Number(inputHora.value) || 0, valorVt: Number(inputVt.value) || 0 };
+      if (i >= 0) folha.valores[i] = novo; else folha.valores.push(novo);
+    } catch (e) { alert(e.message); }
+  };
+  secao.querySelectorAll("[data-valor-hora], [data-valor-vt]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const [tipo, nivel] = (input.dataset.valorHora || input.dataset.valorVt).split("-");
+      salvar(tipo, Number(nivel));
+    });
+  });
 }
 
 async function decidirTela() {

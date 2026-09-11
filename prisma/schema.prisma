@@ -345,11 +345,11 @@ model Ocorrencia {
 // trouxe e não duplicar se rodar duas vezes.
 
 model Unidade {
-  id        String  @id @default(uuid())
-  legacyId  Int?    @unique
-  nome      String
-  descricao String?
-  endereco  String?
+  id         String  @id @default(uuid())
+  legacyId   Int?    @unique
+  nome       String
+  descricao  String?
+  endereco   String?
   // Foto da unidade na página de entrada. `ativa = false` já a tira de lá
   // (mesma regra do resto do sistema) — não existe uma segunda chave "mostrar
   // no site": uma unidade fechada não deveria aparecer em lugar nenhum.
@@ -358,6 +358,9 @@ model Unidade {
 
   turmas     Turma[]
   matriculas Matricula[]
+
+  folhaGrade    GradeHorariaFolha[]
+  folhaFeriados FeriadoFolha[]
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -815,5 +818,202 @@ model PaginaImagem {
 
   @@index([slot, ativa, ordem])
   @@map("pagina_imagens")
+  @@schema("hub")
+}
+
+// ---------------------------------------------------------------------------
+// Folha de pagamento — reconstrução nativa de uma plataforma que já existia
+// separada (HTML próprio, banco Supabase à parte), trazida pra dentro do Hub
+// a pedido de quem usa. Mora na aba dos sócios, não no administrativo: é
+// controle de pagamento da equipe, papel de quem responde pela sociedade.
+//
+// "ColaboradorFolha" é de propósito um cadastro à parte de `Professor`: um é
+// quem dá aula (turma, portal do professor, login); o outro é o registro de
+// PAGAMENTO daquela pessoa (nível salarial, tipo pra fins de folha, se está
+// ativo). Nem todo ColaboradorFolha é um Professor no sentido do Hub (pode
+// ser estagiário sem turma própria), e forçar os dois a serem a mesma
+// entidade quebraria no primeiro caso que não se encaixasse perfeitamente
+// nos dois papéis ao mesmo tempo.
+// ---------------------------------------------------------------------------
+
+enum TipoColaboradorFolha {
+  PROFESSOR
+  ESTAGIARIO
+
+  @@schema("hub")
+}
+
+enum CategoriaFolha {
+  PROFESSOR
+  ESTAGIARIO
+  AVULSO // não entra nas tabelas da Folha de Pagamento
+
+  @@schema("hub")
+}
+
+model ColaboradorFolha {
+  id   String @id @default(uuid())
+  nome String
+
+  // Texto livre, só pra exibição na lista — "Cabo Branco / Bessa" quando dá
+  // aula em mais de uma. A unidade que importa pra cálculo é a de cada linha
+  // da Grade Horária (essa sim ligada à Unidade de verdade do Hub).
+  unidadeTexto String @default("")
+
+  tipo  TipoColaboradorFolha
+  nivel Int                  @default(1)
+
+  // Ausente = usa o `tipo` pra decidir em qual tabela da Folha ele aparece.
+  // Existe pra quem é, por exemplo, estagiário mas pago como horista de
+  // professor — o valor da hora continua vindo do `tipo`.
+  categoriaFolha CategoriaFolha?
+
+  ativo            Boolean   @default(true)
+  dataDesligamento DateTime? @db.Date
+
+  criadoEm DateTime @default(now())
+
+  grade       GradeHorariaFolha[]
+  lancamentos LancamentoFolha[]
+  ferias      FeriasFolha[]
+  overrides   FolhaOverride[]
+
+  @@map("folha_colaboradores")
+  @@schema("hub")
+}
+
+enum CodigoDiasFolha {
+  TQ // Terça, Quinta
+  SQS // Segunda, Quarta, Sexta
+  SQ // Segunda, Quarta
+  QS // Quarta, Sexta
+  SEX // Sexta
+  SAB // Sábado
+
+  @@schema("hub")
+}
+
+// Uma linha por turma que o colaborador dá. A Folha conta quantas vezes o
+// código de dias cai no mês (por isso não existe "dias letivos" digitado à
+// mão) e multiplica pela duração. `dataInicio`/`dataFim` marcam vigência:
+// sem elas, vale desde sempre — com elas, só os meses dentro do intervalo
+// contam essa linha, pra um professor que assume ou larga uma turma no meio
+// do caminho não recalcular os meses de antes ou de depois errado.
+model GradeHorariaFolha {
+  id            String               @id @default(uuid())
+  colaboradorId String
+  colaborador   ColaboradorFolha     @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  unidadeId     String
+  unidade       Unidade              @relation(fields: [unidadeId], references: [id])
+  turma         String
+  codigo        CodigoDiasFolha
+  horario       String               @default("")
+  duracaoHoras  Decimal              @db.Decimal(4, 2)
+  tipo          TipoColaboradorFolha
+  nivel         Int                  @default(1)
+  // Esse dia conta pro VT antecipado do mês seguinte? Desmarcado quando a
+  // turma não gera direito a vale-transporte (ex.: aula muito curta).
+  semVt         Boolean              @default(false)
+  nota          String?
+  dataInicio    DateTime?            @db.Date
+  dataFim       DateTime?            @db.Date
+
+  @@index([colaboradorId])
+  @@map("folha_grade_horaria")
+  @@schema("hub")
+}
+
+// Uma linha por tipo+nível — a tabela de referência que todo o resto usa
+// pra transformar hora/dia em R$. Editável pela tela; muda o valor daqui e
+// todo lançamento e toda folha recalculam sozinhos, porque nada guarda o
+// valor em R$ no momento do lançamento, só a quantidade (horas, dias) — o
+// preço é sempre lido daqui, na hora de mostrar.
+model ValorFolha {
+  id        String               @id @default(uuid())
+  tipo      TipoColaboradorFolha
+  nivel     Int
+  valorHora Decimal              @db.Decimal(8, 2)
+  valorVt   Decimal              @db.Decimal(8, 2)
+
+  @@unique([tipo, nivel])
+  @@map("folha_valores")
+  @@schema("hub")
+}
+
+enum TipoLancamentoFolha {
+  EXTRA
+  AUSENCIA
+  AUSENCIA_ATESTADO
+  BONUS
+  COMPETICAO
+  COMPETICAO_PSICOLOGA
+  DESCONTO_VT
+  BANCO_HORAS_COMPENSADO
+
+  @@schema("hub")
+}
+
+// O lançamento em si — cada linha é um evento (uma falta, uma hora extra,
+// um bônus...) num dia específico. O valor em R$ NUNCA é gravado aqui: é
+// sempre calculado na hora, cruzando `horas`/tipo/nível com ValorFolha —
+// ver a função calcularLancamento() nas rotas. Mesma regra do sistema
+// original: mudar um valor na tabela de referência recalcula tudo pra trás.
+model LancamentoFolha {
+  id            String              @id @default(uuid())
+  data          DateTime            @db.Date
+  colaboradorId String
+  colaborador   ColaboradorFolha    @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  tipo          TipoLancamentoFolha
+  nivel         Int                 @default(1)
+  // Para a maioria dos tipos, quantidade de horas. Para "Desconto VT",
+  // quantidade de DIAS de VT a descontar (multiplicado pelo valorVt).
+  horas         Decimal             @default(0) @db.Decimal(6, 2)
+  usaVt         Boolean             @default(true)
+  motivo        String?
+  criadoEm      DateTime            @default(now())
+
+  @@index([colaboradorId, data])
+  @@map("folha_lancamentos")
+  @@schema("hub")
+}
+
+model FeriasFolha {
+  id            String           @id @default(uuid())
+  colaboradorId String
+  colaborador   ColaboradorFolha @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  dataInicio    DateTime         @db.Date
+  dataFim       DateTime         @db.Date
+  observacao    String?
+
+  @@map("folha_ferias")
+  @@schema("hub")
+}
+
+// "Todas" (unidadeId nulo) ou uma unidade específica — feriado municipal só
+// afeta a unidade daquele município, por exemplo.
+model FeriadoFolha {
+  id              String   @id @default(uuid())
+  data            DateTime @db.Date
+  unidadeId       String?
+  unidade         Unidade? @relation(fields: [unidadeId], references: [id])
+  descricao       String?
+  contaTrabalhado Boolean  @default(false)
+
+  @@map("folha_feriados")
+  @@schema("hub")
+}
+
+// Correção manual de um valor calculado da Folha de Pagamento — existe, se
+// existir, do jeito que ele foi corrigido. `folhaOverrideReset` na tela
+// simplesmente apaga a linha, e o cálculo automático volta a valer.
+model FolhaOverride {
+  mes           String // "AAAA-MM"
+  colaboradorId String
+  colaborador   ColaboradorFolha @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  campo         String // "bolsa" | "complementar" | "vt" | "hn1" | "hn2" | "dias" | "diariaBonus"
+  valor         Decimal          @db.Decimal(10, 2)
+
+  @@id([mes, colaboradorId, campo])
+  @@map("folha_overrides")
   @@schema("hub")
 }

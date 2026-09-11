@@ -7,7 +7,7 @@
 --
 -- O QUE ELE FAZ
 --   1. Confere se há cadastro de verdade no schema `hub` — e PARA se houver.
---   2. Cria o schema `hub` e as 25 tabelas do sistema.
+--   2. Cria o schema `hub` e as 32 tabelas do sistema.
 --   3. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
 -- SOBRE O PASSO 1, QUE É O QUE IMPORTA
@@ -29,7 +29,7 @@
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
---   -- hub deve ter 25; public, o mesmo número de antes.
+--   -- hub deve ter 32; public, o mesmo número de antes.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -99,6 +99,14 @@ CREATE TYPE "hub"."DiaDaSemana" AS ENUM ('DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA'
 CREATE TYPE "hub"."StatusMatricula" AS ENUM ('CRIADA', 'PAGAMENTO_PENDENTE', 'CONFIRMADA', 'CANCELADA');
 
 CREATE TYPE "hub"."SlotPaginaImagem" AS ENUM ('CARROSSEL', 'SOBRE_NOS', 'HORARIOS', 'VALORES');
+
+CREATE TYPE "hub"."TipoColaboradorFolha" AS ENUM ('PROFESSOR', 'ESTAGIARIO');
+
+CREATE TYPE "hub"."CategoriaFolha" AS ENUM ('PROFESSOR', 'ESTAGIARIO', 'AVULSO');
+
+CREATE TYPE "hub"."CodigoDiasFolha" AS ENUM ('TQ', 'SQS', 'SQ', 'QS', 'SEX', 'SAB');
+
+CREATE TYPE "hub"."TipoLancamentoFolha" AS ENUM ('EXTRA', 'AUSENCIA', 'AUSENCIA_ATESTADO', 'BONUS', 'COMPETICAO', 'COMPETICAO_PSICOLOGA', 'DESCONTO_VT', 'BANCO_HORAS_COMPENSADO');
 
 -- CreateTable
 CREATE TABLE "hub"."usuarios" (
@@ -477,6 +485,107 @@ CREATE TABLE "hub"."pagina_imagens" (
 -- CreateIndex
 CREATE INDEX "pagina_imagens_slot_ativa_ordem_idx" ON "hub"."pagina_imagens"("slot", "ativa", "ordem");
 
+-- CreateTable
+CREATE TABLE "hub"."folha_colaboradores" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "unidadeTexto" TEXT NOT NULL DEFAULT '',
+    "tipo" "hub"."TipoColaboradorFolha" NOT NULL,
+    "nivel" INTEGER NOT NULL DEFAULT 1,
+    "categoriaFolha" "hub"."CategoriaFolha",
+    "ativo" BOOLEAN NOT NULL DEFAULT true,
+    "dataDesligamento" DATE,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "folha_colaboradores_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."folha_grade_horaria" (
+    "id" TEXT NOT NULL,
+    "colaboradorId" TEXT NOT NULL,
+    "unidadeId" TEXT NOT NULL,
+    "turma" TEXT NOT NULL,
+    "codigo" "hub"."CodigoDiasFolha" NOT NULL,
+    "horario" TEXT NOT NULL DEFAULT '',
+    "duracaoHoras" DECIMAL(4,2) NOT NULL,
+    "tipo" "hub"."TipoColaboradorFolha" NOT NULL,
+    "nivel" INTEGER NOT NULL DEFAULT 1,
+    "semVt" BOOLEAN NOT NULL DEFAULT false,
+    "nota" TEXT,
+    "dataInicio" DATE,
+    "dataFim" DATE,
+
+    CONSTRAINT "folha_grade_horaria_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "folha_grade_horaria_colaboradorId_idx" ON "hub"."folha_grade_horaria"("colaboradorId");
+
+-- CreateTable
+CREATE TABLE "hub"."folha_valores" (
+    "id" TEXT NOT NULL,
+    "tipo" "hub"."TipoColaboradorFolha" NOT NULL,
+    "nivel" INTEGER NOT NULL,
+    "valorHora" DECIMAL(8,2) NOT NULL,
+    "valorVt" DECIMAL(8,2) NOT NULL,
+
+    CONSTRAINT "folha_valores_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "folha_valores_tipo_nivel_key" ON "hub"."folha_valores"("tipo", "nivel");
+
+-- CreateTable
+CREATE TABLE "hub"."folha_lancamentos" (
+    "id" TEXT NOT NULL,
+    "data" DATE NOT NULL,
+    "colaboradorId" TEXT NOT NULL,
+    "tipo" "hub"."TipoLancamentoFolha" NOT NULL,
+    "nivel" INTEGER NOT NULL DEFAULT 1,
+    "horas" DECIMAL(6,2) NOT NULL DEFAULT 0,
+    "usaVt" BOOLEAN NOT NULL DEFAULT true,
+    "motivo" TEXT,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "folha_lancamentos_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "folha_lancamentos_colaboradorId_data_idx" ON "hub"."folha_lancamentos"("colaboradorId", "data");
+
+-- CreateTable
+CREATE TABLE "hub"."folha_ferias" (
+    "id" TEXT NOT NULL,
+    "colaboradorId" TEXT NOT NULL,
+    "dataInicio" DATE NOT NULL,
+    "dataFim" DATE NOT NULL,
+    "observacao" TEXT,
+
+    CONSTRAINT "folha_ferias_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."folha_feriados" (
+    "id" TEXT NOT NULL,
+    "data" DATE NOT NULL,
+    "unidadeId" TEXT,
+    "descricao" TEXT,
+    "contaTrabalhado" BOOLEAN NOT NULL DEFAULT false,
+
+    CONSTRAINT "folha_feriados_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."folha_overrides" (
+    "mes" TEXT NOT NULL,
+    "colaboradorId" TEXT NOT NULL,
+    "campo" TEXT NOT NULL,
+    "valor" DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT "folha_overrides_pkey" PRIMARY KEY ("mes","colaboradorId","campo")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "usuarios_email_key" ON "hub"."usuarios"("email");
 
@@ -650,4 +759,22 @@ ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_alunoId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_grade_horaria" ADD CONSTRAINT "folha_grade_horaria_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_grade_horaria" ADD CONSTRAINT "folha_grade_horaria_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_lancamentos" ADD CONSTRAINT "folha_lancamentos_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_ferias" ADD CONSTRAINT "folha_ferias_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_feriados" ADD CONSTRAINT "folha_feriados_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_overrides" ADD CONSTRAINT "folha_overrides_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

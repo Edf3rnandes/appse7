@@ -23,7 +23,7 @@ quanto para reinstalar por cima de uma tentativa que deu errado.
 O que ele faz:
 
 1. confere se há cadastro de verdade no schema `hub` — e **para** se houver;
-2. cria o schema `hub` e as **25 tabelas** do sistema;
+2. cria o schema `hub` e as **32 tabelas** do sistema;
 3. acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
 
 O que ele **não** faz: encostar em qualquer coisa fora do `hub`. As tabelas do
@@ -37,7 +37,7 @@ select table_schema, count(*)
   from information_schema.tables
  where table_schema in ('hub','public')
  group by 1;
--- hub deve dar 23; public, o mesmo número de antes.
+-- hub deve dar 32; public, o mesmo número de antes.
 ```
 
 ### Sobre a conferência do passo 1
@@ -186,6 +186,11 @@ Tudo, menos os alunos que ainda estão lá:
 - chamada do professor, frequência por turma e por aluno;
 - portal do responsável: alunos, frequência, faturas, endereço e foto;
 - painel dos sócios: receita prevista, adesão, turmas ociosas e com demanda;
+- Folha (aba Folha, dentro da área dos sócios): reconstrução nativa de uma
+  plataforma de folha de pagamento e financeiro que existia à parte, num
+  banco próprio. Em andamento por fases — a primeira trouxe Colaboradores,
+  Grade Horária e Valores; lançamentos, o cálculo da folha e o módulo
+  financeiro (extrato bancário, DRE) vêm nas fases seguintes;
 - fechamento diário às 23:59, que começa a gravar no primeiro dia no ar;
 - cronograma, eventos e avisos;
 - cópia diária da ocupação real das turmas para o se7-cobrancas (o painel da
@@ -209,7 +214,7 @@ Este roteiro foi executado inteiro num banco Postgres limpo, com o schema
 `public` já ocupado por tabelas de outro sistema, para reproduzir o Supabase de
 vocês:
 
-- o script criou 25 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
+- o script criou 32 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
   só acrescentou a coluna `observacoes`;
 - as 46 turmas e os 43 planos entraram;
 - as cinco telas abriram, sem um único erro de JavaScript.
