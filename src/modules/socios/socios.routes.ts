@@ -4,6 +4,7 @@ import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { diaUtc, fecharDia } from "./fechamento.js";
+import { valorLiquido } from "../../lib/precos.js";
 import {
   asaasConfigurado,
   AsaasIndisponivelError,
@@ -82,7 +83,7 @@ export interface MatriculaParaConta {
   expiraEm: Date | null;
   atualizadoEm: Date;
   unidade: { id: string; nome: string };
-  plano: { valor: unknown };
+  plano: { valor: unknown; descontoPercentual: unknown };
 }
 
 /**
@@ -100,8 +101,6 @@ export function saidaDe(m: MatriculaParaConta): Date | null {
   if (m.status === StatusMatricula.CANCELADA) return m.atualizadoEm;
   return null;
 }
-
-const paraNumero = (v: unknown) => Number(v ?? 0);
 
 export function ativaEm(m: MatriculaParaConta, fim: Date, inicio: Date) {
   if (m.criadoEm > fim) return false;
@@ -155,13 +154,13 @@ export async function sociosRoutes(app: FastifyInstance) {
         expiraEm: true,
         atualizadoEm: true,
         unidade: { select: { id: true, nome: true } },
-        plano: { select: { valor: true } },
+        plano: { select: { valor: true, descontoPercentual: true } },
       },
     })) as MatriculaParaConta[];
 
     const serie = janela.map((mes) => {
       const ativas = matriculas.filter((m) => ativaEm(m, mes.fim, mes.inicio));
-      const receita = ativas.reduce((s, m) => s + paraNumero(m.plano.valor), 0);
+      const receita = ativas.reduce((s, m) => s + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
 
       const novas = matriculas.filter(
         (m) =>
@@ -203,7 +202,7 @@ export async function sociosRoutes(app: FastifyInstance) {
       const ativas = matriculas.filter(
         (m) => m.unidade.id === u.id && ativaEm(m, mesCorrente.fim, mesCorrente.inicio),
       );
-      const receita = ativas.reduce((s, m) => s + paraNumero(m.plano.valor), 0);
+      const receita = ativas.reduce((s, m) => s + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
       const capacidade = u.turmas.reduce((s, t) => s + (t.capacidade ?? 0), 0);
 
       return {
@@ -361,7 +360,7 @@ export async function sociosRoutes(app: FastifyInstance) {
         professores: { select: { professor: { select: { id: true, nome: true } } } },
         // Os planos da turma dão o preço de referência quando ela está vazia e
         // não há aluno de onde tirar ticket médio.
-        planos: { select: { plano: { select: { valor: true, ativo: true } } } },
+        planos: { select: { plano: { select: { valor: true, ativo: true, descontoPercentual: true } } } },
         matriculas: {
           select: {
             status: true,
@@ -370,7 +369,7 @@ export async function sociosRoutes(app: FastifyInstance) {
             arquivadoEm: true,
             expiraEm: true,
             atualizadoEm: true,
-            plano: { select: { valor: true } },
+            plano: { select: { valor: true, descontoPercentual: true } },
           },
         },
       },
@@ -383,7 +382,7 @@ export async function sociosRoutes(app: FastifyInstance) {
       })) as unknown as MatriculaParaConta[];
 
       const ativas = paraConta.filter((m) => ativaEm(m, mesCorrente.fim, mesCorrente.inicio));
-      const receita = ativas.reduce((soma, m) => soma + paraNumero(m.plano.valor), 0);
+      const receita = ativas.reduce((soma, m) => soma + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
       const capacidade = t.capacidade ?? 0;
 
       // Preço de referência da turma vazia: a mediana dos planos ativos ligados
@@ -392,7 +391,7 @@ export async function sociosRoutes(app: FastifyInstance) {
       // de ninguém.
       const precos = t.planos
         .filter((p) => p.plano.ativo)
-        .map((p) => paraNumero(p.plano.valor))
+        .map((p) => valorLiquido(p.plano.valor, p.plano.descontoPercentual))
         .filter((v) => v > 0)
         .sort((x, y) => x - y);
       const ticketDoPlano = precos.length ? precos[Math.floor(precos.length / 2)] : 0;

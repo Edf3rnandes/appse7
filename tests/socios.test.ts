@@ -29,7 +29,7 @@ function matricula(over: Partial<MatriculaParaConta> = {}): MatriculaParaConta {
     expiraEm: null,
     atualizadoEm: d("2026-01-10"),
     unidade: { id: "u1", nome: "Bessa" },
-    plano: { valor: 112.9 },
+    plano: { valor: 112.9, descontoPercentual: 0 },
     ...over,
   };
 }
