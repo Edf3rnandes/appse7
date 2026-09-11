@@ -80,6 +80,7 @@
     <button role="tab" data-aba="caixa" aria-selected="false">Caixa e inadimplência</button>
     <button role="tab" data-aba="sociedade" aria-selected="false">Sociedade</button>
     <button role="tab" data-aba="folha" aria-selected="false">Folha</button>
+    <button role="tab" data-aba="financeiro" aria-selected="false">Financeiro</button>
   </div>
 
   <section id="secPainel"></section>
@@ -88,6 +89,7 @@
   <section id="secCaixa" hidden></section>
   <section id="secSociedade" hidden></section>
   <section id="secFolha" hidden></section>
+  <section id="secFinanceiro" hidden></section>
 </main>
 
 <script type="module">
@@ -167,6 +169,7 @@ const ABAS = {
   caixa: { secao: "secCaixa", carregar: () => carregarCaixa() },
   sociedade: { secao: "secSociedade", carregar: () => carregarSociedade() },
   folha: { secao: "secFolha", carregar: () => carregarFolha() },
+  financeiro: { secao: "secFinanceiro", carregar: () => carregarFinanceiro() },
 };
 
 const carregadas = new Set();
@@ -2443,6 +2446,694 @@ function ligarFolhaControleInterno() {
     carregarControleInterno();
   });
   el("btnImprimirInterno")?.addEventListener("click", () => window.print());
+}
+
+// ============================================================================
+// Financeiro (Fase 5) — extrato bancário, categorização e DRE.
+//
+// Deliberadamente menor que a plataforma original: aquela tinha 19 tabelas
+// (contas a pagar, recorrentes, recebíveis, conciliação linha a linha,
+// projeções). Aqui entra só o que sustenta "o que entrou/saiu, classificado,
+// vira um DRE por mês" — ver o comentário no schema.prisma.
+// ============================================================================
+
+const TIPO_CATEGORIA_LABEL = { RECEITA: "Receita", DESPESA: "Despesa" };
+
+const RASCUNHO_CONTA_VAZIO = () => ({ nome: "", banco: "", agencia: "", conta: "", saldoInicial: "0" });
+const RASCUNHO_CATEGORIA_VAZIO = () => ({ nome: "", tipo: "RECEITA", grupoDre: "", ordem: "0" });
+const RASCUNHO_CENTRO_VAZIO = () => ({ nome: "", unidadeId: "" });
+const RASCUNHO_REGRA_VAZIO = () => ({ padrao: "", categoriaId: "", centroCustoId: "", ordem: "0" });
+
+const financeiro = {
+  sub: "extrato",
+  contas: [],
+  categorias: [],
+  centros: [],
+  regras: [],
+  transacoes: [],
+  unidades: [],
+  colaboradores: [],
+
+  editandoConta: null,
+  rascunhoConta: RASCUNHO_CONTA_VAZIO(),
+  erroConta: "",
+
+  editandoCategoria: null,
+  rascunhoCategoria: RASCUNHO_CATEGORIA_VAZIO(),
+  erroCategoria: "",
+
+  editandoCentro: null,
+  rascunhoCentro: RASCUNHO_CENTRO_VAZIO(),
+  erroCentro: "",
+
+  rascunhoRegra: RASCUNHO_REGRA_VAZIO(),
+  erroRegra: "",
+
+  contaImportacaoId: "",
+  textoImportar: "",
+  resultadoImportar: null,
+
+  filtroContaId: "",
+  filtroStatus: "",
+  filtroMes: "",
+
+  dreMes: mesAtual(),
+  dreDados: null,
+};
+
+async function carregarFinanceiro() {
+  const alvo = el("secFinanceiro");
+  alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
+  try {
+    const [contas, categorias, centros, regras, transacoes, unidades, colaboradores] = await Promise.all([
+      api("/financeiro/contas"),
+      api("/financeiro/categorias"),
+      api("/financeiro/centros-custo"),
+      api("/financeiro/regras"),
+      api("/financeiro/transacoes"),
+      api("/escola/unidades"),
+      api("/folha/colaboradores"),
+    ]);
+    financeiro.contas = contas;
+    financeiro.categorias = categorias;
+    financeiro.centros = centros;
+    financeiro.regras = regras;
+    financeiro.transacoes = transacoes;
+    financeiro.unidades = unidades.filter((u) => u.ativa);
+    financeiro.colaboradores = colaboradores;
+    pintarFinanceiro();
+    await carregarDre();
+  } catch (e) {
+    alvo.innerHTML = aviso(e);
+  }
+}
+
+async function carregarDre() {
+  try {
+    financeiro.dreDados = await api(`/financeiro/dre?mes=${financeiro.dreMes}`);
+  } catch (e) {
+    financeiro.dreDados = { erro: e.message };
+  }
+  if (financeiro.sub === "dre") pintarFinanceiro();
+}
+
+function pintarFinanceiro() {
+  const alvo = el("secFinanceiro");
+  const SUBS = [
+    ["extrato", "Extrato"],
+    ["dre", "DRE"],
+    ["contas", "Contas Bancárias"],
+    ["categorias", "Categorias"],
+    ["centros", "Centro de Custo"],
+    ["regras", "Regras de Categorização"],
+  ];
+  alvo.innerHTML = `
+    <div class="abas-socio" role="tablist" style="margin-bottom:14px">
+      ${SUBS.map(([chave, rotulo]) => `
+        <button role="tab" data-sub-financeiro="${chave}" aria-selected="${financeiro.sub === chave}">${rotulo}</button>
+      `).join("")}
+    </div>
+    <div id="financeiroConteudo"></div>`;
+
+  alvo.querySelectorAll("[data-sub-financeiro]").forEach((b) =>
+    b.addEventListener("click", () => {
+      financeiro.sub = b.dataset.subFinanceiro;
+      pintarFinanceiro();
+    }));
+
+  const conteudo = el("financeiroConteudo");
+  if (financeiro.sub === "contas") conteudo.innerHTML = financeiroContasHTML();
+  else if (financeiro.sub === "categorias") conteudo.innerHTML = financeiroCategoriasHTML();
+  else if (financeiro.sub === "centros") conteudo.innerHTML = financeiroCentrosHTML();
+  else if (financeiro.sub === "regras") conteudo.innerHTML = financeiroRegrasHTML();
+  else if (financeiro.sub === "extrato") conteudo.innerHTML = financeiroExtratoHTML();
+  else conteudo.innerHTML = financeiroDreHTML();
+
+  if (financeiro.sub === "contas") ligarFinanceiroContas();
+  else if (financeiro.sub === "categorias") ligarFinanceiroCategorias();
+  else if (financeiro.sub === "centros") ligarFinanceiroCentros();
+  else if (financeiro.sub === "regras") ligarFinanceiroRegras();
+  else if (financeiro.sub === "extrato") ligarFinanceiroExtrato();
+  else ligarFinanceiroDre();
+}
+
+// --------------------------------------------------------- contas bancárias
+function financeiroContasHTML() {
+  const r = financeiro.rascunhoConta;
+  const editando = financeiro.editandoConta ? financeiro.contas.find((c) => c.id === financeiro.editandoConta) : null;
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${editando ? "Editar conta" : "Adicionar conta bancária"}</strong>
+        ${editando ? `<button class="botao fantasma" type="button" id="btnCancelarConta">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="ct_nome">Nome</label>
+            <input id="ct_nome" value="${escapar(r.nome)}" placeholder="ex.: Banco do Brasil - Bessa"></div>
+          <div class="campo" style="flex:1;min-width:140px"><label class="rotulo" for="ct_banco">Banco</label>
+            <input id="ct_banco" value="${escapar(r.banco)}"></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:0 0 140px"><label class="rotulo" for="ct_agencia">Agência</label>
+            <input id="ct_agencia" value="${escapar(r.agencia)}"></div>
+          <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="ct_conta">Conta</label>
+            <input id="ct_conta" value="${escapar(r.conta)}"></div>
+          <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="ct_saldo">Saldo inicial (R$)</label>
+            <input id="ct_saldo" type="number" step="0.01" value="${escapar(r.saldoInicial)}"></div>
+        </div>
+        <div class="aviso erro ${financeiro.erroConta ? "" : "oculto"}">${escapar(financeiro.erroConta)}</div>
+        <button class="botao" type="button" id="btnSalvarConta">${editando ? "Salvar" : "+ Adicionar conta"}</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Contas cadastradas</strong></div>
+      ${financeiro.contas.length ? `
+        <table class="tabelinha">
+          <tr><th>Nome</th><th>Banco</th><th>Agência/Conta</th><th class="num">Saldo inicial</th><th>Ativa?</th><th></th></tr>
+          ${financeiro.contas.map((c) => `
+            <tr>
+              <td><strong>${escapar(c.nome)}</strong></td>
+              <td>${escapar(c.banco || "—")}</td>
+              <td>${escapar(c.agencia || "—")} / ${escapar(c.conta || "—")}</td>
+              <td class="num">${fmt.moeda(c.saldoInicial)}</td>
+              <td>${c.ativa ? "Sim" : "Não"}</td>
+              <td class="num"><button class="botao fantasma" type="button" data-editar-conta="${c.id}">Editar</button></td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio">Nenhuma conta cadastrada ainda.</div>`}
+    </div>`;
+}
+
+function ligarFinanceiroContas() {
+  const secao = el("secFinanceiro");
+  const r = financeiro.rascunhoConta;
+  const campos = ["nome", "banco", "agencia", "conta", "saldo"];
+  const chave = { saldo: "saldoInicial" };
+  campos.forEach((c) => {
+    el(`ct_${c}`)?.addEventListener("input", (e) => { r[chave[c] || c] = e.target.value; });
+  });
+
+  el("btnCancelarConta")?.addEventListener("click", () => {
+    financeiro.editandoConta = null;
+    financeiro.erroConta = "";
+    financeiro.rascunhoConta = RASCUNHO_CONTA_VAZIO();
+    pintarFinanceiro();
+  });
+
+  el("btnSalvarConta")?.addEventListener("click", async () => {
+    if (!r.nome.trim()) { financeiro.erroConta = "Digite o nome da conta."; pintarFinanceiro(); return; }
+    const corpo = {
+      nome: r.nome.trim(), banco: r.banco.trim() || undefined, agencia: r.agencia.trim() || undefined,
+      conta: r.conta.trim() || undefined, saldoInicial: Number(r.saldoInicial) || 0, ativa: true,
+    };
+    try {
+      if (financeiro.editandoConta) {
+        await api(`/financeiro/contas/${financeiro.editandoConta}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api("/financeiro/contas", { method: "POST", body: JSON.stringify(corpo) });
+      }
+      financeiro.editandoConta = null;
+      financeiro.erroConta = "";
+      financeiro.rascunhoConta = RASCUNHO_CONTA_VAZIO();
+      await carregarFinanceiro();
+    } catch (e) { financeiro.erroConta = e.message; pintarFinanceiro(); }
+  });
+
+  secao.querySelectorAll("[data-editar-conta]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = financeiro.contas.find((x) => x.id === b.dataset.editarConta);
+      if (!c) return;
+      financeiro.editandoConta = c.id;
+      financeiro.erroConta = "";
+      financeiro.rascunhoConta = {
+        nome: c.nome, banco: c.banco || "", agencia: c.agencia || "", conta: c.conta || "",
+        saldoInicial: String(c.saldoInicial),
+      };
+      pintarFinanceiro();
+      el("ct_nome")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+}
+
+// -------------------------------------------------------------- categorias
+function financeiroCategoriasHTML() {
+  const r = financeiro.rascunhoCategoria;
+  const editando = financeiro.editandoCategoria ? financeiro.categorias.find((c) => c.id === financeiro.editandoCategoria) : null;
+  const receitas = financeiro.categorias.filter((c) => c.tipo === "RECEITA");
+  const despesas = financeiro.categorias.filter((c) => c.tipo === "DESPESA");
+
+  const tabela = (linhas) => linhas.length ? `
+    <table class="tabelinha">
+      <tr><th>Nome</th><th>Linha do DRE</th><th class="num">Ordem</th><th></th></tr>
+      ${linhas.map((c) => `
+        <tr>
+          <td>${escapar(c.nome)}</td>
+          <td>${escapar(c.grupoDre)}</td>
+          <td class="num">${c.ordem}</td>
+          <td class="num"><button class="botao fantasma" type="button" data-editar-categoria="${c.id}">Editar</button></td>
+        </tr>`).join("")}
+    </table>` : `<div class="vazio">Nenhuma categoria ainda.</div>`;
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${editando ? "Editar categoria" : "Adicionar categoria"}</strong>
+        ${editando ? `<button class="botao fantasma" type="button" id="btnCancelarCategoria">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="cat_nome">Nome</label>
+            <input id="cat_nome" value="${escapar(r.nome)}" placeholder="ex.: Mensalidades, Aluguel"></div>
+          <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="cat_tipo">Tipo</label>
+            <select id="cat_tipo">
+              <option value="RECEITA" ${r.tipo === "RECEITA" ? "selected" : ""}>Receita</option>
+              <option value="DESPESA" ${r.tipo === "DESPESA" ? "selected" : ""}>Despesa</option>
+            </select></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="cat_grupo">Linha do DRE</label>
+            <input id="cat_grupo" value="${escapar(r.grupoDre)}" placeholder="ex.: Mensalidades, Folha de Pagamento">
+            <span class="meta">Categorias com a mesma linha somam juntas no DRE.</span></div>
+          <div class="campo" style="flex:0 0 110px"><label class="rotulo" for="cat_ordem">Ordem</label>
+            <input id="cat_ordem" type="number" step="1" value="${escapar(r.ordem)}"></div>
+        </div>
+        <div class="aviso erro ${financeiro.erroCategoria ? "" : "oculto"}">${escapar(financeiro.erroCategoria)}</div>
+        <button class="botao" type="button" id="btnSalvarCategoria">${editando ? "Salvar" : "+ Adicionar categoria"}</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Receitas</strong></div>
+      ${tabela(receitas)}
+    </div>
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Despesas</strong></div>
+      ${tabela(despesas)}
+    </div>`;
+}
+
+function ligarFinanceiroCategorias() {
+  const secao = el("secFinanceiro");
+  const r = financeiro.rascunhoCategoria;
+  el("cat_nome")?.addEventListener("input", (e) => { r.nome = e.target.value; });
+  el("cat_tipo")?.addEventListener("change", (e) => { r.tipo = e.target.value; });
+  el("cat_grupo")?.addEventListener("input", (e) => { r.grupoDre = e.target.value; });
+  el("cat_ordem")?.addEventListener("input", (e) => { r.ordem = e.target.value; });
+
+  el("btnCancelarCategoria")?.addEventListener("click", () => {
+    financeiro.editandoCategoria = null;
+    financeiro.erroCategoria = "";
+    financeiro.rascunhoCategoria = RASCUNHO_CATEGORIA_VAZIO();
+    pintarFinanceiro();
+  });
+
+  el("btnSalvarCategoria")?.addEventListener("click", async () => {
+    if (!r.nome.trim()) { financeiro.erroCategoria = "Digite o nome."; pintarFinanceiro(); return; }
+    if (!r.grupoDre.trim()) { financeiro.erroCategoria = "Escolha a linha do DRE."; pintarFinanceiro(); return; }
+    const corpo = { nome: r.nome.trim(), tipo: r.tipo, grupoDre: r.grupoDre.trim(), ordem: Number(r.ordem) || 0, ativa: true };
+    try {
+      if (financeiro.editandoCategoria) {
+        await api(`/financeiro/categorias/${financeiro.editandoCategoria}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api("/financeiro/categorias", { method: "POST", body: JSON.stringify(corpo) });
+      }
+      financeiro.editandoCategoria = null;
+      financeiro.erroCategoria = "";
+      financeiro.rascunhoCategoria = RASCUNHO_CATEGORIA_VAZIO();
+      await carregarFinanceiro();
+    } catch (e) { financeiro.erroCategoria = e.message; pintarFinanceiro(); }
+  });
+
+  secao.querySelectorAll("[data-editar-categoria]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = financeiro.categorias.find((x) => x.id === b.dataset.editarCategoria);
+      if (!c) return;
+      financeiro.editandoCategoria = c.id;
+      financeiro.erroCategoria = "";
+      financeiro.rascunhoCategoria = { nome: c.nome, tipo: c.tipo, grupoDre: c.grupoDre, ordem: String(c.ordem) };
+      pintarFinanceiro();
+      el("cat_nome")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+}
+
+// ------------------------------------------------------------ centro de custo
+function financeiroCentrosHTML() {
+  const r = financeiro.rascunhoCentro;
+  const editando = financeiro.editandoCentro ? financeiro.centros.find((c) => c.id === financeiro.editandoCentro) : null;
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px">
+        <strong>${editando ? "Editar centro de custo" : "Adicionar centro de custo"}</strong>
+        ${editando ? `<button class="botao fantasma" type="button" id="btnCancelarCentro">Cancelar</button>` : ""}
+      </div>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="cc_nome">Nome</label>
+            <input id="cc_nome" value="${escapar(r.nome)}" placeholder="ex.: Administrativo, Quadra Bessa"></div>
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cc_unidade">Unidade (opcional)</label>
+            <select id="cc_unidade">
+              <option value="">Nenhuma</option>
+              ${financeiro.unidades.map((u) => `<option value="${u.id}" ${r.unidadeId === u.id ? "selected" : ""}>${escapar(u.nome)}</option>`).join("")}
+            </select></div>
+        </div>
+        <div class="aviso erro ${financeiro.erroCentro ? "" : "oculto"}">${escapar(financeiro.erroCentro)}</div>
+        <button class="botao" type="button" id="btnSalvarCentro">${editando ? "Salvar" : "+ Adicionar centro"}</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Centros cadastrados</strong></div>
+      ${financeiro.centros.length ? `
+        <table class="tabelinha">
+          <tr><th>Nome</th><th>Unidade</th><th></th></tr>
+          ${financeiro.centros.map((c) => `
+            <tr>
+              <td>${escapar(c.nome)}</td>
+              <td>${escapar(c.unidade?.nome || "—")}</td>
+              <td class="num"><button class="botao fantasma" type="button" data-editar-centro="${c.id}">Editar</button></td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio">Nenhum centro de custo ainda.</div>`}
+    </div>`;
+}
+
+function ligarFinanceiroCentros() {
+  const secao = el("secFinanceiro");
+  const r = financeiro.rascunhoCentro;
+  el("cc_nome")?.addEventListener("input", (e) => { r.nome = e.target.value; });
+  el("cc_unidade")?.addEventListener("change", (e) => { r.unidadeId = e.target.value; });
+
+  el("btnCancelarCentro")?.addEventListener("click", () => {
+    financeiro.editandoCentro = null;
+    financeiro.erroCentro = "";
+    financeiro.rascunhoCentro = RASCUNHO_CENTRO_VAZIO();
+    pintarFinanceiro();
+  });
+
+  el("btnSalvarCentro")?.addEventListener("click", async () => {
+    if (!r.nome.trim()) { financeiro.erroCentro = "Digite o nome."; pintarFinanceiro(); return; }
+    const corpo = { nome: r.nome.trim(), unidadeId: r.unidadeId || "", ativo: true };
+    try {
+      if (financeiro.editandoCentro) {
+        await api(`/financeiro/centros-custo/${financeiro.editandoCentro}`, { method: "PUT", body: JSON.stringify(corpo) });
+      } else {
+        await api("/financeiro/centros-custo", { method: "POST", body: JSON.stringify(corpo) });
+      }
+      financeiro.editandoCentro = null;
+      financeiro.erroCentro = "";
+      financeiro.rascunhoCentro = RASCUNHO_CENTRO_VAZIO();
+      await carregarFinanceiro();
+    } catch (e) { financeiro.erroCentro = e.message; pintarFinanceiro(); }
+  });
+
+  secao.querySelectorAll("[data-editar-centro]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = financeiro.centros.find((x) => x.id === b.dataset.editarCentro);
+      if (!c) return;
+      financeiro.editandoCentro = c.id;
+      financeiro.erroCentro = "";
+      financeiro.rascunhoCentro = { nome: c.nome, unidadeId: c.unidadeId || "" };
+      pintarFinanceiro();
+      el("cc_nome")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+}
+
+// ------------------------------------------------- regras de categorização
+function financeiroRegrasHTML() {
+  const r = financeiro.rascunhoRegra;
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Nova regra</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Quando a descrição do extrato contiver o texto abaixo, a transação já entra classificada na importação —
+        a primeira regra que bater (pela ordem) vence.
+      </p>
+      <div class="pilha" style="gap:12px">
+        <div class="campo"><label class="rotulo" for="rg_padrao">Descrição contém</label>
+          <input id="rg_padrao" value="${escapar(r.padrao)}" placeholder="ex.: energisa, aluguel, mensalidade"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="rg_categoria">Categoria</label>
+            <select id="rg_categoria">
+              <option value="">Escolha…</option>
+              ${financeiro.categorias.map((c) => `<option value="${c.id}" ${r.categoriaId === c.id ? "selected" : ""}>${escapar(c.nome)} (${TIPO_CATEGORIA_LABEL[c.tipo]})</option>`).join("")}
+            </select></div>
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="rg_centro">Centro de custo (opcional)</label>
+            <select id="rg_centro">
+              <option value="">Nenhum</option>
+              ${financeiro.centros.map((c) => `<option value="${c.id}" ${r.centroCustoId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+            </select></div>
+          <div class="campo" style="flex:0 0 100px"><label class="rotulo" for="rg_ordem">Ordem</label>
+            <input id="rg_ordem" type="number" step="1" value="${escapar(r.ordem)}"></div>
+        </div>
+        <div class="aviso erro ${financeiro.erroRegra ? "" : "oculto"}">${escapar(financeiro.erroRegra)}</div>
+        <button class="botao" type="button" id="btnSalvarRegra">+ Adicionar regra</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Regras cadastradas</strong></div>
+      ${financeiro.regras.length ? `
+        <table class="tabelinha">
+          <tr><th class="num">Ordem</th><th>Descrição contém</th><th>Categoria</th><th>Centro de custo</th><th></th></tr>
+          ${financeiro.regras.map((r2) => `
+            <tr>
+              <td class="num">${r2.ordem}</td>
+              <td>${escapar(r2.padrao)}</td>
+              <td>${escapar(r2.categoria.nome)}</td>
+              <td>${escapar(r2.centroCusto?.nome || "—")}</td>
+              <td class="num"><button class="botao fantasma" type="button" data-apagar-regra="${r2.id}">Apagar</button></td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio">Nenhuma regra ainda — tudo entra como pendente pra classificar na mão.</div>`}
+    </div>`;
+}
+
+function ligarFinanceiroRegras() {
+  const secao = el("secFinanceiro");
+  const r = financeiro.rascunhoRegra;
+  el("rg_padrao")?.addEventListener("input", (e) => { r.padrao = e.target.value; });
+  el("rg_categoria")?.addEventListener("change", (e) => { r.categoriaId = e.target.value; });
+  el("rg_centro")?.addEventListener("change", (e) => { r.centroCustoId = e.target.value; });
+  el("rg_ordem")?.addEventListener("input", (e) => { r.ordem = e.target.value; });
+
+  el("btnSalvarRegra")?.addEventListener("click", async () => {
+    if (!r.padrao.trim()) { financeiro.erroRegra = "Escreva o texto a procurar."; pintarFinanceiro(); return; }
+    if (!r.categoriaId) { financeiro.erroRegra = "Escolha a categoria."; pintarFinanceiro(); return; }
+    try {
+      await api("/financeiro/regras", {
+        method: "POST",
+        body: JSON.stringify({
+          padrao: r.padrao.trim(), categoriaId: r.categoriaId, centroCustoId: r.centroCustoId || undefined,
+          ordem: Number(r.ordem) || 0,
+        }),
+      });
+      financeiro.erroRegra = "";
+      financeiro.rascunhoRegra = RASCUNHO_REGRA_VAZIO();
+      await carregarFinanceiro();
+    } catch (e) { financeiro.erroRegra = e.message; pintarFinanceiro(); }
+  });
+
+  secao.querySelectorAll("[data-apagar-regra]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar esta regra?")) return;
+      try {
+        await api(`/financeiro/regras/${b.dataset.apagarRegra}`, { method: "DELETE" });
+        await carregarFinanceiro();
+      } catch (e) { alert(e.message); }
+    }));
+}
+
+// -------------------------------------------------------------------- extrato
+function financeiroExtratoHTML() {
+  const transacoesFiltradas = financeiro.transacoes.filter((t) => {
+    if (financeiro.filtroContaId && t.contaId !== financeiro.filtroContaId) return false;
+    if (financeiro.filtroStatus && t.status !== financeiro.filtroStatus) return false;
+    if (financeiro.filtroMes && String(t.data).slice(0, 7) !== financeiro.filtroMes) return false;
+    return true;
+  });
+  const meses = [...new Set(financeiro.transacoes.map((t) => String(t.data).slice(0, 7)))].sort().reverse();
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Importar extrato</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Cole as linhas do extrato (Tab ou ; entre colunas): <strong>Data, Valor, Descrição</strong>. Valor negativo = saída,
+        positivo = entrada. Colar o mesmo extrato de novo não duplica nada.
+      </p>
+      <div class="campo" style="max-width:280px;margin-bottom:10px"><label class="rotulo" for="ex_conta">Conta</label>
+        <select id="ex_conta">
+          <option value="">Escolha…</option>
+          ${financeiro.contas.map((c) => `<option value="${c.id}" ${financeiro.contaImportacaoId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+        </select>
+        ${financeiro.contas.length === 0 ? `<span class="meta">Cadastre uma conta bancária primeiro.</span>` : ""}
+      </div>
+      <textarea id="ex_texto" rows="6" placeholder="05/09/2026	-150,00	Aluguel Bessa" style="width:100%;font-family:monospace">${escapar(financeiro.textoImportar)}</textarea>
+      <button class="botao" type="button" id="btnImportarExtrato" style="margin-top:10px">Importar</button>
+      ${financeiro.resultadoImportar ? `
+        <div class="aviso ${financeiro.resultadoImportar.erros.length ? "alerta" : "info"}" style="margin-top:10px">
+          ${financeiro.resultadoImportar.inseridas} transação(ões) importada(s)${financeiro.resultadoImportar.duplicadas ? `, ${financeiro.resultadoImportar.duplicadas} já existiam (ignoradas)` : ""}${financeiro.resultadoImportar.erros.length ? `, ${financeiro.resultadoImportar.erros.length} linha(s) com erro` : ""}.
+        </div>
+        ${financeiro.resultadoImportar.erros.length ? `
+          <table class="tabelinha" style="margin-top:8px">
+            <tr><th class="num">Linha</th><th>Texto</th><th>Motivo</th></tr>
+            ${financeiro.resultadoImportar.erros.map((e) => `
+              <tr><td class="num">${e.linha}</td><td>${escapar(e.texto)}</td><td>${escapar(e.motivo)}</td></tr>`).join("")}
+          </table>` : ""}
+      ` : ""}
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Transações</strong></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="fl_conta">Conta</label>
+          <select id="fl_conta">
+            <option value="">Todas</option>
+            ${financeiro.contas.map((c) => `<option value="${c.id}" ${financeiro.filtroContaId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+          </select></div>
+        <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="fl_status">Status</label>
+          <select id="fl_status">
+            <option value="">Todos</option>
+            <option value="PENDENTE" ${financeiro.filtroStatus === "PENDENTE" ? "selected" : ""}>Pendente</option>
+            <option value="CLASSIFICADA" ${financeiro.filtroStatus === "CLASSIFICADA" ? "selected" : ""}>Classificada</option>
+          </select></div>
+        <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="fl_mes">Mês</label>
+          <select id="fl_mes">
+            <option value="">Todos</option>
+            ${meses.map((m) => `<option value="${m}" ${financeiro.filtroMes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("")}
+          </select></div>
+      </div>
+      ${transacoesFiltradas.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Data</th><th>Conta</th><th>Descrição</th><th class="num">Valor</th><th>Categoria</th><th>Centro</th><th>Colaborador</th><th></th></tr>
+            ${transacoesFiltradas.map((t) => `
+              <tr>
+                <td>${fmt.data(t.data)}</td>
+                <td>${escapar(t.conta.nome)}</td>
+                <td>${escapar(t.descricao)}</td>
+                <td class="num" style="color:${Number(t.valor) < 0 ? "var(--erro)" : "inherit"}">${fmt.moeda(t.valor)}</td>
+                <td><select data-classificar="${t.id}" data-campo="categoriaId">
+                  <option value="">Sem categoria</option>
+                  ${financeiro.categorias.map((c) => `<option value="${c.id}" ${t.categoriaId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+                </select></td>
+                <td><select data-classificar="${t.id}" data-campo="centroCustoId">
+                  <option value="">—</option>
+                  ${financeiro.centros.map((c) => `<option value="${c.id}" ${t.centroCustoId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+                </select></td>
+                <td><select data-classificar="${t.id}" data-campo="colaboradorId">
+                  <option value="">—</option>
+                  ${financeiro.colaboradores.map((c) => `<option value="${c.id}" ${t.colaboradorId === c.id ? "selected" : ""}>${escapar(c.professor.nome)}</option>`).join("")}
+                </select></td>
+                <td class="num"><button class="botao fantasma" type="button" data-apagar-transacao="${t.id}">Apagar</button></td>
+              </tr>`).join("")}
+          </table>
+        </div>` : `<div class="vazio">Nenhuma transação ainda.</div>`}
+    </div>`;
+}
+
+function ligarFinanceiroExtrato() {
+  const secao = el("secFinanceiro");
+  el("ex_conta")?.addEventListener("change", (e) => { financeiro.contaImportacaoId = e.target.value; });
+  el("ex_texto")?.addEventListener("input", (e) => { financeiro.textoImportar = e.target.value; });
+  el("btnImportarExtrato")?.addEventListener("click", async () => {
+    if (!financeiro.contaImportacaoId) { alert("Escolha a conta bancária."); return; }
+    if (!financeiro.textoImportar.trim()) return;
+    try {
+      const resultado = await api("/financeiro/transacoes/importar", {
+        method: "POST",
+        body: JSON.stringify({ contaId: financeiro.contaImportacaoId, texto: financeiro.textoImportar }),
+      });
+      financeiro.resultadoImportar = resultado;
+      if (!resultado.erros.length) financeiro.textoImportar = "";
+      await carregarFinanceiro();
+    } catch (e) { alert(e.message); }
+  });
+
+  el("fl_conta")?.addEventListener("change", (e) => { financeiro.filtroContaId = e.target.value; pintarFinanceiro(); });
+  el("fl_status")?.addEventListener("change", (e) => { financeiro.filtroStatus = e.target.value; pintarFinanceiro(); });
+  el("fl_mes")?.addEventListener("change", (e) => { financeiro.filtroMes = e.target.value; pintarFinanceiro(); });
+
+  secao.querySelectorAll("[data-classificar]").forEach((select) => {
+    select.addEventListener("change", async () => {
+      const id = select.dataset.classificar;
+      const t = financeiro.transacoes.find((x) => x.id === id);
+      if (!t) return;
+      const corpo = {
+        categoriaId: t.categoriaId || "", centroCustoId: t.centroCustoId || "",
+        unidadeId: t.unidadeId || "", colaboradorId: t.colaboradorId || "", observacao: t.observacao || "",
+      };
+      corpo[select.dataset.campo] = select.value;
+      try {
+        await api(`/financeiro/transacoes/${id}`, { method: "PUT", body: JSON.stringify(corpo) });
+        await carregarFinanceiro();
+      } catch (e) { alert(e.message); }
+    });
+  });
+
+  secao.querySelectorAll("[data-apagar-transacao]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar esta transação?")) return;
+      try {
+        await api(`/financeiro/transacoes/${b.dataset.apagarTransacao}`, { method: "DELETE" });
+        await carregarFinanceiro();
+      } catch (e) { alert(e.message); }
+    }));
+}
+
+// ------------------------------------------------------------------------ DRE
+function financeiroDreHTML() {
+  const dados = financeiro.dreDados;
+  return `
+    <div class="cartao no-imprimir">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="campo" style="flex:0 0 180px"><label class="rotulo" for="dre_mes">Mês de referência</label>
+          <select id="dre_mes">
+            ${mesesParaSeletor().map((m) => `<option value="${m}" ${financeiro.dreMes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("")}
+          </select></div>
+        <button class="botao fantasma" type="button" id="btnImprimirDre">Imprimir</button>
+      </div>
+    </div>
+    ${!dados ? `<div class="carregando">Carregando…</div>` : dados.erro ? aviso({ message: dados.erro }) : renderDre(dados)}`;
+}
+
+function renderDre(dados) {
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>DRE — ${rotuloMes(dados.mes)}</strong></div>
+      ${dados.naoClassificadas > 0 ? `
+        <div class="aviso alerta" style="margin-bottom:10px">
+          ${dados.naoClassificadas} transação(ões) deste mês ainda sem categoria — não entram nesta conta.
+        </div>` : ""}
+      ${dados.linhas.length ? `
+        <table class="tabelinha">
+          <tr><th>Linha</th><th>Tipo</th><th class="num">Total</th></tr>
+          ${dados.linhas.map((l) => `
+            <tr>
+              <td>${escapar(l.grupoDre)}</td>
+              <td>${TIPO_CATEGORIA_LABEL[l.tipo] || l.tipo}</td>
+              <td class="num">${fmt.moeda(l.total)}</td>
+            </tr>`).join("")}
+        </table>
+        <table class="tabelinha" style="margin-top:14px">
+          <tr class="footrow" style="font-weight:600">
+            <td>Total de receitas</td><td class="num" colspan="2">${fmt.moeda(dados.totalReceitas)}</td>
+          </tr>
+          <tr class="footrow" style="font-weight:600">
+            <td>Total de despesas</td><td class="num" colspan="2">${fmt.moeda(dados.totalDespesas)}</td>
+          </tr>
+          <tr class="footrow" style="font-weight:700;font-size:15px">
+            <td>Resultado do período</td><td class="num" colspan="2">${fmt.moeda(dados.resultado)}</td>
+          </tr>
+        </table>` : `<div class="vazio">Nenhuma transação classificada neste mês ainda.</div>`}
+    </div>`;
+}
+
+function ligarFinanceiroDre() {
+  el("dre_mes")?.addEventListener("change", (e) => {
+    financeiro.dreMes = e.target.value;
+    financeiro.dreDados = null;
+    pintarFinanceiro();
+    carregarDre();
+  });
+  el("btnImprimirDre")?.addEventListener("click", () => window.print());
 }
 
 async function decidirTela() {

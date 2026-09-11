@@ -23,7 +23,7 @@ quanto para reinstalar por cima de uma tentativa que deu errado.
 O que ele faz:
 
 1. confere se há cadastro de verdade no schema `hub` — e **para** se houver;
-2. cria o schema `hub` e as **32 tabelas** do sistema;
+2. cria o schema `hub` e as **37 tabelas** do sistema;
 3. acrescenta a coluna `observacoes` em `public.cronograma_semanas`.
 
 O que ele **não** faz: encostar em qualquer coisa fora do `hub`. As tabelas do
@@ -193,8 +193,16 @@ Tudo, menos os alunos que ainda estão lá:
   (fase 2); Folha de Pagamento e Controle Interno, com feriados, férias e
   correções manuais editáveis (fase 3); Bônus por turma cheia, lido ao vivo
   da matrícula real em vez da lista colada toda semana que o sistema
-  original usava (fase 4). O módulo financeiro (extrato bancário, DRE) vem
-  na fase seguinte;
+  original usava (fase 4);
+- Financeiro (aba Financeiro, dentro da área da Diretoria, fase 5): extrato
+  bancário (colar e importar, com deduplicação automática), categorização
+  manual ou por regra ("descrição contém X → categoria Y"), centro de custo
+  e DRE por mês. Deliberadamente menor que o módulo financeiro do sistema
+  original (que tinha 19 tabelas — contas a pagar, recorrentes, recebíveis,
+  conciliação linha a linha, projeções); aqui entra só o que sustenta "o que
+  entrou/saiu, classificado, vira um DRE", que é dinheiro de verdade sendo
+  lido e onde cada tabela a mais é mais uma chance de um número sair errado
+  sem ninguém perceber;
 - fechamento diário às 23:59, que começa a gravar no primeiro dia no ar;
 - cronograma, eventos e avisos;
 - cópia diária da ocupação real das turmas para o se7-cobrancas (o painel da
@@ -218,7 +226,7 @@ Este roteiro foi executado inteiro num banco Postgres limpo, com o schema
 `public` já ocupado por tabelas de outro sistema, para reproduzir o Supabase de
 vocês:
 
-- o script criou 32 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
+- o script criou 37 tabelas em `hub` e não alterou nenhuma tabela do vizinho —
   só acrescentou a coluna `observacoes`;
 - as 46 turmas e os 43 planos entraram;
 - as cinco telas abriram, sem um único erro de JavaScript.

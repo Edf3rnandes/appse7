@@ -362,6 +362,9 @@ model Unidade {
   folhaGrade    GradeHorariaFolha[]
   folhaFeriados FeriadoFolha[]
 
+  finTransacoes   TransacaoFinanceira[]
+  finCentrosCusto CentroCusto[]
+
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -887,10 +890,11 @@ model ColaboradorFolha {
 
   criadoEm DateTime @default(now())
 
-  grade       GradeHorariaFolha[]
-  lancamentos LancamentoFolha[]
-  ferias      FeriasFolha[]
-  overrides   FolhaOverride[]
+  grade         GradeHorariaFolha[]
+  lancamentos   LancamentoFolha[]
+  ferias        FeriasFolha[]
+  overrides     FolhaOverride[]
+  finTransacoes TransacaoFinanceira[]
 
   @@map("folha_colaboradores")
   @@schema("hub")
@@ -1029,5 +1033,141 @@ model FolhaOverride {
 
   @@id([mes, colaboradorId, campo])
   @@map("folha_overrides")
+  @@schema("hub")
+}
+
+// ============================================================================
+// Financeiro (Fase 5 da reconstrução da Folha/Financeiro que existia à
+// parte) — extrato bancário, categorização e DRE.
+//
+// Deliberadamente menor que o sistema original: aquele tinha 19 tabelas
+// (contas a pagar, recorrentes, recebíveis, conciliação linha a linha,
+// projeções). Aqui entra só o que sustenta "o que entrou/saiu, classificado,
+// vira um DRE por mês" — é dinheiro de verdade sendo lido, e cada tabela a
+// mais é mais uma chance de um número sair errado sem ninguém perceber.
+// Contas a pagar/recorrentes e reconciliação linha a linha com o banco ficam
+// para quando fizerem falta de verdade, não por completude.
+// ============================================================================
+
+model ContaBancaria {
+  id           String  @id @default(uuid())
+  nome         String
+  banco        String?
+  agencia      String?
+  conta        String?
+  saldoInicial Decimal @default(0) @db.Decimal(12, 2)
+  ativa        Boolean @default(true)
+
+  transacoes TransacaoFinanceira[]
+
+  criadoEm DateTime @default(now())
+
+  @@map("fin_contas_bancarias")
+  @@schema("hub")
+}
+
+enum TipoCategoriaFinanceira {
+  RECEITA
+  DESPESA
+
+  @@schema("hub")
+}
+
+// `grupoDre` é a linha do DRE em que a categoria entra (ex.: "Mensalidades",
+// "Folha de Pagamento", "Aluguel e Contas Fixas") — texto livre, decidido
+// pela Diretoria, não um enum: a lista de linhas do DRE é deles, não nossa.
+model CategoriaFinanceira {
+  id       String                  @id @default(uuid())
+  nome     String                  @unique
+  tipo     TipoCategoriaFinanceira
+  grupoDre String
+  ordem    Int                     @default(0)
+  ativa    Boolean                 @default(true)
+
+  transacoes TransacaoFinanceira[]
+  regras     RegraCategorizacaoFinanceira[]
+
+  criadoEm DateTime @default(now())
+
+  @@map("fin_categorias")
+  @@schema("hub")
+}
+
+model CentroCusto {
+  id        String   @id @default(uuid())
+  nome      String
+  unidadeId String?
+  unidade   Unidade? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  ativo     Boolean  @default(true)
+
+  transacoes TransacaoFinanceira[]
+  regras     RegraCategorizacaoFinanceira[]
+
+  criadoEm DateTime @default(now())
+
+  @@map("fin_centros_custo")
+  @@schema("hub")
+}
+
+enum StatusTransacaoFinanceira {
+  PENDENTE
+  CLASSIFICADA
+
+  @@schema("hub")
+}
+
+// Uma linha do extrato bancário. `valor` positivo é entrada, negativo é
+// saída — mesma convenção do banco, sem uma segunda coluna "tipo" que
+// pudesse discordar do sinal. `hashLinha` é a chave de deduplicação: colar o
+// mesmo extrato duas vezes não duplica nada (ver a rota de importação).
+model TransacaoFinanceira {
+  id        String        @id @default(uuid())
+  contaId   String
+  conta     ContaBancaria @relation(fields: [contaId], references: [id])
+  data      DateTime      @db.Date
+  valor     Decimal       @db.Decimal(12, 2)
+  descricao String
+
+  categoriaId   String?
+  categoria     CategoriaFinanceira? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  centroCustoId String?
+  centroCusto   CentroCusto?         @relation(fields: [centroCustoId], references: [id], onDelete: SetNull)
+  unidadeId     String?
+  unidade       Unidade?             @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  // Amarra um pagamento do extrato a um colaborador da Folha — pra cruzar
+  // "isto saiu do banco" com "isto foi calculado na Folha de Pagamento" sem
+  // duplicar cadastro nenhum (mesma regra de sempre: identidade mora num
+  // lugar só).
+  colaboradorId String?
+  colaborador   ColaboradorFolha?    @relation(fields: [colaboradorId], references: [id], onDelete: SetNull)
+
+  status     StatusTransacaoFinanceira @default(PENDENTE)
+  observacao String?
+  hashLinha  String
+
+  criadoEm DateTime @default(now())
+
+  @@unique([contaId, hashLinha])
+  @@index([data])
+  @@map("fin_transacoes")
+  @@schema("hub")
+}
+
+// Categorização automática na importação: a primeira regra cujo `padrao`
+// aparece (sem acento, minúsculo) dentro da descrição da transação classifica
+// ela sozinha. Não é regex de propósito — "contém tal palavra" é o que dá pra
+// revisar de olho sem virar um campo minado de expressão errada.
+model RegraCategorizacaoFinanceira {
+  id            String              @id @default(uuid())
+  padrao        String
+  categoriaId   String
+  categoria     CategoriaFinanceira @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  centroCustoId String?
+  centroCusto   CentroCusto?        @relation(fields: [centroCustoId], references: [id], onDelete: SetNull)
+  ordem         Int                 @default(0)
+
+  criadoEm DateTime @default(now())
+
+  @@map("fin_regras_categorizacao")
   @@schema("hub")
 }

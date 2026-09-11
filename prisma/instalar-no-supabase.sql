@@ -7,7 +7,7 @@
 --
 -- O QUE ELE FAZ
 --   1. Confere se há cadastro de verdade no schema `hub` — e PARA se houver.
---   2. Cria o schema `hub` e as 32 tabelas do sistema.
+--   2. Cria o schema `hub` e as 37 tabelas do sistema.
 --   3. Acrescenta a coluna `observacoes` em public.cronograma_semanas.
 --
 -- SOBRE O PASSO 1, QUE É O QUE IMPORTA
@@ -29,7 +29,7 @@
 -- COMO CONFERIR DEPOIS
 --   select table_schema, count(*) from information_schema.tables
 --    where table_schema in ('hub','public') group by 1;
---   -- hub deve ter 32; public, o mesmo número de antes.
+--   -- hub deve ter 37; public, o mesmo número de antes.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -107,6 +107,10 @@ CREATE TYPE "hub"."CategoriaFolha" AS ENUM ('PROFESSOR', 'ESTAGIARIO', 'AVULSO')
 CREATE TYPE "hub"."CodigoDiasFolha" AS ENUM ('TQ', 'SQS', 'SQ', 'QS', 'SEX', 'SAB');
 
 CREATE TYPE "hub"."TipoLancamentoFolha" AS ENUM ('EXTRA', 'AUSENCIA', 'AUSENCIA_ATESTADO', 'BONUS', 'COMPETICAO', 'COMPETICAO_PSICOLOGA', 'DESCONTO_VT', 'BANCO_HORAS_COMPENSADO');
+
+CREATE TYPE "hub"."TipoCategoriaFinanceira" AS ENUM ('RECEITA', 'DESPESA');
+
+CREATE TYPE "hub"."StatusTransacaoFinanceira" AS ENUM ('PENDENTE', 'CLASSIFICADA');
 
 -- CreateTable
 CREATE TABLE "hub"."usuarios" (
@@ -592,6 +596,75 @@ CREATE TABLE "hub"."folha_overrides" (
     CONSTRAINT "folha_overrides_pkey" PRIMARY KEY ("mes","colaboradorId","campo")
 );
 
+-- CreateTable
+CREATE TABLE "hub"."fin_contas_bancarias" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "banco" TEXT,
+    "agencia" TEXT,
+    "conta" TEXT,
+    "saldoInicial" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fin_contas_bancarias_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."fin_categorias" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "tipo" "hub"."TipoCategoriaFinanceira" NOT NULL,
+    "grupoDre" TEXT NOT NULL,
+    "ordem" INTEGER NOT NULL DEFAULT 0,
+    "ativa" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fin_categorias_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."fin_centros_custo" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "unidadeId" TEXT,
+    "ativo" BOOLEAN NOT NULL DEFAULT true,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fin_centros_custo_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."fin_transacoes" (
+    "id" TEXT NOT NULL,
+    "contaId" TEXT NOT NULL,
+    "data" DATE NOT NULL,
+    "valor" DECIMAL(12,2) NOT NULL,
+    "descricao" TEXT NOT NULL,
+    "categoriaId" TEXT,
+    "centroCustoId" TEXT,
+    "unidadeId" TEXT,
+    "colaboradorId" TEXT,
+    "status" "hub"."StatusTransacaoFinanceira" NOT NULL DEFAULT 'PENDENTE',
+    "observacao" TEXT,
+    "hashLinha" TEXT NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fin_transacoes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "hub"."fin_regras_categorizacao" (
+    "id" TEXT NOT NULL,
+    "padrao" TEXT NOT NULL,
+    "categoriaId" TEXT NOT NULL,
+    "centroCustoId" TEXT,
+    "ordem" INTEGER NOT NULL DEFAULT 0,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "fin_regras_categorizacao_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "usuarios_email_key" ON "hub"."usuarios"("email");
 
@@ -700,6 +773,15 @@ CREATE UNIQUE INDEX "fechamentos_diarios_data_key" ON "hub"."fechamentos_diarios
 -- CreateIndex
 CREATE INDEX "fechamentos_diarios_data_idx" ON "hub"."fechamentos_diarios"("data");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "fin_categorias_nome_key" ON "hub"."fin_categorias"("nome");
+
+-- CreateIndex
+CREATE INDEX "fin_transacoes_data_idx" ON "hub"."fin_transacoes"("data");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "fin_transacoes_contaId_hashLinha_key" ON "hub"."fin_transacoes"("contaId", "hashLinha");
+
 -- AddForeignKey
 ALTER TABLE "hub"."identidades" ADD CONSTRAINT "identidades_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "hub"."usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -790,3 +872,27 @@ ALTER TABLE "hub"."folha_feriados" ADD CONSTRAINT "folha_feriados_unidadeId_fkey
 -- AddForeignKey
 ALTER TABLE "hub"."folha_overrides" ADD CONSTRAINT "folha_overrides_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_centros_custo" ADD CONSTRAINT "fin_centros_custo_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_transacoes" ADD CONSTRAINT "fin_transacoes_contaId_fkey" FOREIGN KEY ("contaId") REFERENCES "hub"."fin_contas_bancarias"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_transacoes" ADD CONSTRAINT "fin_transacoes_categoriaId_fkey" FOREIGN KEY ("categoriaId") REFERENCES "hub"."fin_categorias"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_transacoes" ADD CONSTRAINT "fin_transacoes_centroCustoId_fkey" FOREIGN KEY ("centroCustoId") REFERENCES "hub"."fin_centros_custo"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_transacoes" ADD CONSTRAINT "fin_transacoes_unidadeId_fkey" FOREIGN KEY ("unidadeId") REFERENCES "hub"."unidades"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_transacoes" ADD CONSTRAINT "fin_transacoes_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_regras_categorizacao" ADD CONSTRAINT "fin_regras_categorizacao_categoriaId_fkey" FOREIGN KEY ("categoriaId") REFERENCES "hub"."fin_categorias"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."fin_regras_categorizacao" ADD CONSTRAINT "fin_regras_categorizacao_centroCustoId_fkey" FOREIGN KEY ("centroCustoId") REFERENCES "hub"."fin_centros_custo"("id") ON DELETE SET NULL ON UPDATE CASCADE;
