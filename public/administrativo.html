@@ -71,6 +71,7 @@
         <button class="item-menu" data-painel="painelUnidades">Unidades</button>
         <button class="item-menu" data-painel="painelPlanos">Planos</button>
         <button class="item-menu" data-painel="painelAcessos">Colaboradores</button>
+        <button class="item-menu" data-painel="painelCobranca">Cobrança</button>
       </details>
 
       <details class="grupo" open data-grupo="financeiro">
@@ -114,6 +115,7 @@
       <section id="painelUnidades" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelPlanos" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelAcessos" hidden><div class="carregando">Carregando…</div></section>
+      <section id="painelCobranca" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelVencidas" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelExpiradas" hidden><div class="carregando">Carregando…</div></section>
       <section id="painelRelAlunos" hidden><div class="carregando">Carregando…</div></section>
@@ -218,6 +220,7 @@ const SECOES = {
   painelUnidades:    { titulo: "Unidades",    carregar: () => carregarUnidades() },
   painelPlanos:      { titulo: "Planos",      carregar: () => carregarPlanos() },
   painelAcessos:     { titulo: "Colaboradores", carregar: () => carregarAcessos() },
+  painelCobranca:    { titulo: "Cobrança",      carregar: () => carregarCobranca() },
   painelVencidas:      { titulo: "Cobranças vencidas",   carregar: () => carregarVencidas() },
   painelExpiradas:     { titulo: "Matrículas expiradas", carregar: () => carregarExpiradas() },
   painelRelAlunos:     { titulo: "Alunos por turma",     carregar: () => carregarRelAlunos() },
@@ -634,14 +637,38 @@ function pintarMatriculas(total) {
     b.addEventListener("click", async () => {
       const tipo = b.dataset.tipo;
       const rotulo = tipo === "TAXA" ? "a taxa de matrícula" : "a mensalidade";
-      if (!confirm(`Emitir ${rotulo} no Asaas? A família recebe a cobrança.`)) return;
+
+      // Valor e vencimento ficam abertos na hora de emitir — em branco usa o
+      // padrão (valor do plano/taxa configurada, dia de vencimento
+      // configurado); preenchido serve pro caso combinado no balcão, como
+      // proporcional de quem entrou no meio do mês.
+      const valorDigitado = prompt(
+        `Emitir ${rotulo} no Asaas — a família recebe a cobrança.\n\n` +
+          "Valor (R$) — deixe em branco pra usar o padrão:",
+        "",
+      );
+      if (valorDigitado === null) return;
+
+      const vencimentoDigitado = prompt(
+        "Vencimento (AAAA-MM-DD) — deixe em branco pra usar o dia configurado:",
+        "",
+      );
+      if (vencimentoDigitado === null) return;
+
+      const valorTexto = valorDigitado.trim();
+      const vencimentoTexto = vencimentoDigitado.trim();
+      const valor = valorTexto ? Number(valorTexto.replace(",", ".")) : undefined;
+      if (valorTexto && (Number.isNaN(valor) || valor <= 0)) return alert("Valor inválido.");
+      if (vencimentoTexto && !/^\d{4}-\d{2}-\d{2}$/.test(vencimentoTexto)) {
+        return alert("Vencimento precisa estar no formato AAAA-MM-DD.");
+      }
 
       b.disabled = true;
       b.textContent = "Emitindo…";
       try {
         const c = await api(`/financeiro/matriculas/${b.dataset.cobrar}/cobranca`, {
           method: "POST",
-          body: JSON.stringify({ tipo }),
+          body: JSON.stringify({ tipo, valor, vencimento: vencimentoTexto || undefined }),
         });
         await carregarMatriculas();
         el("painelMatriculas").insertAdjacentHTML(
@@ -4197,6 +4224,126 @@ function cartaoInstagram(s) {
         <button class="botao" type="submit">Conectar</button>
       </form>
     </div>`;
+}
+
+// ============================================================== COBRANÇA
+//
+// Taxa de matrícula, dia de vencimento padrão e o contrato que a família lê
+// na confirmação da matrícula e no portal — os três já existiam no backend,
+// mas sem tela nenhuma pra editar (só mudando direto no banco). Mora junto
+// de Unidades/Planos/Colaboradores porque é configuração, não status de
+// cobrança (isso já mora em Cobranças vencidas / Matrículas expiradas).
+async function carregarCobranca() {
+  const painel = el("painelCobranca");
+  try {
+    const config = await api("/conteudo/config");
+    painel.innerHTML = cartaoCobranca(config);
+    ligarCobranca();
+  } catch (e) {
+    painel.innerHTML = aviso(e);
+  }
+}
+
+function cartaoCobranca(config) {
+  return `
+    <div class="cartao" style="margin-bottom:16px">
+      <div class="linha" style="margin-bottom:8px"><strong>Taxa de matrícula e vencimento</strong></div>
+      <p class="meta" style="margin:0 0 14px">
+        A taxa é cobrada uma vez por aluno matriculado (uma família com 3 matrículas na mesma hora
+        gera 3 cobranças de taxa, uma por aluno). O dia de vencimento é o padrão usado quando o
+        vencimento não é digitado na hora de emitir uma cobrança — que continua editável ali, caso a
+        caso, pra dar conta de matrícula no meio do mês com proporcional.
+      </p>
+      <form class="pilha" style="gap:10px" data-form-taxa>
+        <div class="form-grade">
+          <div class="campo">
+            <label class="rotulo" for="cb_taxa">Taxa de matrícula (R$)</label>
+            <input id="cb_taxa" type="number" step="0.01" min="0" value="${Number(config.taxaMatricula)}">
+          </div>
+          <div class="campo">
+            <label class="rotulo" for="cb_vencimento">Dia de vencimento padrão</label>
+            <input id="cb_vencimento" type="number" step="1" min="1" max="28" value="${Number(config.diaVencimento)}">
+          </div>
+        </div>
+        <div class="aviso erro oculto" id="recadoTaxa"></div>
+        <button class="botao" type="submit">Salvar</button>
+      </form>
+    </div>
+
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:8px"><strong>Contrato</strong></div>
+      <p class="meta" style="margin:0 0 12px">
+        O texto abaixo aparece na confirmação da matrícula (a família lê antes de aceitar) e no
+        portal do aluno, pra poder reler quando quiser. Cole o contrato inteiro — editar aqui muda
+        pros dois lugares na hora, sem precisar de deploy.
+      </p>
+      <form class="pilha" style="gap:10px" data-form-contrato>
+        <div class="campo">
+          <label class="rotulo" for="cb_contrato">Texto do contrato</label>
+          <textarea id="cb_contrato" rows="14" style="font-family:inherit;font-size:14px;line-height:1.5"
+            placeholder="Cole aqui o contrato completo…">${escapar(config.contratoTexto || "")}</textarea>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="cb_linkTermos">Link externo dos termos (opcional)</label>
+          <input id="cb_linkTermos" value="${escapar(config.linkTermos || "")}" placeholder="https://…">
+          <span class="meta">Só use se preferir apontar pra um documento hospedado fora, em vez do texto colado acima.</span>
+        </div>
+        <div class="aviso erro oculto" id="recadoContrato"></div>
+        <button class="botao" type="submit">Salvar contrato</button>
+      </form>
+    </div>`;
+}
+
+function ligarCobranca() {
+  const painel = el("painelCobranca");
+
+  const formTaxa = painel.querySelector("[data-form-taxa]");
+  formTaxa?.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoTaxa");
+    recado.classList.add("oculto");
+    const botao = formTaxa.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    try {
+      await api("/conteudo/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          taxaMatricula: Number(el("cb_taxa").value) || 0,
+          diaVencimento: Number(el("cb_vencimento").value) || 10,
+        }),
+      });
+      await carregarCobranca();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+    }
+  });
+
+  const formContrato = painel.querySelector("[data-form-contrato]");
+  formContrato?.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    const recado = el("recadoContrato");
+    recado.classList.add("oculto");
+    const botao = formContrato.querySelector('button[type="submit"]');
+    botao.disabled = true;
+    botao.textContent = "Salvando…";
+    try {
+      await api("/conteudo/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          contratoTexto: el("cb_contrato").value,
+          linkTermos: el("cb_linkTermos").value.trim(),
+        }),
+      });
+      await carregarCobranca();
+    } catch (e) {
+      recado.textContent = e.message;
+      recado.classList.remove("oculto");
+      botao.disabled = false;
+      botao.textContent = "Salvar contrato";
+    }
+  });
 }
 
 function cartaoGoogle(config) {

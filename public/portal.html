@@ -59,6 +59,7 @@
     <button class="aba" role="tab" id="abaAlunos"   aria-selected="true"  data-painel="painelAlunos">Alunos</button>
     <button class="aba" role="tab" id="abaFaturas"  aria-selected="false" data-painel="painelFaturas">Faturas</button>
     <button class="aba" role="tab" id="abaCadastro" aria-selected="false" data-painel="painelCadastro">Cadastro</button>
+    <button class="aba" role="tab" id="abaContrato" aria-selected="false" data-painel="painelContrato">Contrato</button>
   </div>
 
   <section id="painelAlunos" role="tabpanel" aria-labelledby="abaAlunos">
@@ -68,6 +69,9 @@
     <div class="carregando">Carregando…</div>
   </section>
   <section id="painelCadastro" role="tabpanel" aria-labelledby="abaCadastro" hidden>
+    <div class="carregando">Carregando…</div>
+  </section>
+  <section id="painelContrato" role="tabpanel" aria-labelledby="abaContrato" hidden>
     <div class="carregando">Carregando…</div>
   </section>
 </main>
@@ -166,6 +170,7 @@ function abrirPortal() {
   carregarAlunos();
   carregarFaturas();
   carregarCadastro();
+  carregarContrato();
 }
 
 /** Traduz a falha em algo que o responsável entenda, sem jargão de HTTP. */
@@ -626,6 +631,28 @@ function ligarCadastro() {
       pintarCadastro();
     }
   });
+}
+
+// ------------------------------------------------------------------ contrato
+//
+// O mesmo texto que a família leu (e aceitou) na hora da matrícula — pra
+// poder reler quando quiser, não só naquele minuto. Editado pela Diretoria em
+// Administrativo → Configurações → Cobrança; aqui é só leitura.
+async function carregarContrato() {
+  const painel = el("painelContrato");
+  try {
+    const c = await api("/portal/contrato");
+    painel.innerHTML = !c.texto
+      ? `<div class="vazio">
+          O contrato ainda não foi publicado aqui.
+          ${c.linkTermos ? `<a href="${escapar(c.linkTermos)}" target="_blank" rel="noopener">Ver termos de uso</a>` : ""}
+        </div>`
+      : `<div class="cartao">
+          <div style="white-space:pre-wrap;line-height:1.6">${escapar(c.texto)}</div>
+        </div>`;
+  } catch (e) {
+    painel.innerHTML = painelErro(e);
+  }
 }
 
 // ------------------------------------------------------------------ início

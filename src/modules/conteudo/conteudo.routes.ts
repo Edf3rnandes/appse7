@@ -106,6 +106,10 @@ const instagramConfigSchema = z.object({
 const CHAVE_CANVA = "cronograma.linkCanva";
 const CHAVE_TAXA = "matricula.taxa";
 const CHAVE_TERMOS = "matricula.linkTermos";
+// O contrato em si — texto colado pela Diretoria, não um link pra um
+// documento externo. Editável a qualquer momento, porque o texto muda
+// (valor, condições) sem aviso prévio nenhum tipo de deploy.
+const CHAVE_CONTRATO = "matricula.contratoTexto";
 
 // A chave que decide se o Hub pode EMITIR cobrança no Asaas. Desligada por
 // padrão, e de propósito: enquanto o Laravel continuar no ar, dois emissores
@@ -132,6 +136,9 @@ const configSchema = z.object({
   // R$ 30 exige um deploy. Aqui o administrativo muda pela tela.
   taxaMatricula: z.number().min(0).max(10000).optional(),
   linkTermos: z.union([z.string().url("Link dos termos inválido.").max(500), z.literal("")]).optional(),
+  // O contrato completo, colado pela Diretoria — aparece na confirmação da
+  // matrícula e no portal do aluno. "" apaga, mesmo padrão do resto daqui.
+  contratoTexto: z.string().max(20000, "Contrato muito longo.").optional(),
   diaVencimento: z.number().int().min(1).max(28).optional(),
   googlePlaceId: z.string().trim().max(200).optional(),
 });
@@ -247,6 +254,7 @@ export async function conteudoRoutes(app: FastifyInstance) {
 
     await gravar(CHAVE_CANVA, corpo.linkCanva);
     await gravar(CHAVE_TERMOS, corpo.linkTermos);
+    await gravar(CHAVE_CONTRATO, corpo.contratoTexto);
     await gravar(
       CHAVE_VENCIMENTO,
       corpo.diaVencimento === undefined ? undefined : String(corpo.diaVencimento),
@@ -658,7 +666,10 @@ export async function lerConfig() {
     .findMany({
       where: {
         chave: {
-          in: [CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS, CHAVE_EMISSAO, CHAVE_VENCIMENTO, CHAVE_GOOGLE_PLACE_ID],
+          in: [
+            CHAVE_CANVA, CHAVE_TAXA, CHAVE_TERMOS, CHAVE_CONTRATO,
+            CHAVE_EMISSAO, CHAVE_VENCIMENTO, CHAVE_GOOGLE_PLACE_ID,
+          ],
         },
       },
     })
@@ -669,6 +680,7 @@ export async function lerConfig() {
   return {
     linkCanva: valor(CHAVE_CANVA) ?? "",
     linkTermos: valor(CHAVE_TERMOS) ?? "",
+    contratoTexto: valor(CHAVE_CONTRATO) ?? "",
     taxaMatricula: Number(valor(CHAVE_TAXA) ?? 25),
     diaVencimento: Number(valor(CHAVE_VENCIMENTO) ?? 10),
     // Só a string exata "true" liga. Qualquer outra coisa — ausente, vazio,

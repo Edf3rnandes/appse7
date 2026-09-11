@@ -9,6 +9,7 @@ import {
 } from "../../services/asaas/asaas.client.js";
 import { mascararCpf } from "../../lib/cpf.js";
 import { tratadorDeErro } from "../../lib/erros.js";
+import { lerConfig } from "../conteudo/conteudo.routes.js";
 
 const alunoParams = z.object({ id: z.string().uuid() });
 
@@ -281,6 +282,17 @@ export async function portalRoutes(app: FastifyInstance) {
     });
 
     return { ...dados, completo: true };
+  });
+
+  /**
+   * O contrato que a família assinou na matrícula — pra poder reler quando
+   * quiser, não só no minuto de assinar. Mesmo texto que a Diretoria edita em
+   * Administrativo → Configurações → Cobrança, sem cadastro nenhum aqui: é
+   * um documento da escola, não um por família.
+   */
+  app.get("/portal/contrato", { preHandler: [app.exigirResponsavel] }, async () => {
+    const config = await lerConfig();
+    return { texto: config.contratoTexto, linkTermos: config.linkTermos };
   });
 
   // Ocupação por unidade: quantas vagas a escola ainda tem, por onde. A

@@ -356,6 +356,7 @@ function passoConfirmacao() {
   const pl = plano();
   const taxa = estado.catalogo.taxaMatricula;
   const termos = estado.catalogo.linkTermos;
+  const contrato = estado.catalogo.contratoTexto;
 
   const linha = (rotulo, valor) => `
     <div class="linha-confirma">
@@ -381,11 +382,19 @@ function passoConfirmacao() {
       ${linha("Mensalidade", fmt.moeda(pl.valor))}
     </div>
 
+    ${contrato ? `
+      <details style="margin-top:18px">
+        <summary style="cursor:pointer;font-weight:600;color:var(--accent)">Ler o contrato completo</summary>
+        <div class="meta" style="white-space:pre-wrap;margin-top:10px;line-height:1.6">${escapar(contrato)}</div>
+      </details>` : ""}
+
     <label class="marcavel" style="margin:18px 4px 0">
       <input type="checkbox" id="aceite" ${estado.aceitou ? "checked" : ""}>
-      <span>Li e aceito ${termos
-        ? `os <a href="${escapar(termos)}" target="_blank" rel="noopener">termos de uso</a>`
-        : "os termos de uso"} e as condições do plano.</span>
+      <span>Li e aceito ${contrato
+        ? "o contrato"
+        : termos
+          ? `os <a href="${escapar(termos)}" target="_blank" rel="noopener">termos de uso</a>`
+          : "os termos de uso"} e as condições do plano.</span>
     </label>`;
 }
 

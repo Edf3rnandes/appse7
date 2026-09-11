@@ -234,6 +234,7 @@ export async function publicoRoutes(app: FastifyInstance) {
       ].sort(),
       taxaMatricula: config.taxaMatricula,
       linkTermos: config.linkTermos,
+      contratoTexto: config.contratoTexto,
       // Vazio quando WHATSAPP_COMERCIAL não está configurada — a página de
       // entrada esconde o botão em vez de mostrar um link quebrado.
       whatsapp: whatsappComercial,
