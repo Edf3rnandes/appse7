@@ -4923,11 +4923,17 @@ function ligarAcessos() {
     b.addEventListener("click", async () => {
       const prof = professores.find((p) => p.id === b.dataset.cadastro);
       const desativando = b.dataset.ativo === "true";
-      if (desativando && !confirm(
-        `Desativar o cadastro de "${prof?.nome ?? ""}"? Ele sai das turmas novas, mas o histórico fica.`)) return;
+      let dataDesligamento;
+      if (desativando) {
+        if (!confirm(`Desativar o cadastro de "${prof?.nome ?? ""}"? Ele sai das turmas novas, mas o histórico fica.`)) return;
+        // A Folha de pagamento (Sócios) usa esta data pra saber se a pessoa
+        // ainda contava num mês passado — sem ela, só dá pra saber "ativo hoje".
+        dataDesligamento = prompt("Data de desligamento (AAAA-MM-DD):", new Date().toISOString().slice(0, 10));
+        if (!dataDesligamento) return;
+      }
       try {
         if (desativando) {
-          await api(`/escola/professores/${b.dataset.cadastro}`, { method: "DELETE" });
+          await api(`/escola/professores/${b.dataset.cadastro}`, { method: "DELETE", body: JSON.stringify({ dataDesligamento }) });
         } else {
           await api(`/escola/professores/${b.dataset.cadastro}`, {
             method: "PUT",

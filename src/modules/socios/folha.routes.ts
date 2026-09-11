@@ -7,12 +7,16 @@ import { prisma } from "../../lib/prisma.js";
  * Folha de pagamento — controle de horas, faltas e valores da equipe.
  *
  * Reconstrução nativa de uma plataforma que já existia separada (HTML
- * próprio, banco à parte) — ver o cabeçalho de ColaboradorFolha no schema
- * para o porquê deste cadastro não é o mesmo `Professor` do resto do Hub.
+ * próprio, banco à parte). A pessoa em si (nome, e-mail, ativo/desligado)
+ * é o `Professor` que Administrativo → Colaboradores já cadastra, com
+ * convite e papéis — ver o cabeçalho de ColaboradorFolha no schema para o
+ * porquê disto NÃO duplica esse cadastro, só complementa com o que é
+ * específico de folha (tipo pra fins de pagamento, nível, categoria).
  *
  * Mora na aba dos sócios: é controle de pagamento da equipe, não operação
  * do dia a dia da escola — por isso um módulo próprio, e não mais rotas
- * dentro de socios.routes.ts (que hoje é praticamente só leitura).
+ * dentro de socios.routes.ts (que hoje é praticamente só leitura). Mas quem
+ * a pessoa É continua sendo decidido só em Administrativo.
  *
  * Fase 1 desta reconstrução: Colaboradores, Grade Horária e Valores — a
  * base de cadastro de que todo o resto (lançamentos, folha calculada,
@@ -22,13 +26,14 @@ import { prisma } from "../../lib/prisma.js";
 const idParams = z.object({ id: z.string().uuid() });
 
 const colaboradorSchema = z.object({
-  nome: z.string({ required_error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(160),
-  unidadeTexto: z.string().max(200).optional(),
+  professorId: z.string().uuid("Escolha o colaborador."),
   tipo: z.nativeEnum(TipoColaboradorFolha),
   nivel: z.number().int().min(1).max(3).default(1),
   // "" limpa (volta a usar o `tipo`) — mesmo padrão do resto do sistema.
   categoriaFolha: z.union([z.nativeEnum(CategoriaFolha), z.literal("")]).optional(),
 });
+
+const colaboradorEdicaoSchema = colaboradorSchema.omit({ professorId: true });
 
 const gradeSchema = z.object({
   unidadeId: z.string().uuid("Escolha a unidade."),
@@ -58,57 +63,70 @@ export async function folhaRoutes(app: FastifyInstance) {
   const somenteSocios = { preHandler: [app.exigirPapel("SOCIO")] };
 
   // ----------------------------------------------------------- colaboradores
+  //
+  // A lista já vem com o `professor` embutido (nome, e-mail, ativo,
+  // desligamento) — a tela não faz uma segunda chamada pra montar isso.
   app.get("/folha/colaboradores", somenteSocios, async () =>
-    prisma.colaboradorFolha.findMany({ orderBy: [{ ativo: "desc" }, { nome: "asc" }] }));
+    prisma.colaboradorFolha.findMany({
+      include: { professor: { select: { nome: true, email: true, ativo: true, dataDesligamento: true } } },
+      orderBy: [{ professor: { ativo: "desc" } }, { professor: { nome: "asc" } }],
+    }));
+
+  /**
+   * Quem em Administrativo → Colaboradores ainda não tem perfil de folha —
+   * a lista que alimenta o seletor de "novo colaborador" aqui. Não cria
+   * pessoa nenhuma: só aponta pra quem já existe.
+   */
+  app.get("/folha/colaboradores/disponiveis", somenteSocios, async () => {
+    const jaTemFolha = (await prisma.colaboradorFolha.findMany({ select: { professorId: true } }))
+      .map((c) => c.professorId);
+    return prisma.professor.findMany({
+      where: { ativo: true, id: { notIn: jaTemFolha } },
+      orderBy: { nome: "asc" },
+      select: { id: true, nome: true, email: true },
+    });
+  });
 
   app.post("/folha/colaboradores", somenteSocios, async (request, reply) => {
     const d = colaboradorSchema.parse(request.body);
-    const existe = await prisma.colaboradorFolha.findFirst({
-      where: { nome: { equals: d.nome, mode: "insensitive" } },
-    });
-    if (existe) return reply.code(409).send({ message: "Já existe um colaborador cadastrado com esse nome." });
+
+    const professor = await prisma.professor.findUnique({ where: { id: d.professorId } });
+    if (!professor) return reply.code(404).send({ message: "Colaborador não encontrado em Administrativo." });
+
+    const jaTem = await prisma.colaboradorFolha.findUnique({ where: { professorId: d.professorId } });
+    if (jaTem) return reply.code(409).send({ message: "Esse colaborador já tem perfil de folha." });
 
     const colaborador = await prisma.colaboradorFolha.create({
       data: {
-        nome: d.nome,
-        unidadeTexto: d.unidadeTexto ?? "",
+        professorId: d.professorId,
         tipo: d.tipo,
         nivel: d.nivel,
         categoriaFolha: d.categoriaFolha || null,
       },
+      include: { professor: { select: { nome: true, email: true, ativo: true, dataDesligamento: true } } },
     });
     return reply.code(201).send(colaborador);
   });
 
   app.put("/folha/colaboradores/:id", somenteSocios, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const d = colaboradorSchema.parse(request.body);
+    const d = colaboradorEdicaoSchema.parse(request.body);
 
     const existe = await prisma.colaboradorFolha.findUnique({ where: { id } });
     if (!existe) return reply.code(404).send({ message: "Colaborador não encontrado." });
 
-    const duplicado = await prisma.colaboradorFolha.findFirst({
-      where: { id: { not: id }, nome: { equals: d.nome, mode: "insensitive" } },
-    });
-    if (duplicado) return reply.code(409).send({ message: "Já existe um colaborador cadastrado com esse nome." });
-
     return prisma.colaboradorFolha.update({
       where: { id },
-      data: {
-        nome: d.nome,
-        unidadeTexto: d.unidadeTexto ?? "",
-        tipo: d.tipo,
-        nivel: d.nivel,
-        categoriaFolha: d.categoriaFolha || null,
-      },
+      data: { tipo: d.tipo, nivel: d.nivel, categoriaFolha: d.categoriaFolha || null },
+      include: { professor: { select: { nome: true, email: true, ativo: true, dataDesligamento: true } } },
     });
   });
 
   /**
-   * Demitir: carimbo, não some com nada. O colaborador sai do quadro ativo,
-   * das grades e dos seletores de novo lançamento, mas o histórico continua
-   * no Extrato — mesma regra do resto do sistema (nada aqui apaga de
-   * verdade um registro que já tem uso).
+   * Demitir e Reativar mexem no `Professor`, não no perfil de folha — é o
+   * mesmo campo que Administrativo → Colaboradores usa (Desativar/o PUT com
+   * ativo:true). Duas telas, um estado só: não tem como um dizer "ativo" e o
+   * outro "desligado" pra mesma pessoa.
    */
   app.post("/folha/colaboradores/:id/demitir", somenteSocios, async (request, reply) => {
     const { id } = idParams.parse(request.params);
@@ -119,10 +137,11 @@ export async function folhaRoutes(app: FastifyInstance) {
     const existe = await prisma.colaboradorFolha.findUnique({ where: { id } });
     if (!existe) return reply.code(404).send({ message: "Colaborador não encontrado." });
 
-    return prisma.colaboradorFolha.update({
-      where: { id },
+    await prisma.professor.update({
+      where: { id: existe.professorId },
       data: { ativo: false, dataDesligamento: dataOpcional(dataDesligamento) },
     });
+    return { id };
   });
 
   app.post("/folha/colaboradores/:id/reativar", somenteSocios, async (request, reply) => {
@@ -130,17 +149,17 @@ export async function folhaRoutes(app: FastifyInstance) {
     const existe = await prisma.colaboradorFolha.findUnique({ where: { id } });
     if (!existe) return reply.code(404).send({ message: "Colaborador não encontrado." });
 
-    return prisma.colaboradorFolha.update({
-      where: { id },
+    await prisma.professor.update({
+      where: { id: existe.professorId },
       data: { ativo: true, dataDesligamento: null },
     });
+    return { id };
   });
 
   /**
-   * Exclusão de verdade — apaga também grade, lançamentos, férias e
-   * correções dele (a foreign key é `onDelete: Cascade`). Existe pra
-   * cadastro feito errado; quem já tem lançamento real deveria usar
-   * "Demitir", não isto — o mesmo aviso que a tela original já dava.
+   * Remove só o perfil de folha (grade, lançamentos, férias e correções
+   * dele — a foreign key é `onDelete: Cascade`). O cadastro da pessoa em
+   * Administrativo não é tocado: pra excluí-la de vez, é lá que se faz.
    */
   app.delete("/folha/colaboradores/:id", somenteSocios, async (request, reply) => {
     const { id } = idParams.parse(request.params);

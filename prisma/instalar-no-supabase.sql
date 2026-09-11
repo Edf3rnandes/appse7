@@ -284,6 +284,7 @@ CREATE TABLE "hub"."professores" (
     "email" TEXT,
     "telefone" TEXT,
     "ativo" BOOLEAN NOT NULL DEFAULT true,
+    "dataDesligamento" DATE,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "atualizadoEm" TIMESTAMP(3) NOT NULL,
 
@@ -488,17 +489,17 @@ CREATE INDEX "pagina_imagens_slot_ativa_ordem_idx" ON "hub"."pagina_imagens"("sl
 -- CreateTable
 CREATE TABLE "hub"."folha_colaboradores" (
     "id" TEXT NOT NULL,
-    "nome" TEXT NOT NULL,
-    "unidadeTexto" TEXT NOT NULL DEFAULT '',
+    "professorId" TEXT NOT NULL,
     "tipo" "hub"."TipoColaboradorFolha" NOT NULL,
     "nivel" INTEGER NOT NULL DEFAULT 1,
     "categoriaFolha" "hub"."CategoriaFolha",
-    "ativo" BOOLEAN NOT NULL DEFAULT true,
-    "dataDesligamento" DATE,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "folha_colaboradores_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "folha_colaboradores_professorId_key" ON "hub"."folha_colaboradores"("professorId");
 
 -- CreateTable
 CREATE TABLE "hub"."folha_grade_horaria" (
@@ -759,6 +760,9 @@ ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_alunoId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "hub"."presencas" ADD CONSTRAINT "presencas_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "hub"."folha_colaboradores" ADD CONSTRAINT "folha_colaboradores_professorId_fkey" FOREIGN KEY ("professorId") REFERENCES "hub"."professores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "hub"."folha_grade_horaria" ADD CONSTRAINT "folha_grade_horaria_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "hub"."folha_colaboradores"("id") ON DELETE CASCADE ON UPDATE CASCADE;

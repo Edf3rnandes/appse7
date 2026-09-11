@@ -433,20 +433,26 @@ model HorarioTurma {
 }
 
 model Professor {
-  id       String  @id @default(uuid())
-  legacyId Int?    @unique
-  nome     String
+  id               String    @id @default(uuid())
+  legacyId         Int?      @unique
+  nome             String
   // A tabela original não tinha e-mail nem CPF, só `username` e uma senha MD5.
   // É por isso que professor não consegue se vincular sozinho por CPF e entra
   // por convite. Com e-mail aqui, o convite passa a ser opcional.
-  email    String? @unique
-  telefone String?
-  ativo    Boolean @default(true)
+  email            String?   @unique
+  telefone         String?
+  ativo            Boolean   @default(true)
+  // Quando `ativo` vira false — por Administrativo → Colaboradores → Desativar,
+  // ou por Sócios → Folha → Demitir, os dois mexem no mesmo campo. A data
+  // importa pra folha de pagamento: sem ela, não dá pra saber se a pessoa
+  // ainda contava num mês passado específico, só se conta hoje.
+  dataDesligamento DateTime? @db.Date
 
   turmas      ProfessorTurma[]
   presencas   Presenca[]
   ocorrencias Ocorrencia[]
   vinculo     Vinculo?
+  folha       ColaboradorFolha?
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -827,13 +833,17 @@ model PaginaImagem {
 // a pedido de quem usa. Mora na aba dos sócios, não no administrativo: é
 // controle de pagamento da equipe, papel de quem responde pela sociedade.
 //
-// "ColaboradorFolha" é de propósito um cadastro à parte de `Professor`: um é
-// quem dá aula (turma, portal do professor, login); o outro é o registro de
-// PAGAMENTO daquela pessoa (nível salarial, tipo pra fins de folha, se está
-// ativo). Nem todo ColaboradorFolha é um Professor no sentido do Hub (pode
-// ser estagiário sem turma própria), e forçar os dois a serem a mesma
-// entidade quebraria no primeiro caso que não se encaixasse perfeitamente
-// nos dois papéis ao mesmo tempo.
+// "ColaboradorFolha" NÃO é um cadastro de pessoa — é o complemento de
+// pagamento de um `Professor` que já existe (o mesmo cadastro que aparece em
+// Administrativo → Colaboradores, com convite, papéis etc.). A primeira
+// versão desta tabela duplicava nome/unidade/ativo/desligamento, e isso é
+// exatamente o problema que o resto do sistema evita em todo canto: duas
+// fontes pro mesmo fato divergem cedo ou tarde. Por isso `professorId` é
+// `@unique` (um perfil de folha por pessoa) e só guarda o que É específico
+// de folha de pagamento — tipo, nível, categoria. Nome vem de
+// `professor.nome`; ativo/desligado vem de `professor.ativo` e
+// `professor.dataDesligamento` — o mesmo botão "Desativar" de Administrativo
+// e o "Demitir" daqui mexem no mesmo campo.
 // ---------------------------------------------------------------------------
 
 enum TipoColaboradorFolha {
@@ -852,13 +862,9 @@ enum CategoriaFolha {
 }
 
 model ColaboradorFolha {
-  id   String @id @default(uuid())
-  nome String
-
-  // Texto livre, só pra exibição na lista — "Cabo Branco / Bessa" quando dá
-  // aula em mais de uma. A unidade que importa pra cálculo é a de cada linha
-  // da Grade Horária (essa sim ligada à Unidade de verdade do Hub).
-  unidadeTexto String @default("")
+  id          String    @id @default(uuid())
+  professorId String    @unique
+  professor   Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
 
   tipo  TipoColaboradorFolha
   nivel Int                  @default(1)
@@ -867,9 +873,6 @@ model ColaboradorFolha {
   // Existe pra quem é, por exemplo, estagiário mas pago como horista de
   // professor — o valor da hora continua vindo do `tipo`.
   categoriaFolha CategoriaFolha?
-
-  ativo            Boolean   @default(true)
-  dataDesligamento DateTime? @db.Date
 
   criadoEm DateTime @default(now())
 

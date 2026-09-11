@@ -342,12 +342,32 @@ export async function cadastroRoutes(app: FastifyInstance) {
 
   app.put("/escola/professores/:id", equipe, async (request) => {
     const { id } = idParams.parse(request.params);
-    return prisma.professor.update({ where: { id }, data: professorSchema.parse(request.body) });
+    const corpo = professorSchema.parse(request.body);
+    return prisma.professor.update({
+      where: { id },
+      data: {
+        ...corpo,
+        // Reativar sem limpar a data deixaria um professor ativo carregando
+        // um "desligado em" de uma saída anterior — a Folha de pagamento lê
+        // esse campo pra decidir se a pessoa contava num mês passado, e um
+        // resto desses faria um professor ativo parecer desligado.
+        dataDesligamento: corpo.ativo ? null : undefined,
+      },
+    });
   });
 
   app.delete("/escola/professores/:id", equipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    await prisma.professor.update({ where: { id }, data: { ativo: false } });
+    const { dataDesligamento } = z
+      .object({ dataDesligamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
+      .parse(request.body ?? {});
+    await prisma.professor.update({
+      where: { id },
+      data: {
+        ativo: false,
+        dataDesligamento: dataDesligamento ? new Date(`${dataDesligamento}T00:00:00.000Z`) : hoje(),
+      },
+    });
     return reply.code(204).send();
   });
 

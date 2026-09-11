@@ -792,7 +792,7 @@ const CODIGO_DIAS_LABEL = {
   QS: "QS — Quarta e Sexta", SEX: "SEX — Sexta", SAB: "SAB — Sábado",
 };
 
-const RASCUNHO_COLAB_VAZIO = () => ({ nome: "", unidadeTexto: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "" });
+const RASCUNHO_COLAB_VAZIO = () => ({ professorId: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "" });
 const RASCUNHO_GRADE_VAZIO = () => ({
   colaboradorId: "", unidadeId: "", turma: "", codigo: "TQ", horario: "", duracaoHoras: "",
   tipo: "PROFESSOR", nivel: "1", semVt: false, dataInicio: "", dataFim: "",
@@ -801,6 +801,10 @@ const RASCUNHO_GRADE_VAZIO = () => ({
 const folha = {
   sub: "colaboradores",
   colaboradores: [],
+  // Colaboradores de Administrativo que ainda não têm perfil de folha —
+  // é dali que o formulário "novo colaborador" escolhe, nunca digitando um
+  // nome novo (ver o cabeçalho de ColaboradorFolha no schema).
+  disponiveis: [],
   grade: [],
   valores: [],
   unidades: [],
@@ -816,13 +820,15 @@ async function carregarFolha() {
   const alvo = el("secFolha");
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
   try {
-    const [colaboradores, grade, valores, unidades] = await Promise.all([
+    const [colaboradores, disponiveis, grade, valores, unidades] = await Promise.all([
       api("/folha/colaboradores"),
+      api("/folha/colaboradores/disponiveis"),
       api("/folha/grade"),
       api("/folha/valores"),
       api("/escola/unidades"),
     ]);
     folha.colaboradores = colaboradores;
+    folha.disponiveis = disponiveis;
     folha.grade = grade;
     folha.valores = valores;
     folha.unidades = unidades.filter((u) => u.ativa);
@@ -864,47 +870,67 @@ function pintarFolha() {
 }
 
 // ------------------------------------------------------------ colaboradores
+//
+// A pessoa (nome, e-mail, ativo/desligado) vem de Administrativo →
+// Colaboradores — aqui só se escolhe quem já existe lá e se completa o que é
+// de folha (tipo, nível, categoria). Pra cadastrar alguém novo, o caminho é
+// Administrativo, não aqui.
 function folhaColaboradoresHTML() {
   const r = folha.rascunhoColaborador;
-  const ativos = folha.colaboradores.filter((c) => c.ativo);
-  const desligados = folha.colaboradores.filter((c) => !c.ativo);
+  const editando = folha.editandoColaborador
+    ? folha.colaboradores.find((c) => c.id === folha.editandoColaborador)
+    : null;
+  const ativos = folha.colaboradores.filter((c) => c.professor.ativo);
+  const desligados = folha.colaboradores.filter((c) => !c.professor.ativo);
+
+  const semQuemAdicionar = !editando && folha.disponiveis.length === 0;
 
   return `
     <div class="cartao">
       <div class="linha" style="margin-bottom:10px">
-        <strong>${folha.editandoColaborador ? "Editar colaborador" : "Novo colaborador"}</strong>
-        ${folha.editandoColaborador ? `<button class="botao fantasma" type="button" id="btnCancelarColab">Cancelar</button>` : ""}
+        <strong>${editando ? `Editar perfil de folha — ${escapar(editando.professor.nome)}` : "Adicionar colaborador à folha"}</strong>
+        ${editando ? `<button class="botao fantasma" type="button" id="btnCancelarColab">Cancelar</button>` : ""}
       </div>
-      <div class="pilha" style="gap:12px">
-        <div class="campo"><label class="rotulo" for="cf_nome">Nome</label>
-          <input id="cf_nome" value="${escapar(r.nome)}"></div>
-        <div class="campo"><label class="rotulo" for="cf_unidade">Unidade(s) — texto livre</label>
-          <input id="cf_unidade" placeholder="ex.: Cabo Branco / Bessa" value="${escapar(r.unidadeTexto)}"></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
-            <select id="cf_tipo">
-              <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
-              <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
-            </select></div>
-          <div class="campo" style="flex:0 0 120px"><label class="rotulo" for="cf_nivel">Nível padrão</label>
-            <select id="cf_nivel">
-              <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
-              <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
-              <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
-            </select></div>
-        </div>
-        <div class="campo"><label class="rotulo" for="cf_categoria">Aparece na Folha como</label>
-          <select id="cf_categoria">
-            <option value="" ${!r.categoriaFolha ? "selected" : ""}>(igual ao Tipo)</option>
-            <option value="PROFESSOR" ${r.categoriaFolha === "PROFESSOR" ? "selected" : ""}>Professor</option>
-            <option value="ESTAGIARIO" ${r.categoriaFolha === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
-            <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
-          </select>
-          <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
-        </div>
-        <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
-        <button class="botao" type="button" id="btnSalvarColab">${folha.editandoColaborador ? "Salvar" : "Adicionar colaborador"}</button>
-      </div>
+      ${semQuemAdicionar ? `
+        <p class="meta">
+          Todo colaborador ativo já tem perfil de folha, ou ainda não há nenhum cadastrado.
+          Pra adicionar alguém novo à equipe, o caminho é
+          <strong>Administrativo → Colaboradores</strong> — a Folha só completa o que já existe lá.
+        </p>` : `
+        <div class="pilha" style="gap:12px">
+          ${editando ? "" : `
+            <div class="campo"><label class="rotulo" for="cf_professor">Colaborador (cadastrado em Administrativo)</label>
+              <select id="cf_professor">
+                <option value="">Escolha…</option>
+                ${folha.disponiveis.map((p) => `<option value="${p.id}" ${r.professorId === p.id ? "selected" : ""}>${escapar(p.nome)}</option>`).join("")}
+              </select>
+              <span class="meta">Não encontrou a pessoa? Cadastre em Administrativo → Colaboradores primeiro.</span>
+            </div>`}
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
+              <select id="cf_tipo">
+                <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
+                <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+              </select></div>
+            <div class="campo" style="flex:0 0 120px"><label class="rotulo" for="cf_nivel">Nível</label>
+              <select id="cf_nivel">
+                <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
+                <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
+                <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
+              </select></div>
+          </div>
+          <div class="campo"><label class="rotulo" for="cf_categoria">Aparece na Folha como</label>
+            <select id="cf_categoria">
+              <option value="" ${!r.categoriaFolha ? "selected" : ""}>(igual ao Tipo)</option>
+              <option value="PROFESSOR" ${r.categoriaFolha === "PROFESSOR" ? "selected" : ""}>Professor</option>
+              <option value="ESTAGIARIO" ${r.categoriaFolha === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+              <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
+            </select>
+            <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
+          </div>
+          <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
+          <button class="botao" type="button" id="btnSalvarColab">${editando ? "Salvar" : "Adicionar à folha"}</button>
+        </div>`}
     </div>
 
     <div class="cartao" style="margin-top:14px">
@@ -912,21 +938,21 @@ function folhaColaboradoresHTML() {
       ${ativos.length ? `
         <div class="rolagem">
           <table class="tabelinha">
-            <tr><th>Nome</th><th>Unidade</th><th>Tipo</th><th class="num">Nível</th><th>Folha como</th><th></th></tr>
+            <tr><th>Nome</th><th>Tipo</th><th class="num">Nível</th><th>Folha como</th><th></th></tr>
             ${ativos.map((c) => `
               <tr>
-                <td><strong>${escapar(c.nome)}</strong></td>
-                <td>${escapar(c.unidadeTexto || "—")}</td>
+                <td><strong>${escapar(c.professor.nome)}</strong></td>
                 <td>${TIPO_FOLHA_LABEL[c.tipo]}</td>
                 <td class="num">${c.nivel}</td>
                 <td>${c.categoriaFolha ? CATEGORIA_FOLHA_LABEL[c.categoriaFolha] : `(igual ao Tipo: ${TIPO_FOLHA_LABEL[c.tipo]})`}</td>
                 <td class="num" style="white-space:nowrap">
                   <button class="botao fantasma" type="button" data-editar-colab="${c.id}">Editar</button>
                   <button class="botao fantasma" type="button" data-demitir-colab="${c.id}">Demitir</button>
+                  <button class="botao fantasma" type="button" data-remover-colab="${c.id}">Tirar da folha</button>
                 </td>
               </tr>`).join("")}
           </table>
-        </div>` : `<div class="vazio">Nenhum colaborador cadastrado ainda.</div>`}
+        </div>` : `<div class="vazio">Nenhum colaborador na folha ainda.</div>`}
     </div>
 
     <details style="margin-top:14px">
@@ -934,20 +960,20 @@ function folhaColaboradoresHTML() {
         Ver colaboradores desligados (${desligados.length})
       </summary>
       <p class="meta" style="margin-top:10px">
-        Desligados não aparecem mais no quadro ativo nem nas grades — mas o histórico continua disponível.
+        Desligar acontece em Administrativo ou aqui — é o mesmo cadastro. Desligados não aparecem
+        mais no quadro ativo nem nas grades, mas o histórico continua disponível.
       </p>
       ${desligados.length ? `
         <table class="tabelinha">
-          <tr><th>Nome</th><th>Unidade</th><th>Tipo</th><th>Desligado em</th><th></th></tr>
+          <tr><th>Nome</th><th>Tipo</th><th>Desligado em</th><th></th></tr>
           ${desligados.map((c) => `
             <tr>
-              <td>${escapar(c.nome)}</td>
-              <td>${escapar(c.unidadeTexto || "—")}</td>
+              <td>${escapar(c.professor.nome)}</td>
               <td>${TIPO_FOLHA_LABEL[c.tipo]}</td>
-              <td>${c.dataDesligamento ? fmt.data(c.dataDesligamento) : "—"}</td>
+              <td>${c.professor.dataDesligamento ? fmt.data(c.professor.dataDesligamento) : "—"}</td>
               <td class="num" style="white-space:nowrap">
                 <button class="botao fantasma" type="button" data-reativar-colab="${c.id}">Reativar</button>
-                <button class="botao fantasma" type="button" data-excluir-colab="${c.id}">Excluir</button>
+                <button class="botao fantasma" type="button" data-remover-colab="${c.id}">Tirar da folha</button>
               </td>
             </tr>`).join("")}
         </table>` : `<div class="vazio">Nenhum colaborador desligado.</div>`}
@@ -957,11 +983,10 @@ function folhaColaboradoresHTML() {
 function ligarFolhaColaboradores() {
   const secao = el("secFolha");
 
-  el("cf_nome").addEventListener("input", (e) => { folha.rascunhoColaborador.nome = e.target.value; });
-  el("cf_unidade").addEventListener("input", (e) => { folha.rascunhoColaborador.unidadeTexto = e.target.value; });
-  el("cf_tipo").addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
-  el("cf_nivel").addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
-  el("cf_categoria").addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
+  el("cf_professor")?.addEventListener("change", (e) => { folha.rascunhoColaborador.professorId = e.target.value; });
+  el("cf_tipo")?.addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
+  el("cf_nivel")?.addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
+  el("cf_categoria")?.addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
 
   el("btnCancelarColab")?.addEventListener("click", () => {
     folha.editandoColaborador = null;
@@ -970,16 +995,19 @@ function ligarFolhaColaboradores() {
     pintarFolha();
   });
 
-  el("btnSalvarColab").addEventListener("click", async () => {
+  el("btnSalvarColab")?.addEventListener("click", async () => {
     const r = folha.rascunhoColaborador;
-    if (!r.nome.trim()) { folha.erroColaborador = "Digite o nome do colaborador."; pintarFolha(); return; }
+    if (!folha.editandoColaborador && !r.professorId) {
+      folha.erroColaborador = "Escolha o colaborador.";
+      pintarFolha();
+      return;
+    }
     const corpo = {
-      nome: r.nome.trim(),
-      unidadeTexto: r.unidadeTexto.trim(),
       tipo: r.tipo,
       nivel: Number(r.nivel),
       categoriaFolha: r.categoriaFolha || "",
     };
+    if (!folha.editandoColaborador) corpo.professorId = r.professorId;
     try {
       if (folha.editandoColaborador) {
         await api(`/folha/colaboradores/${folha.editandoColaborador}`, { method: "PUT", body: JSON.stringify(corpo) });
@@ -1003,18 +1031,17 @@ function ligarFolhaColaboradores() {
       folha.editandoColaborador = c.id;
       folha.erroColaborador = "";
       folha.rascunhoColaborador = {
-        nome: c.nome, unidadeTexto: c.unidadeTexto || "", tipo: c.tipo,
-        nivel: String(c.nivel), categoriaFolha: c.categoriaFolha || "",
+        professorId: c.professorId, tipo: c.tipo, nivel: String(c.nivel), categoriaFolha: c.categoriaFolha || "",
       };
       pintarFolha();
-      el("cf_nome")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      el("cf_tipo")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
 
   secao.querySelectorAll("[data-demitir-colab]").forEach((b) =>
     b.addEventListener("click", async () => {
       const c = folha.colaboradores.find((x) => x.id === b.dataset.demitirColab);
       const hoje = new Date().toISOString().slice(0, 10);
-      const data = prompt(`Data de desligamento de ${c.nome} (AAAA-MM-DD) — a partir do mês dela ele some do quadro ativo:`, hoje);
+      const data = prompt(`Data de desligamento de ${c.professor.nome} (AAAA-MM-DD) — mesmo campo de Administrativo → Colaboradores:`, hoje);
       if (!data) return;
       try {
         await api(`/folha/colaboradores/${c.id}/demitir`, { method: "POST", body: JSON.stringify({ dataDesligamento: data }) });
@@ -1025,17 +1052,17 @@ function ligarFolhaColaboradores() {
   secao.querySelectorAll("[data-reativar-colab]").forEach((b) =>
     b.addEventListener("click", async () => {
       const c = folha.colaboradores.find((x) => x.id === b.dataset.reativarColab);
-      if (!confirm(`Reativar ${c.nome}? Ele volta a aparecer no quadro ativo.`)) return;
+      if (!confirm(`Reativar ${c.professor.nome}? Ele volta a aparecer ativo em toda parte do Hub, não só na folha.`)) return;
       try {
         await api(`/folha/colaboradores/${c.id}/reativar`, { method: "POST" });
         await carregarFolha();
       } catch (e) { alert(e.message); }
     }));
 
-  secao.querySelectorAll("[data-excluir-colab]").forEach((b) =>
+  secao.querySelectorAll("[data-remover-colab]").forEach((b) =>
     b.addEventListener("click", async () => {
-      const c = folha.colaboradores.find((x) => x.id === b.dataset.excluirColab);
-      if (!confirm(`Excluir o cadastro de ${c.nome} por completo? Isso apaga também a grade e os lançamentos dele. Não dá para desfazer — se ele já tem histórico, prefira deixar como desligado.`)) return;
+      const c = folha.colaboradores.find((x) => x.id === b.dataset.removerColab);
+      if (!confirm(`Tirar ${c.professor.nome} da folha? Isso apaga a grade, os lançamentos e as férias dele NA FOLHA — o cadastro da pessoa em Administrativo não é afetado. Não dá para desfazer.`)) return;
       try {
         await api(`/folha/colaboradores/${c.id}`, { method: "DELETE" });
         await carregarFolha();
@@ -1046,10 +1073,11 @@ function ligarFolhaColaboradores() {
 // -------------------------------------------------------------------- grade
 function folhaGradeHTML() {
   const r = folha.rascunhoGrade;
-  const colaboradoresAtivos = folha.colaboradores.filter((c) => c.ativo).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const colaboradoresAtivos = folha.colaboradores.filter((c) => c.professor.ativo)
+    .sort((a, b) => a.professor.nome.localeCompare(b.professor.nome, "pt-BR"));
   const linhasOrdenadas = [...folha.grade].sort((a, b) => {
-    const nomeA = folha.colaboradores.find((c) => c.id === a.colaboradorId)?.nome || "";
-    const nomeB = folha.colaboradores.find((c) => c.id === b.colaboradorId)?.nome || "";
+    const nomeA = folha.colaboradores.find((c) => c.id === a.colaboradorId)?.professor.nome || "";
+    const nomeB = folha.colaboradores.find((c) => c.id === b.colaboradorId)?.professor.nome || "";
     return nomeA.localeCompare(nomeB, "pt-BR") || a.turma.localeCompare(b.turma, "pt-BR");
   });
 
@@ -1064,7 +1092,7 @@ function folhaGradeHTML() {
           <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="gf_colab">Colaborador</label>
             <select id="gf_colab">
               <option value="">Escolha…</option>
-              ${colaboradoresAtivos.map((c) => `<option value="${c.id}" ${r.colaboradorId === c.id ? "selected" : ""}>${escapar(c.nome)}</option>`).join("")}
+              ${colaboradoresAtivos.map((c) => `<option value="${c.id}" ${r.colaboradorId === c.id ? "selected" : ""}>${escapar(c.professor.nome)}</option>`).join("")}
             </select></div>
           <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="gf_unidade">Unidade</label>
             <select id="gf_unidade">
@@ -1120,7 +1148,7 @@ function folhaGradeHTML() {
             <tr><th>Colaborador</th><th>Unidade</th><th>Turma</th><th>Dias</th><th>Horário</th>
               <th class="num">Duração</th><th>Tipo</th><th class="num">Nível</th><th>VT?</th><th>Desde</th><th>Até</th><th></th></tr>
             ${linhasOrdenadas.map((g) => {
-              const nome = folha.colaboradores.find((c) => c.id === g.colaboradorId)?.nome || "—";
+              const nome = folha.colaboradores.find((c) => c.id === g.colaboradorId)?.professor.nome || "—";
               return `
               <tr>
                 <td>${escapar(nome)}</td>
