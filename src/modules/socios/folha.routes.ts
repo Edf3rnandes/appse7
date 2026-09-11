@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { CategoriaFolha, CodigoDiasFolha, TipoColaboradorFolha } from "@prisma/client";
+import { CategoriaFolha, CodigoDiasFolha, TipoColaboradorFolha, TipoLancamentoFolha } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 
 /**
@@ -58,6 +58,84 @@ const valorSchema = z.object({
 });
 
 const dataOpcional = (v?: string) => (v ? new Date(`${v}T00:00:00.000Z`) : null);
+const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use o formato AAAA-MM-DD.");
+
+const lancamentoSchema = z.object({
+  colaboradorId: z.string().uuid("Escolha o colaborador."),
+  data: dataIso,
+  tipo: z.nativeEnum(TipoLancamentoFolha),
+  nivel: z.number().int().min(1).max(3).default(1),
+  horas: z.number().min(0).default(0),
+  usaVt: z.boolean().default(true),
+  motivo: z.string().max(500).optional(),
+});
+
+const loteSchema = z.object({ texto: z.string().min(1, "Cole ao menos uma linha.") });
+
+const recorrenteSchema = z.object({
+  colaboradorId: z.string().uuid("Escolha o colaborador."),
+  tipo: z.nativeEnum(TipoLancamentoFolha),
+  nivel: z.number().int().min(1).max(3).default(1),
+  horas: z.number().min(0).default(0),
+  usaVt: z.boolean().default(true),
+  motivo: z.string().max(500).optional(),
+  de: dataIso,
+  ate: dataIso,
+  // 0 = domingo ... 6 = sábado, mesma convenção do Date.getUTCDay().
+  diasSemana: z.array(z.number().int().min(0).max(6)).min(1, "Marque pelo menos um dia da semana."),
+});
+
+/**
+ * "07/08/2026", "2026-08-07" ou variações com "-" — o mesmo tanto de formato
+ * que colar de uma planilha brasileira produz. Devolve null quando não
+ * reconhece, pra quem chama decidir se é erro de linha ou data ausente.
+ */
+function parseDataFlexivel(str: string): string | null {
+  const s = (str || "").trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (m) {
+    const [, d, mo, yRaw] = m;
+    const y = yRaw.length === 2 ? `20${yRaw}` : yRaw;
+    return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return null;
+}
+
+// As mesmas variações que a tela aceita ao colar de uma planilha — "falta
+// atestado", "psicóloga" sozinho etc. Ficam num mapa achatado (sem acento
+// também) pra não exigir que quem cola escreva do jeito exato do sistema.
+const MAPA_TIPO_LOTE: Record<string, TipoLancamentoFolha> = {
+  extra: "EXTRA", "aula extra": "EXTRA",
+  ausência: "AUSENCIA", ausencia: "AUSENCIA", falta: "AUSENCIA",
+  "falta sem atestado": "AUSENCIA", "ausência sem atestado": "AUSENCIA", "ausencia sem atestado": "AUSENCIA",
+  "ausência com atestado": "AUSENCIA_ATESTADO", "ausencia com atestado": "AUSENCIA_ATESTADO",
+  "falta com atestado": "AUSENCIA_ATESTADO", "falta atestado": "AUSENCIA_ATESTADO", atestado: "AUSENCIA_ATESTADO",
+  bônus: "BONUS", bonus: "BONUS",
+  competição: "COMPETICAO", competicao: "COMPETICAO",
+  "competição psicóloga": "COMPETICAO_PSICOLOGA", "competicao psicologa": "COMPETICAO_PSICOLOGA",
+  psicóloga: "COMPETICAO_PSICOLOGA", psicologa: "COMPETICAO_PSICOLOGA",
+  "desconto vt": "DESCONTO_VT", "desconto de vt": "DESCONTO_VT", "estorno vt": "DESCONTO_VT",
+  "devolução vt": "DESCONTO_VT", "devolucao vt": "DESCONTO_VT",
+  "banco de horas": "BANCO_HORAS_COMPENSADO", "banco de horas - compensado": "BANCO_HORAS_COMPENSADO",
+  compensado: "BANCO_HORAS_COMPENSADO",
+};
+
+function normalizarTipoLote(str: string): TipoLancamentoFolha | null {
+  return MAPA_TIPO_LOTE[(str || "").trim().toLowerCase()] ?? null;
+}
+
+function normalizarVtLote(str: string): boolean {
+  const s = (str || "").trim().toLowerCase();
+  return !["não", "nao", "n", "no", "false", "0"].includes(s);
+}
+
+function splitLinhaLote(linha: string): string[] {
+  const partes = linha.includes("\t") ? linha.split("\t") : linha.includes(";") ? linha.split(";") : linha.split(",");
+  return partes.map((p) => p.trim());
+}
 
 export async function folhaRoutes(app: FastifyInstance) {
   const somenteSocios = { preHandler: [app.exigirPapel("SOCIO")] };
@@ -249,5 +327,148 @@ export async function folhaRoutes(app: FastifyInstance) {
       create: d,
       update: { valorHora: d.valorHora, valorVt: d.valorVt },
     });
+  });
+
+  // ------------------------------------------------------------ lançamentos
+  //
+  // O valor em R$ nunca é gravado aqui — só o evento (data, tipo, horas). Que
+  // tanto vale isso hoje é sempre calculado na hora de mostrar, cruzando com
+  // ValorFolha (ver o comentário de LancamentoFolha no schema). Sem edição em
+  // lugar: um lançamento errado se apaga e se lança de novo, não se corrige —
+  // mesma regra do sistema original, e evita que um histórico de "quem mudou
+  // o quê" precise existir só pra isto.
+  app.get("/folha/lancamentos", somenteSocios, async () =>
+    prisma.lancamentoFolha.findMany({
+      include: { colaborador: { select: { professor: { select: { nome: true } } } } },
+      orderBy: { data: "desc" },
+    }));
+
+  app.post("/folha/lancamentos", somenteSocios, async (request, reply) => {
+    const d = lancamentoSchema.parse(request.body);
+    const colaborador = await prisma.colaboradorFolha.findUnique({ where: { id: d.colaboradorId } });
+    if (!colaborador) return reply.code(404).send({ message: "Colaborador não encontrado." });
+
+    const lancamento = await prisma.lancamentoFolha.create({
+      data: {
+        colaboradorId: d.colaboradorId,
+        data: dataOpcional(d.data)!,
+        tipo: d.tipo,
+        nivel: d.nivel,
+        horas: d.horas,
+        usaVt: d.usaVt,
+        motivo: d.motivo || null,
+      },
+      include: { colaborador: { select: { professor: { select: { nome: true } } } } },
+    });
+    return reply.code(201).send(lancamento);
+  });
+
+  app.delete("/folha/lancamentos/:id", somenteSocios, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    await prisma.lancamentoFolha.delete({ where: { id } }).catch(() => null);
+    return reply.code(204).send();
+  });
+
+  /**
+   * Colar uma lista do Excel (uma linha por lançamento) e importar de uma
+   * vez. Ordem das colunas: Data, Colaborador, Tipo, Nível, Horas, Usa VT,
+   * Motivo — separadas por Tab, ponto e vírgula ou vírgula. Linhas com
+   * problema (colaborador não encontrado, tipo não reconhecido, data
+   * inválida) não travam as outras: entram as boas, e as com erro voltam
+   * na resposta pra corrigir e colar de novo só essas.
+   */
+  app.post("/folha/lancamentos/lote", somenteSocios, async (request, reply) => {
+    const { texto } = loteSchema.parse(request.body);
+    const linhas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+    let corpo = linhas;
+    const primeiraCols = linhas[0] ? splitLinhaLote(linhas[0]) : [];
+    if (primeiraCols[0] && /^data$/i.test(primeiraCols[0])) corpo = linhas.slice(1);
+    if (!corpo.length) return reply.code(400).send({ message: "Nenhuma linha de dados encontrada." });
+
+    const colaboradores = await prisma.colaboradorFolha.findMany({
+      select: { id: true, nivel: true, professor: { select: { nome: true } } },
+    });
+    const porNome = new Map(colaboradores.map((c) => [c.professor.nome.toLowerCase(), c]));
+
+    const validos: { colaboradorId: string; data: Date; tipo: TipoLancamentoFolha; nivel: number; horas: number; usaVt: boolean; motivo: string | null }[] = [];
+    const erros: { linha: number; texto: string; motivo: string }[] = [];
+
+    corpo.forEach((linha, i) => {
+      const [dataRaw, colaboradorRaw, tipoRaw, nivelRaw, horasRaw, vtRaw, ...motivoRest] = splitLinhaLote(linha);
+      const dataIsoStr = parseDataFlexivel(dataRaw);
+      const colaboradorNome = (colaboradorRaw || "").trim();
+      const colab = porNome.get(colaboradorNome.toLowerCase());
+      const tipo = normalizarTipoLote(tipoRaw);
+
+      const problemas: string[] = [];
+      if (!dataIsoStr) problemas.push("data inválida");
+      if (!colaboradorNome) problemas.push("colaborador em branco");
+      else if (!colab) problemas.push(`colaborador não encontrado: "${colaboradorNome}"`);
+      if (!tipo) problemas.push(`tipo não reconhecido: "${tipoRaw || ""}"`);
+
+      if (problemas.length) {
+        erros.push({ linha: i + 1, texto: linha, motivo: problemas.join("; ") });
+        return;
+      }
+
+      let nivel = parseInt(nivelRaw, 10);
+      if (Number.isNaN(nivel)) nivel = colab!.nivel;
+      let horas = parseFloat((horasRaw || "").replace(",", "."));
+      if (Number.isNaN(horas)) horas = 0;
+
+      validos.push({
+        colaboradorId: colab!.id,
+        data: dataOpcional(dataIsoStr ?? undefined)!,
+        tipo: tipo!,
+        nivel,
+        horas,
+        usaVt: normalizarVtLote(vtRaw),
+        motivo: motivoRest.join(" ").trim() || null,
+      });
+    });
+
+    if (validos.length) await prisma.lancamentoFolha.createMany({ data: validos });
+
+    return { inseridos: validos.length, erros };
+  });
+
+  /**
+   * Gera vários lançamentos iguais de uma vez, um por data que caia nos dias
+   * da semana marcados dentro do período — pra hora extra fixa (Seg/Qua/Sex
+   * toda semana) ou pra fechar o mês de quem está saindo sem lançar falta
+   * dia a dia.
+   */
+  app.post("/folha/lancamentos/recorrente", somenteSocios, async (request, reply) => {
+    const d = recorrenteSchema.parse(request.body);
+    if (d.de > d.ate) return reply.code(400).send({ message: 'A data "De" não pode ser depois da data "Até".' });
+
+    const colaborador = await prisma.colaboradorFolha.findUnique({ where: { id: d.colaboradorId } });
+    if (!colaborador) return reply.code(404).send({ message: "Colaborador não encontrado." });
+
+    const datas: Date[] = [];
+    const cursor = new Date(`${d.de}T00:00:00.000Z`);
+    const fim = new Date(`${d.ate}T00:00:00.000Z`);
+    while (cursor <= fim) {
+      if (d.diasSemana.includes(cursor.getUTCDay())) datas.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    if (!datas.length) {
+      return reply.code(400).send({ message: "Não caiu nenhuma data desse período nos dias da semana marcados." });
+    }
+
+    await prisma.lancamentoFolha.createMany({
+      data: datas.map((data) => ({
+        colaboradorId: d.colaboradorId,
+        data,
+        tipo: d.tipo,
+        nivel: d.nivel,
+        horas: d.horas,
+        usaVt: d.usaVt,
+        motivo: d.motivo || null,
+      })),
+    });
+
+    return { criados: datas.length };
   });
 }

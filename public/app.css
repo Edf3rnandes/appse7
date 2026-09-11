@@ -530,3 +530,7 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .retrato.carregando-foto { opacity: .45; }
 
 .foto-aluno { display: flex; align-items: center; gap: 14px; }
+
+@media print {
+  .no-imprimir { display: none !important; }
+}

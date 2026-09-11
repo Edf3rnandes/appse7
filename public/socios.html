@@ -791,6 +791,12 @@ const CODIGO_DIAS_LABEL = {
   TQ: "TQ — Terça e Quinta", SQS: "SQS — Segunda, Quarta e Sexta", SQ: "SQ — Segunda e Quarta",
   QS: "QS — Quarta e Sexta", SEX: "SEX — Sexta", SAB: "SAB — Sábado",
 };
+const TIPO_LANCAMENTO_LABEL = {
+  EXTRA: "Extra", AUSENCIA: "Ausência", AUSENCIA_ATESTADO: "Ausência com Atestado", BONUS: "Bônus",
+  COMPETICAO: "Competição", COMPETICAO_PSICOLOGA: "Competição Psicóloga", DESCONTO_VT: "Desconto VT",
+  BANCO_HORAS_COMPENSADO: "Banco de Horas - Compensado",
+};
+const DIA_SEMANA_LABEL = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const RASCUNHO_COLAB_VAZIO = () => ({
   professorId: "", nome: "", email: "", telefone: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "",
@@ -799,6 +805,13 @@ const RASCUNHO_COLAB_VAZIO = () => ({
 const RASCUNHO_GRADE_VAZIO = () => ({
   colaboradorId: "", unidadeId: "", turma: "", codigo: "TQ", horario: "", duracaoHoras: "",
   tipo: "PROFESSOR", nivel: "1", semVt: false, dataInicio: "", dataFim: "",
+});
+const RASCUNHO_LANCAMENTO_VAZIO = () => ({
+  colaboradorId: "", data: fmt.hojeIso(), tipo: "EXTRA", nivel: "1", horas: "", usaVt: true, motivo: "",
+});
+const RASCUNHO_RECORRENTE_VAZIO = () => ({
+  colaboradorId: "", tipo: "EXTRA", nivel: "1", horas: "", usaVt: true, motivo: "",
+  de: "", ate: "", diasSemana: [],
 });
 
 const folha = {
@@ -811,6 +824,7 @@ const folha = {
   grade: [],
   valores: [],
   unidades: [],
+  lancamentos: [],
   editandoColaborador: null,
   // "Pessoa nova" é o padrão de propósito: quem cuida da folha é a Diretoria,
   // e forçar uma parada em Administrativo antes toda vez que alguém novo
@@ -823,28 +837,119 @@ const folha = {
   editandoGrade: null,
   rascunhoGrade: RASCUNHO_GRADE_VAZIO(),
   erroGrade: "",
+  rascunhoLancamento: RASCUNHO_LANCAMENTO_VAZIO(),
+  erroLancamento: "",
+  loteTexto: "",
+  loteResultado: null,
+  rascunhoRecorrente: RASCUNHO_RECORRENTE_VAZIO(),
+  erroRecorrente: "",
+  recorrenteResultado: null,
+  extratoColaboradorId: "",
+  extratoMes: "",
+  compiladoMes: "",
 };
 
 async function carregarFolha() {
   const alvo = el("secFolha");
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
   try {
-    const [colaboradores, disponiveis, grade, valores, unidades] = await Promise.all([
+    const [colaboradores, disponiveis, grade, valores, unidades, lancamentos] = await Promise.all([
       api("/folha/colaboradores"),
       api("/folha/colaboradores/disponiveis"),
       api("/folha/grade"),
       api("/folha/valores"),
       api("/escola/unidades"),
+      api("/folha/lancamentos"),
     ]);
     folha.colaboradores = colaboradores;
     folha.disponiveis = disponiveis;
     folha.grade = grade;
     folha.valores = valores;
     folha.unidades = unidades.filter((u) => u.ativa);
+    folha.lancamentos = lancamentos;
     pintarFolha();
   } catch (e) {
     alvo.innerHTML = aviso(e);
   }
+}
+
+/**
+ * Valor de um lançamento — espelha o `calc()` da planilha original: alguns
+ * tipos têm valor fixo (Competição, Bônus...), o resto sai de horas × valor
+ * do nível. Nunca gravado, sempre recalculado na leitura, pra mudar a
+ * tabela de valores recalcular tudo pra trás sozinho.
+ */
+function calcLancamento(l) {
+  const colab = folha.colaboradores.find((c) => c.id === l.colaboradorId);
+  if (!colab) return { valorHoras: 0, valorVt: 0, total: 0 };
+  const v = folha.valores.find((x) => x.tipo === colab.tipo && x.nivel === l.nivel) || { valorHora: 0, valorVt: 0 };
+  const valorHoras = (Number(l.horas) || 0) * Number(v.valorHora);
+  const isAusencia = l.tipo === "AUSENCIA" || l.tipo === "AUSENCIA_ATESTADO";
+  const valorVt = (l.usaVt && !isAusencia) ? Number(v.valorVt) : 0;
+  let total = 0;
+  switch (l.tipo) {
+    case "COMPETICAO": total = 90; break;
+    case "COMPETICAO_PSICOLOGA": total = 40; break;
+    case "DESCONTO_VT": total = -(Number(l.horas) || 0) * Number(v.valorVt); break;
+    case "BONUS": total = 25; break;
+    case "BANCO_HORAS_COMPENSADO": total = 0; break;
+    case "EXTRA": total = valorHoras + valorVt; break;
+    case "AUSENCIA_ATESTADO": total = 0; break;
+    case "AUSENCIA": total = colab.tipo === "PROFESSOR" ? 0 : -valorHoras; break;
+  }
+  return { valorHoras, valorVt, total };
+}
+
+/** Meses (AAAA-MM) com pelo menos um lançamento, do mais recente pro mais antigo. */
+function mesesComLancamento() {
+  const meses = new Set(folha.lancamentos.map((l) => String(l.data).slice(0, 7)));
+  return [...meses].sort().reverse();
+}
+
+/** Estatísticas agregadas de um colaborador num mês (ou todos os meses, se mesFiltro for vazio). */
+function colabStats(colaboradorId, mesFiltro) {
+  const linhas = folha.lancamentos.filter((l) =>
+    l.colaboradorId === colaboradorId && (!mesFiltro || String(l.data).slice(0, 7) === mesFiltro));
+  const st = {
+    linhas, horasExtras: 0, valorExtras: 0,
+    faltasSemCount: 0, faltasSemHoras: 0, faltasSemValor: 0,
+    faltasComCount: 0, bonusComp: 0, totalPeriodo: 0,
+  };
+  for (const l of linhas) {
+    const c = calcLancamento(l);
+    st.totalPeriodo += c.total;
+    if (l.tipo === "EXTRA") { st.horasExtras += Number(l.horas) || 0; st.valorExtras += c.total; }
+    else if (l.tipo === "AUSENCIA") { st.faltasSemCount += 1; st.faltasSemHoras += Number(l.horas) || 0; st.faltasSemValor += c.total; }
+    else if (l.tipo === "AUSENCIA_ATESTADO") { st.faltasComCount += 1; }
+    else if (l.tipo === "BONUS" || l.tipo === "COMPETICAO" || l.tipo === "COMPETICAO_PSICOLOGA") { st.bonusComp += c.total; }
+  }
+  return st;
+}
+
+function nomeColaborador(colaboradorId) {
+  return folha.colaboradores.find((c) => c.id === colaboradorId)?.professor.nome || "—";
+}
+
+/** Tabela de lançamentos compartilhada entre Extrato e Fechamento Mensal. */
+function buildExtratoTableHTML(linhas) {
+  const ordenadas = [...linhas].sort((a, b) => a.data.localeCompare(b.data));
+  if (!ordenadas.length) return `<div class="vazio">Nenhum lançamento no período.</div>`;
+  return `
+    <table class="tabelinha">
+      <tr><th>Data</th><th>Tipo</th><th class="num">Horas</th><th>VT?</th><th class="num">Valor</th><th>Motivo</th></tr>
+      ${ordenadas.map((l) => {
+        const c = calcLancamento(l);
+        return `
+        <tr>
+          <td>${fmt.data(l.data)}</td>
+          <td>${TIPO_LANCAMENTO_LABEL[l.tipo]}</td>
+          <td class="num">${Number(l.horas)}h</td>
+          <td>${l.usaVt ? "Sim" : "Não"}</td>
+          <td class="num">${fmt.moeda(c.total)}</td>
+          <td>${escapar(l.motivo || "—")}</td>
+        </tr>`;
+      }).join("")}
+    </table>`;
 }
 
 function pintarFolha() {
@@ -853,6 +958,9 @@ function pintarFolha() {
     ["colaboradores", "Colaboradores"],
     ["grade", "Grade Horária"],
     ["valores", "Valores"],
+    ["lancamentos", "Lançamentos"],
+    ["extrato", "Extrato do Colaborador"],
+    ["compilado", "Fechamento Mensal"],
   ];
   alvo.innerHTML = `
     <div class="abas-socio" role="tablist" style="margin-bottom:14px">
@@ -871,11 +979,17 @@ function pintarFolha() {
   const conteudo = el("folhaConteudo");
   if (folha.sub === "colaboradores") conteudo.innerHTML = folhaColaboradoresHTML();
   else if (folha.sub === "grade") conteudo.innerHTML = folhaGradeHTML();
-  else conteudo.innerHTML = folhaValoresHTML();
+  else if (folha.sub === "valores") conteudo.innerHTML = folhaValoresHTML();
+  else if (folha.sub === "lancamentos") conteudo.innerHTML = folhaLancamentosHTML();
+  else if (folha.sub === "extrato") conteudo.innerHTML = folhaExtratoHTML();
+  else conteudo.innerHTML = folhaCompiladoHTML();
 
   if (folha.sub === "colaboradores") ligarFolhaColaboradores();
   else if (folha.sub === "grade") ligarFolhaGrade();
-  else ligarFolhaValores();
+  else if (folha.sub === "valores") ligarFolhaValores();
+  else if (folha.sub === "lancamentos") ligarFolhaLancamentos();
+  else if (folha.sub === "extrato") ligarFolhaExtrato();
+  else ligarFolhaCompilado();
 }
 
 // ------------------------------------------------------------ colaboradores
@@ -1409,6 +1523,332 @@ function ligarFolhaValores() {
       salvar(tipo, Number(nivel));
     });
   });
+}
+
+// -------------------------------------------------------------- lançamentos
+function folhaLancamentosHTML() {
+  const r = folha.rascunhoLancamento;
+  const rr = folha.rascunhoRecorrente;
+  const colaboradoresAtivos = folha.colaboradores.filter((c) => c.professor.ativo)
+    .sort((a, b) => a.professor.nome.localeCompare(b.professor.nome, "pt-BR"));
+  const opcoesColab = (selecionado) => `
+    <option value="">Escolha…</option>
+    ${colaboradoresAtivos.map((c) => `<option value="${c.id}" ${selecionado === c.id ? "selected" : ""}>${escapar(c.professor.nome)}</option>`).join("")}`;
+  const opcoesTipo = (selecionado) => Object.entries(TIPO_LANCAMENTO_LABEL)
+    .map(([v, l]) => `<option value="${v}" ${selecionado === v ? "selected" : ""}>${l}</option>`).join("");
+  const linhasOrdenadas = [...folha.lancamentos].sort((a, b) => b.data.localeCompare(a.data));
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:10px"><strong>Novo lançamento</strong></div>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="lf_colab">Colaborador</label>
+            <select id="lf_colab">${opcoesColab(r.colaboradorId)}</select></div>
+          <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="lf_data">Data</label>
+            <input id="lf_data" type="date" value="${escapar(r.data)}"></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="lf_tipo">Tipo</label>
+            <select id="lf_tipo">${opcoesTipo(r.tipo)}</select></div>
+          <div class="campo" style="flex:0 0 90px"><label class="rotulo" for="lf_nivel">Nível</label>
+            <select id="lf_nivel">
+              <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
+              <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
+              <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
+            </select></div>
+          <div class="campo" style="flex:0 0 110px"><label class="rotulo" for="lf_horas">Horas</label>
+            <input id="lf_horas" type="number" step="0.5" min="0" value="${escapar(r.horas)}"></div>
+          <div class="campo" style="flex:0 0 110px"><label class="rotulo" for="lf_vt">Usa VT?</label>
+            <select id="lf_vt">
+              <option value="sim" ${r.usaVt ? "selected" : ""}>Sim</option>
+              <option value="nao" ${!r.usaVt ? "selected" : ""}>Não</option>
+            </select></div>
+        </div>
+        <div class="campo"><label class="rotulo" for="lf_motivo">Motivo / referência (opcional)</label>
+          <input id="lf_motivo" value="${escapar(r.motivo)}" placeholder="ex.: reposição de aula"></div>
+        <div class="aviso erro ${folha.erroLancamento ? "" : "oculto"}">${escapar(folha.erroLancamento)}</div>
+        <button class="botao" type="button" id="btnSalvarLancamento">+ Lançar</button>
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Importar vários de uma vez</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Cole linhas separadas por Tab, ; ou , — colunas: <strong>Data, Colaborador, Tipo, Nível, Horas, Usa VT, Motivo</strong>.
+        Se a primeira linha for cabeçalho ("Data, ..."), ela é ignorada.
+      </p>
+      <textarea id="lf_lote" rows="6" placeholder="09/09/2026	Fulano	Extra	1	2	Sim	reposição" style="width:100%;font-family:monospace">${escapar(folha.loteTexto)}</textarea>
+      <button class="botao" type="button" id="btnImportarLote" style="margin-top:10px">Importar</button>
+      ${folha.loteResultado ? `
+        <div style="margin-top:10px">
+          <div class="aviso ${folha.loteResultado.erros.length ? "alerta" : "info"}">
+            ${folha.loteResultado.inseridos} lançamento(s) importado(s)${folha.loteResultado.erros.length ? `, ${folha.loteResultado.erros.length} linha(s) com erro` : ""}.
+          </div>
+          ${folha.loteResultado.erros.length ? `
+            <table class="tabelinha" style="margin-top:8px">
+              <tr><th class="num">Linha</th><th>Texto</th><th>Motivo</th></tr>
+              ${folha.loteResultado.erros.map((e) => `
+                <tr><td class="num">${e.linha}</td><td>${escapar(e.texto)}</td><td>${escapar(e.motivo)}</td></tr>`).join("")}
+            </table>` : ""}
+        </div>` : ""}
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Lançamento recorrente</strong></div>
+      <p class="meta" style="margin-bottom:10px">Gera um lançamento igual pra cada dia da semana marcado, dentro do período.</p>
+      <div class="pilha" style="gap:12px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="lr_colab">Colaborador</label>
+            <select id="lr_colab">${opcoesColab(rr.colaboradorId)}</select></div>
+          <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="lr_tipo">Tipo</label>
+            <select id="lr_tipo">${opcoesTipo(rr.tipo)}</select></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:0 0 90px"><label class="rotulo" for="lr_nivel">Nível</label>
+            <select id="lr_nivel">
+              <option value="1" ${rr.nivel === "1" ? "selected" : ""}>1</option>
+              <option value="2" ${rr.nivel === "2" ? "selected" : ""}>2</option>
+              <option value="3" ${rr.nivel === "3" ? "selected" : ""}>3</option>
+            </select></div>
+          <div class="campo" style="flex:0 0 110px"><label class="rotulo" for="lr_horas">Horas</label>
+            <input id="lr_horas" type="number" step="0.5" min="0" value="${escapar(rr.horas)}"></div>
+          <div class="campo" style="flex:0 0 110px"><label class="rotulo" for="lr_vt">Usa VT?</label>
+            <select id="lr_vt">
+              <option value="sim" ${rr.usaVt ? "selected" : ""}>Sim</option>
+              <option value="nao" ${!rr.usaVt ? "selected" : ""}>Não</option>
+            </select></div>
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="lr_motivo">Motivo (opcional)</label>
+            <input id="lr_motivo" value="${escapar(rr.motivo)}"></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="lr_de">De</label>
+            <input id="lr_de" type="date" value="${escapar(rr.de)}"></div>
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="lr_ate">Até</label>
+            <input id="lr_ate" type="date" value="${escapar(rr.ate)}"></div>
+        </div>
+        <div>
+          <span class="rotulo">Dias da semana</span>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
+            ${DIA_SEMANA_LABEL.map((nome, i) => `
+              <label class="marcavel" style="width:fit-content">
+                <input type="checkbox" data-dia-semana="${i}" ${rr.diasSemana.includes(i) ? "checked" : ""}>
+                <span>${nome}</span>
+              </label>`).join("")}
+          </div>
+        </div>
+        <div class="aviso erro ${folha.erroRecorrente ? "" : "oculto"}">${escapar(folha.erroRecorrente)}</div>
+        <button class="botao" type="button" id="btnGerarRecorrente">Gerar lançamentos</button>
+        ${folha.recorrenteResultado ? `<div class="aviso info">${folha.recorrenteResultado.criados} lançamento(s) criado(s).</div>` : ""}
+      </div>
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:10px"><strong>Todos os lançamentos</strong></div>
+      ${linhasOrdenadas.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Data</th><th>Colaborador</th><th>Tipo</th><th class="num">Nível</th><th class="num">Horas</th><th>VT?</th><th class="num">Valor</th><th>Motivo</th><th></th></tr>
+            ${linhasOrdenadas.map((l) => {
+              const c = calcLancamento(l);
+              return `
+              <tr>
+                <td>${fmt.data(l.data)}</td>
+                <td>${escapar(l.colaborador?.professor?.nome || "—")}</td>
+                <td>${TIPO_LANCAMENTO_LABEL[l.tipo]}</td>
+                <td class="num">${l.nivel}</td>
+                <td class="num">${Number(l.horas)}h</td>
+                <td>${l.usaVt ? "Sim" : "Não"}</td>
+                <td class="num">${fmt.moeda(c.total)}</td>
+                <td>${escapar(l.motivo || "—")}</td>
+                <td class="num"><button class="botao fantasma" type="button" data-apagar-lancamento="${l.id}">Apagar</button></td>
+              </tr>`;
+            }).join("")}
+          </table>
+        </div>` : `<div class="vazio">Nenhum lançamento ainda.</div>`}
+    </div>`;
+}
+
+function ligarFolhaLancamentos() {
+  const secao = el("secFolha");
+  const r = folha.rascunhoLancamento;
+
+  const campos = ["colab", "data", "tipo", "nivel", "horas", "motivo"];
+  const chave = { colab: "colaboradorId" };
+  campos.forEach((c) => {
+    const input = el(`lf_${c}`);
+    input?.addEventListener(input.tagName === "SELECT" || input.type === "date" ? "change" : "input", (e) => {
+      folha.rascunhoLancamento[chave[c] || c] = e.target.value;
+    });
+  });
+  el("lf_vt")?.addEventListener("change", (e) => { r.usaVt = e.target.value === "sim"; });
+
+  el("btnSalvarLancamento")?.addEventListener("click", async () => {
+    if (!r.colaboradorId) { folha.erroLancamento = "Escolha o colaborador."; pintarFolha(); return; }
+    if (!r.data) { folha.erroLancamento = "Escolha a data."; pintarFolha(); return; }
+    try {
+      await api("/folha/lancamentos", {
+        method: "POST",
+        body: JSON.stringify({
+          colaboradorId: r.colaboradorId, data: r.data, tipo: r.tipo, nivel: Number(r.nivel),
+          horas: Number(r.horas) || 0, usaVt: r.usaVt, motivo: r.motivo.trim() || undefined,
+        }),
+      });
+      folha.erroLancamento = "";
+      folha.rascunhoLancamento = RASCUNHO_LANCAMENTO_VAZIO();
+      await carregarFolha();
+    } catch (e) {
+      folha.erroLancamento = e.message;
+      pintarFolha();
+    }
+  });
+
+  secao.querySelectorAll("[data-apagar-lancamento]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar este lançamento?")) return;
+      try {
+        await api(`/folha/lancamentos/${b.dataset.apagarLancamento}`, { method: "DELETE" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+
+  el("lf_lote")?.addEventListener("input", (e) => { folha.loteTexto = e.target.value; });
+  el("btnImportarLote")?.addEventListener("click", async () => {
+    if (!folha.loteTexto.trim()) return;
+    try {
+      const resultado = await api("/folha/lancamentos/lote", {
+        method: "POST", body: JSON.stringify({ texto: folha.loteTexto }),
+      });
+      folha.loteResultado = resultado;
+      if (!resultado.erros.length) folha.loteTexto = "";
+      await carregarFolha();
+    } catch (e) { alert(e.message); }
+  });
+
+  const rr = folha.rascunhoRecorrente;
+  const camposR = ["colab", "tipo", "nivel", "horas", "motivo", "de", "ate"];
+  const chaveR = { colab: "colaboradorId" };
+  camposR.forEach((c) => {
+    const input = el(`lr_${c}`);
+    input?.addEventListener(input.tagName === "SELECT" || input.type === "date" ? "change" : "input", (e) => {
+      folha.rascunhoRecorrente[chaveR[c] || c] = e.target.value;
+    });
+  });
+  el("lr_vt")?.addEventListener("change", (e) => { rr.usaVt = e.target.value === "sim"; });
+  secao.querySelectorAll("[data-dia-semana]").forEach((cb) =>
+    cb.addEventListener("change", (e) => {
+      const dia = Number(e.target.dataset.diaSemana);
+      if (e.target.checked) { if (!rr.diasSemana.includes(dia)) rr.diasSemana.push(dia); }
+      else rr.diasSemana = rr.diasSemana.filter((d) => d !== dia);
+    }));
+
+  el("btnGerarRecorrente")?.addEventListener("click", async () => {
+    if (!rr.colaboradorId) { folha.erroRecorrente = "Escolha o colaborador."; pintarFolha(); return; }
+    if (!rr.de || !rr.ate) { folha.erroRecorrente = "Escolha o período (De/Até)."; pintarFolha(); return; }
+    if (!rr.diasSemana.length) { folha.erroRecorrente = "Marque pelo menos um dia da semana."; pintarFolha(); return; }
+    try {
+      const resultado = await api("/folha/lancamentos/recorrente", {
+        method: "POST",
+        body: JSON.stringify({
+          colaboradorId: rr.colaboradorId, tipo: rr.tipo, nivel: Number(rr.nivel), horas: Number(rr.horas) || 0,
+          usaVt: rr.usaVt, motivo: rr.motivo.trim() || undefined, de: rr.de, ate: rr.ate, diasSemana: rr.diasSemana,
+        }),
+      });
+      folha.erroRecorrente = "";
+      folha.recorrenteResultado = resultado;
+      folha.rascunhoRecorrente = RASCUNHO_RECORRENTE_VAZIO();
+      await carregarFolha();
+    } catch (e) {
+      folha.erroRecorrente = e.message;
+      pintarFolha();
+    }
+  });
+}
+
+// ------------------------------------------------------- extrato individual
+function folhaExtratoHTML() {
+  const colaboradoresOrdenados = [...folha.colaboradores]
+    .sort((a, b) => a.professor.nome.localeCompare(b.professor.nome, "pt-BR"));
+  const meses = mesesComLancamento();
+  if (!folha.extratoColaboradorId && colaboradoresOrdenados.length) folha.extratoColaboradorId = colaboradoresOrdenados[0].id;
+
+  const st = folha.extratoColaboradorId ? colabStats(folha.extratoColaboradorId, folha.extratoMes) : null;
+
+  return `
+    <div class="cartao">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="ex_colab">Colaborador</label>
+          <select id="ex_colab">
+            ${colaboradoresOrdenados.map((c) => `<option value="${c.id}" ${folha.extratoColaboradorId === c.id ? "selected" : ""}>${escapar(c.professor.nome)}</option>`).join("")}
+          </select></div>
+        <div class="campo" style="flex:0 0 180px"><label class="rotulo" for="ex_mes">Mês</label>
+          <select id="ex_mes">
+            <option value="" ${!folha.extratoMes ? "selected" : ""}>Todos os meses</option>
+            ${meses.map((m) => `<option value="${m}" ${folha.extratoMes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("")}
+          </select></div>
+      </div>
+    </div>
+
+    ${st ? `
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>${escapar(nomeColaborador(folha.extratoColaboradorId))}</strong></div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Horas extras</div><strong>${st.horasExtras}h — ${fmt.moeda(st.valorExtras)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Faltas sem atestado</div><strong>${st.faltasSemCount} (${st.faltasSemHoras}h) — ${fmt.moeda(st.faltasSemValor)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Faltas com atestado</div><strong>${st.faltasComCount}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Bônus/Competição</div><strong>${fmt.moeda(st.bonusComp)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Total do período</div><strong>${fmt.moeda(st.totalPeriodo)}</strong></div>
+        </div>
+        ${buildExtratoTableHTML(st.linhas)}
+      </div>` : `<div class="vazio" style="margin-top:14px">Nenhum colaborador na folha ainda.</div>`}`;
+}
+
+function ligarFolhaExtrato() {
+  el("ex_colab")?.addEventListener("change", (e) => { folha.extratoColaboradorId = e.target.value; pintarFolha(); });
+  el("ex_mes")?.addEventListener("change", (e) => { folha.extratoMes = e.target.value; pintarFolha(); });
+}
+
+// -------------------------------------------------------------- fechamento
+function folhaCompiladoHTML() {
+  const meses = mesesComLancamento();
+  if (!folha.compiladoMes && meses.length) folha.compiladoMes = meses[0];
+  const mes = folha.compiladoMes;
+
+  const ativosNoMes = folha.colaboradores
+    .filter((c) => mes && folha.lancamentos.some((l) => l.colaboradorId === c.id && String(l.data).slice(0, 7) === mes))
+    .sort((a, b) => a.professor.nome.localeCompare(b.professor.nome, "pt-BR"));
+
+  return `
+    <div class="cartao no-imprimir">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="campo" style="flex:0 0 200px"><label class="rotulo" for="cp_mes">Mês</label>
+          <select id="cp_mes">
+            ${meses.length ? meses.map((m) => `<option value="${m}" ${mes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("") : `<option value="">Nenhum lançamento ainda</option>`}
+          </select></div>
+        <button class="botao fantasma" type="button" id="btnImprimirCompilado">Imprimir</button>
+      </div>
+    </div>
+
+    ${mes && ativosNoMes.length ? ativosNoMes.map((c) => {
+      const st = colabStats(c.id, mes);
+      return `
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px"><strong>${escapar(c.professor.nome)}</strong> <span class="meta">— ${rotuloMes(mes)}</span></div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Horas extras</div><strong>${st.horasExtras}h — ${fmt.moeda(st.valorExtras)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Faltas sem atestado</div><strong>${st.faltasSemCount} (${st.faltasSemHoras}h) — ${fmt.moeda(st.faltasSemValor)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Faltas com atestado</div><strong>${st.faltasComCount}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Bônus/Competição</div><strong>${fmt.moeda(st.bonusComp)}</strong></div>
+          <div class="cartao" style="flex:1;min-width:150px"><div class="meta">Total do período</div><strong>${fmt.moeda(st.totalPeriodo)}</strong></div>
+        </div>
+        ${buildExtratoTableHTML(st.linhas)}
+      </div>`;
+    }).join("") : `<div class="vazio" style="margin-top:14px">Nenhum lançamento nesse mês.</div>`}`;
+}
+
+function ligarFolhaCompilado() {
+  el("cp_mes")?.addEventListener("change", (e) => { folha.compiladoMes = e.target.value; pintarFolha(); });
+  el("btnImprimirCompilado")?.addEventListener("click", () => window.print());
 }
 
 async function decidirTela() {
