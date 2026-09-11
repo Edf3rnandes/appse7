@@ -42,6 +42,7 @@
 <body>
 
 <header class="topo">
+  <button class="hamburguer oculto" id="btnMenu" type="button" aria-label="Abrir menu" aria-expanded="false">☰</button>
   <div class="marca"><span class="se7">SE7</span><span class="sub">Diretoria</span></div>
   <div class="espaco"></div>
   <nav class="areas" id="areas" hidden></nav>
@@ -72,24 +73,31 @@
   </button>
 </main>
 
-<main class="pagina" id="telaApp" hidden>
-  <div class="abas-socio" role="tablist">
-    <button role="tab" data-aba="painel" aria-selected="true">Painel</button>
-    <button role="tab" data-aba="turmas" aria-selected="false">Turmas</button>
-    <button role="tab" data-aba="adesao" aria-selected="false">Adesão</button>
-    <button role="tab" data-aba="caixa" aria-selected="false">Caixa e inadimplência</button>
-    <button role="tab" data-aba="sociedade" aria-selected="false">Sociedade</button>
-    <button role="tab" data-aba="folha" aria-selected="false">Folha</button>
-    <button role="tab" data-aba="financeiro" aria-selected="false">Financeiro</button>
-  </div>
+<main id="telaApp" hidden>
+  <div class="layout">
+    <nav class="menu" id="menu" aria-label="Seções">
+      <button class="item-menu" data-aba="painel" aria-current="true">Painel</button>
+      <button class="item-menu" data-aba="turmas" aria-current="false">Turmas</button>
+      <button class="item-menu" data-aba="adesao" aria-current="false">Adesão</button>
+      <button class="item-menu" data-aba="caixa" aria-current="false">Caixa e inadimplência</button>
+      <button class="item-menu" data-aba="sociedade" aria-current="false">Sociedade</button>
+      <button class="item-menu" data-aba="folha" aria-current="false">Folha</button>
+      <button class="item-menu" data-aba="financeiro" aria-current="false">Financeiro</button>
+    </nav>
 
-  <section id="secPainel"></section>
-  <section id="secTurmas" hidden></section>
-  <section id="secAdesao" hidden></section>
-  <section id="secCaixa" hidden></section>
-  <section id="secSociedade" hidden></section>
-  <section id="secFolha" hidden></section>
-  <section id="secFinanceiro" hidden></section>
+    <div class="veu oculto" id="veu"></div>
+
+    <div class="conteudo">
+      <h1 class="titulo-secao" id="tituloSecao">Painel</h1>
+      <section id="secPainel"></section>
+      <section id="secTurmas" hidden></section>
+      <section id="secAdesao" hidden></section>
+      <section id="secCaixa" hidden></section>
+      <section id="secSociedade" hidden></section>
+      <section id="secFolha" hidden></section>
+      <section id="secFinanceiro" hidden></section>
+    </div>
+  </div>
 </main>
 
 <script type="module">
@@ -163,13 +171,13 @@ function colunas(itens, valorDe, formatar, rotularCom = (i) => rotuloMes(i.mes))
 // ==================================================================== abas
 
 const ABAS = {
-  painel: { secao: "secPainel", carregar: () => carregarPainel() },
-  turmas: { secao: "secTurmas", carregar: () => carregarTurmas() },
-  adesao: { secao: "secAdesao", carregar: () => carregarAdesao() },
-  caixa: { secao: "secCaixa", carregar: () => carregarCaixa() },
-  sociedade: { secao: "secSociedade", carregar: () => carregarSociedade() },
-  folha: { secao: "secFolha", carregar: () => carregarFolha() },
-  financeiro: { secao: "secFinanceiro", carregar: () => carregarFinanceiro() },
+  painel: { secao: "secPainel", titulo: "Painel", carregar: () => carregarPainel() },
+  turmas: { secao: "secTurmas", titulo: "Turmas", carregar: () => carregarTurmas() },
+  adesao: { secao: "secAdesao", titulo: "Adesão", carregar: () => carregarAdesao() },
+  caixa: { secao: "secCaixa", titulo: "Caixa e inadimplência", carregar: () => carregarCaixa() },
+  sociedade: { secao: "secSociedade", titulo: "Sociedade", carregar: () => carregarSociedade() },
+  folha: { secao: "secFolha", titulo: "Folha", carregar: () => carregarFolha() },
+  financeiro: { secao: "secFinanceiro", titulo: "Financeiro", carregar: () => carregarFinanceiro() },
 };
 
 const carregadas = new Set();
@@ -179,12 +187,14 @@ function abrirAba(nome) {
     el(aba.secao).hidden = chave !== nome;
   }
   document.querySelectorAll("[data-aba]").forEach((b) => {
-    b.setAttribute("aria-selected", String(b.dataset.aba === nome));
+    b.setAttribute("aria-current", String(b.dataset.aba === nome));
   });
+  el("tituloSecao").textContent = ABAS[nome]?.titulo ?? "";
   if (!carregadas.has(nome)) {
     carregadas.add(nome);
     ABAS[nome].carregar();
   }
+  fecharMenu();
 }
 
 document.querySelectorAll("[data-aba]").forEach((b) =>
@@ -192,6 +202,22 @@ document.querySelectorAll("[data-aba]").forEach((b) =>
 
 /** Força a aba a recarregar na próxima abertura — depois de gravar algo. */
 function invalidar(nome) { carregadas.delete(nome); }
+
+// ------------------------------------------------------------------ gaveta
+//
+// Abaixo de 860px o menu lateral vira gaveta atrás do ☰ — mesmo padrão do
+// Administrativo (ver app.css, ".menu" dentro de "@media (max-width: 860px)").
+function abrirMenu(abrir) {
+  el("menu").dataset.aberto = String(abrir);
+  el("veu").classList.toggle("oculto", !abrir);
+  el("btnMenu").setAttribute("aria-expanded", String(abrir));
+}
+const fecharMenu = () => abrirMenu(false);
+
+el("btnMenu").addEventListener("click", () =>
+  abrirMenu(el("menu").dataset.aberto !== "true"));
+el("veu").addEventListener("click", fecharMenu);
+document.addEventListener("keydown", (e) => e.key === "Escape" && fecharMenu());
 
 // =================================================================== painel
 
