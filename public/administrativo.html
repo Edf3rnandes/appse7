@@ -131,7 +131,7 @@
 
 <script type="module">
 import { Sessao, ErroApi, api, fmt, escapar, montarLogin, prepararImagem, pintarNavegacao,
-         gradeDoMes, juntarColaboradores, funcoesDisponiveisPara } from "/app.js";
+         gradeDoMes, juntarColaboradores, funcoesDisponiveisPara, mensagemConvite, linkWhatsapp } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semPermissao: el("telaSemPermissao"), app: el("telaApp") };
@@ -4678,33 +4678,6 @@ function listaFamilias() {
 // A mensagem é escrita como o administrativo escreveria: diz onde entrar, com
 // qual conta, e nada de jargão. O e-mail aparece porque é ele que decide se o
 // convite pega — entrar com outra conta Google não funciona.
-function mensagemConvite(c) {
-  // Sócio puro (sem ADMIN/ADMINISTRATIVO) não passa da porta de
-  // administrativo.html — ela exige um dos dois papéis antes de mostrar
-  // qualquer tela. socios.html só pede SOCIO, e é para lá que este convite
-  // sempre leva, tenha a pessoa os outros papéis ou não.
-  const area = c.papel === "PROFESSOR" ? "professor.html"
-    : c.papel === "SOCIO" ? "socios.html"
-    : "administrativo.html";
-  return [
-    "Oi! Seu acesso ao sistema do SE7 está liberado.",
-    "",
-    `Entre em ${location.origin}/${area}`,
-    `e faça login com a conta Google ${c.email}.`,
-    "",
-    "Precisa entrar com esse e-mail mesmo, senão o acesso não abre.",
-  ].join("\n");
-}
-
-function linkWhatsapp(c, telefone) {
-  const texto = encodeURIComponent(mensagemConvite(c));
-  // Com o telefone do cadastro, abre a conversa certa; sem ele, o WhatsApp
-  // pergunta para quem enviar.
-  const fone = (telefone || "").replace(/\D/g, "");
-  const numero = fone.length >= 10 ? (fone.startsWith("55") ? fone : `55${fone}`) : "";
-  return numero ? `https://wa.me/${numero}?text=${texto}` : `https://wa.me/?text=${texto}`;
-}
-
 // ------------------------------------------------------------------- ações
 
 async function emitirConvite(corpo) {

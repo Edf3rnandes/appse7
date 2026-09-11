@@ -91,7 +91,7 @@
 </main>
 
 <script type="module">
-import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao } from "/app.js";
+import { Sessao, ErroApi, api, fmt, escapar, montarLogin, pintarNavegacao, mensagemConvite, linkWhatsapp } from "/app.js";
 
 const el = (id) => document.getElementById(id);
 const telas = { login: el("telaLogin"), semPermissao: el("telaSemPermissao"), app: el("telaApp") };
@@ -794,6 +794,7 @@ const CODIGO_DIAS_LABEL = {
 
 const RASCUNHO_COLAB_VAZIO = () => ({
   professorId: "", nome: "", email: "", telefone: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "",
+  convidar: true, perfilAcesso: "PROFESSOR", validade: "14",
 });
 const RASCUNHO_GRADE_VAZIO = () => ({
   colaboradorId: "", unidadeId: "", turma: "", codigo: "TQ", horario: "", duracaoHoras: "",
@@ -817,6 +818,8 @@ const folha = {
   modoNovoColaborador: true,
   rascunhoColaborador: RASCUNHO_COLAB_VAZIO(),
   erroColaborador: "",
+  // { texto, link } depois de emitir um convite — some ao fechar ou ao abrir outra ação.
+  conviteRecente: null,
   editandoGrade: null,
   rascunhoGrade: RASCUNHO_GRADE_VAZIO(),
   erroGrade: "",
@@ -910,10 +913,29 @@ function folhaColaboradoresHTML() {
           </div>
           <div class="campo"><label class="rotulo" for="cf_telefone">Telefone (opcional)</label>
             <input id="cf_telefone" value="${escapar(r.telefone)}" placeholder="83 99999-0000"></div>
-          <span class="meta">
-            Cria o cadastro em Administrativo → Colaboradores e o perfil de folha juntos, num passo só.
-            Convite de acesso ao Hub, se ela precisar entrar, é lá.
-          </span>` : `
+          <span class="meta">Cria o cadastro em Administrativo → Colaboradores e o perfil de folha juntos, num passo só.</span>
+          <label class="marcavel" style="width:fit-content">
+            <input type="checkbox" id="cf_convidar" ${r.convidar ? "checked" : ""}>
+            <span>Convidar para acessar o Hub</span>
+          </label>
+          ${r.convidar ? `
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="cf_perfilAcesso">Acesso como</label>
+                <select id="cf_perfilAcesso">
+                  <option value="PROFESSOR" ${r.perfilAcesso === "PROFESSOR" ? "selected" : ""}>Professor — chamada e frequência</option>
+                  <option value="ADMINISTRATIVO" ${r.perfilAcesso === "ADMINISTRATIVO" ? "selected" : ""}>Administrativo — painel completo da escola</option>
+                  <option value="ADMIN" ${r.perfilAcesso === "ADMIN" ? "selected" : ""}>Administrador</option>
+                  <option value="SOCIO" ${r.perfilAcesso === "SOCIO" ? "selected" : ""}>Diretoria</option>
+                </select>
+                <span class="meta">Estagiário sem turma própria também entra como Professor — é o mesmo acesso à chamada.</span></div>
+              <div class="campo" style="flex:0 0 140px"><label class="rotulo" for="cf_validade">Convite válido por</label>
+                <select id="cf_validade">
+                  <option value="7" ${r.validade === "7" ? "selected" : ""}>7 dias</option>
+                  <option value="14" ${r.validade === "14" ? "selected" : ""}>14 dias</option>
+                  <option value="30" ${r.validade === "30" ? "selected" : ""}>30 dias</option>
+                </select></div>
+            </div>
+            <span class="meta">Precisa do e-mail preenchido acima — é com ele que a pessoa entra.</span>` : ""}` : `
           <div class="campo"><label class="rotulo" for="cf_professor">Colaborador</label>
             <select id="cf_professor">
               <option value="">Escolha…</option>
@@ -947,6 +969,17 @@ function folhaColaboradoresHTML() {
         <button class="botao" type="button" id="btnSalvarColab">${editando ? "Salvar" : "Adicionar"}</button>
       </div>
     </div>
+
+    ${folha.conviteRecente ? `
+      <div class="cartao" style="margin-top:14px">
+        <div class="linha" style="margin-bottom:10px">
+          <strong>${escapar(folha.conviteRecente.texto)}</strong>
+          <button class="botao fantasma" type="button" id="btnFecharConvite">Fechar</button>
+        </div>
+        <a class="botao" href="${escapar(folha.conviteRecente.link)}" target="_blank" rel="noopener noreferrer">
+          Abrir WhatsApp com o convite
+        </a>
+      </div>` : ""}
 
     <div class="cartao" style="margin-top:14px">
       <div class="linha" style="margin-bottom:10px"><strong>Colaboradores ativos</strong></div>
@@ -1012,6 +1045,17 @@ function ligarFolhaColaboradores() {
   el("cf_tipo")?.addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
   el("cf_nivel")?.addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
   el("cf_categoria")?.addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
+  el("cf_convidar")?.addEventListener("change", (e) => {
+    folha.rascunhoColaborador.convidar = e.target.checked;
+    pintarFolha();
+  });
+  el("cf_perfilAcesso")?.addEventListener("change", (e) => { folha.rascunhoColaborador.perfilAcesso = e.target.value; });
+  el("cf_validade")?.addEventListener("change", (e) => { folha.rascunhoColaborador.validade = e.target.value; });
+
+  el("btnFecharConvite")?.addEventListener("click", () => {
+    folha.conviteRecente = null;
+    pintarFolha();
+  });
 
   el("btnCancelarColab")?.addEventListener("click", () => {
     folha.editandoColaborador = null;
@@ -1030,6 +1074,12 @@ function ligarFolhaColaboradores() {
     }
     if (existente && !r.professorId) {
       folha.erroColaborador = "Escolha o colaborador."; pintarFolha(); return;
+    }
+    const convidando = novo && r.convidar;
+    if (convidando && !r.email.trim()) {
+      folha.erroColaborador = "Pra convidar, preencha o e-mail — é com ele que a pessoa entra.";
+      pintarFolha();
+      return;
     }
 
     const botao = el("btnSalvarColab");
@@ -1054,6 +1104,29 @@ function ligarFolhaColaboradores() {
       } else {
         await api("/folha/colaboradores", { method: "POST", body: JSON.stringify({ ...corpo, professorId }) });
       }
+
+      // Convite: mesma rota que Administrativo → Colaboradores usa. Papel
+      // PROFESSOR carrega o professorId (é o que liga a conta à turma dele
+      // no portal); os outros papéis não precisam disso.
+      if (convidando) {
+        const email = r.email.trim().toLowerCase();
+        const convite = await api("/auth/convites", {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            papel: r.perfilAcesso,
+            professorId: r.perfilAcesso === "PROFESSOR" ? professorId : undefined,
+            validadeDias: Number(r.validade),
+          }),
+        });
+        folha.conviteRecente = {
+          texto: `Convite criado para ${r.nome.trim()}.`,
+          link: linkWhatsapp(convite, r.telefone.trim()),
+        };
+      } else {
+        folha.conviteRecente = null;
+      }
+
       folha.editandoColaborador = null;
       folha.erroColaborador = "";
       folha.rascunhoColaborador = RASCUNHO_COLAB_VAZIO();

@@ -523,3 +523,34 @@ export function idadeEm(nascimentoIso, hoje = new Date()) {
   if (hoje < aniversarioEsteAno) idade--;
   return idade;
 }
+
+/**
+ * O texto do convite de acesso, pronto pra mandar no WhatsApp. Usada por
+ * Administrativo → Colaboradores e por Diretoria → Folha — os dois emitem
+ * convite, então a mensagem mora aqui em vez de duplicada nos dois arquivos.
+ */
+export function mensagemConvite(c) {
+  // Sócio puro (sem ADMIN/ADMINISTRATIVO) não passa da porta de
+  // administrativo.html — ela exige um dos dois papéis antes de mostrar
+  // qualquer tela. socios.html só pede SOCIO, e é para lá que este convite
+  // sempre leva, tenha a pessoa os outros papéis ou não.
+  const area = c.papel === "PROFESSOR" ? "professor.html"
+    : c.papel === "SOCIO" ? "socios.html"
+    : "administrativo.html";
+  return [
+    "Oi! Seu acesso ao sistema do SE7 está liberado.",
+    "",
+    `Entre em ${location.origin}/${area}`,
+    `e faça login com a conta Google ${c.email}.`,
+    "",
+    "Precisa entrar com esse e-mail mesmo, senão o acesso não abre.",
+  ].join("\n");
+}
+
+/** Link pronto do WhatsApp com o convite — com o telefone do cadastro, já abre a conversa certa. */
+export function linkWhatsapp(c, telefone) {
+  const texto = encodeURIComponent(mensagemConvite(c));
+  const fone = (telefone || "").replace(/\D/g, "");
+  const numero = fone.length >= 10 ? (fone.startsWith("55") ? fone : `55${fone}`) : "";
+  return numero ? `https://wa.me/${numero}?text=${texto}` : `https://wa.me/?text=${texto}`;
+}
