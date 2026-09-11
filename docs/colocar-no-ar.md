@@ -188,9 +188,11 @@ Tudo, menos os alunos que ainda estão lá:
 - painel da Diretoria: receita prevista, adesão, turmas ociosas e com demanda;
 - Folha (aba Folha, dentro da área da Diretoria): reconstrução nativa de uma
   plataforma de folha de pagamento e financeiro que existia à parte, num
-  banco próprio. Em andamento por fases — a primeira trouxe Colaboradores,
-  Grade Horária e Valores; lançamentos, o cálculo da folha e o módulo
-  financeiro (extrato bancário, DRE) vêm nas fases seguintes;
+  banco próprio. Em andamento por fases — Colaboradores, Grade Horária e
+  Valores (fase 1); Lançamentos, Extrato do Colaborador e Fechamento Mensal
+  (fase 2); Folha de Pagamento e Controle Interno, com feriados, férias e
+  correções manuais editáveis (fase 3). O módulo financeiro (extrato
+  bancário, DRE) e a reconstrução de Turmas vêm nas fases seguintes;
 - fechamento diário às 23:59, que começa a gravar no primeiro dia no ar;
 - cronograma, eventos e avisos;
 - cópia diária da ocupação real das turmas para o se7-cobrancas (o painel da

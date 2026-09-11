@@ -441,6 +441,12 @@ model Professor {
   // por convite. Com e-mail aqui, o convite passa a ser opcional.
   email            String?   @unique
   telefone         String?
+  // Documentos pessoais — nenhuma tela exige no cadastro, mas a Folha e o
+  // Administrativo preenchem quando têm a mão (é dado que a Diretoria pediu
+  // pra guardar, mesmo sem uso imediato).
+  cpf              String?   @unique
+  rg               String?
+  dataNascimento   DateTime? @db.Date
   ativo            Boolean   @default(true)
   // Quando `ativo` vira false — por Administrativo → Colaboradores → Desativar,
   // ou por Sócios → Folha → Demitir, os dois mexem no mesmo campo. A data
@@ -873,6 +879,11 @@ model ColaboradorFolha {
   // Existe pra quem é, por exemplo, estagiário mas pago como horista de
   // professor — o valor da hora continua vindo do `tipo`.
   categoriaFolha CategoriaFolha?
+
+  // Registro profissional (opcional — nem todo estagiário tem) e a chave
+  // pra onde a Folha de Pagamento manda o pagamento deste colaborador.
+  cref     String?
+  chavePix String?
 
   criadoEm DateTime @default(now())
 

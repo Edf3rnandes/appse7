@@ -799,7 +799,8 @@ const TIPO_LANCAMENTO_LABEL = {
 const DIA_SEMANA_LABEL = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const RASCUNHO_COLAB_VAZIO = () => ({
-  professorId: "", nome: "", email: "", telefone: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "",
+  professorId: "", nome: "", email: "", telefone: "", cpf: "", rg: "", dataNascimento: "",
+  tipo: "PROFESSOR", nivel: "1", categoriaFolha: "", cref: "", chavePix: "",
   convidar: true, perfilAcesso: "PROFESSOR", validade: "14",
 });
 const RASCUNHO_GRADE_VAZIO = () => ({
@@ -813,6 +814,24 @@ const RASCUNHO_RECORRENTE_VAZIO = () => ({
   colaboradorId: "", tipo: "EXTRA", nivel: "1", horas: "", usaVt: true, motivo: "",
   de: "", ate: "", diasSemana: [],
 });
+const RASCUNHO_FERIADO_VAZIO = () => ({ data: "", unidadeId: "", descricao: "", contaTrabalhado: false });
+const RASCUNHO_FERIAS_VAZIO = () => ({ colaboradorId: "", dataInicio: "", dataFim: "", observacao: "" });
+
+/** "AAAA-MM" de hoje. */
+function mesAtual() { return new Date().toISOString().slice(0, 7); }
+
+/** Últimos 14 meses até o próximo — o intervalo que faz sentido escolher pra Folha/Controle Interno. */
+function mesesParaSeletor() {
+  const meses = [];
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + 1);
+  for (let i = 0; i < 15; i++) {
+    meses.push(d.toISOString().slice(0, 7));
+    d.setMonth(d.getMonth() - 1);
+  }
+  return meses;
+}
 
 const folha = {
   sub: "colaboradores",
@@ -847,19 +866,31 @@ const folha = {
   extratoColaboradorId: "",
   extratoMes: "",
   compiladoMes: "",
+  feriados: [],
+  rascunhoFeriado: RASCUNHO_FERIADO_VAZIO(),
+  erroFeriado: "",
+  ferias: [],
+  rascunhoFerias: RASCUNHO_FERIAS_VAZIO(),
+  erroFerias: "",
+  fpMes: mesAtual(),
+  fpDados: null,
+  ciMes: mesAtual(),
+  ciDados: null,
 };
 
 async function carregarFolha() {
   const alvo = el("secFolha");
   alvo.innerHTML = `<div class="carregando">Carregando…</div>`;
   try {
-    const [colaboradores, disponiveis, grade, valores, unidades, lancamentos] = await Promise.all([
+    const [colaboradores, disponiveis, grade, valores, unidades, lancamentos, feriados, ferias] = await Promise.all([
       api("/folha/colaboradores"),
       api("/folha/colaboradores/disponiveis"),
       api("/folha/grade"),
       api("/folha/valores"),
       api("/escola/unidades"),
       api("/folha/lancamentos"),
+      api("/folha/feriados"),
+      api("/folha/ferias"),
     ]);
     folha.colaboradores = colaboradores;
     folha.disponiveis = disponiveis;
@@ -867,10 +898,31 @@ async function carregarFolha() {
     folha.valores = valores;
     folha.unidades = unidades.filter((u) => u.ativa);
     folha.lancamentos = lancamentos;
+    folha.feriados = feriados;
+    folha.ferias = ferias;
     pintarFolha();
+    await Promise.all([carregarFolhaPagamento(), carregarControleInterno()]);
   } catch (e) {
     alvo.innerHTML = aviso(e);
   }
+}
+
+async function carregarFolhaPagamento() {
+  try {
+    folha.fpDados = await api(`/folha/pagamento?mes=${folha.fpMes}`);
+  } catch (e) {
+    folha.fpDados = { erro: e.message };
+  }
+  if (folha.sub === "folhapagamento") pintarFolha();
+}
+
+async function carregarControleInterno() {
+  try {
+    folha.ciDados = await api(`/folha/controle-interno?mes=${folha.ciMes}`);
+  } catch (e) {
+    folha.ciDados = { erro: e.message };
+  }
+  if (folha.sub === "controleinterno") pintarFolha();
 }
 
 /**
@@ -961,6 +1013,8 @@ function pintarFolha() {
     ["lancamentos", "Lançamentos"],
     ["extrato", "Extrato do Colaborador"],
     ["compilado", "Fechamento Mensal"],
+    ["folhapagamento", "Folha de Pagamento"],
+    ["controleinterno", "Controle Interno"],
   ];
   alvo.innerHTML = `
     <div class="abas-socio" role="tablist" style="margin-bottom:14px">
@@ -982,22 +1036,41 @@ function pintarFolha() {
   else if (folha.sub === "valores") conteudo.innerHTML = folhaValoresHTML();
   else if (folha.sub === "lancamentos") conteudo.innerHTML = folhaLancamentosHTML();
   else if (folha.sub === "extrato") conteudo.innerHTML = folhaExtratoHTML();
-  else conteudo.innerHTML = folhaCompiladoHTML();
+  else if (folha.sub === "compilado") conteudo.innerHTML = folhaCompiladoHTML();
+  else if (folha.sub === "folhapagamento") conteudo.innerHTML = folhaPagamentoHTML();
+  else conteudo.innerHTML = folhaControleInternoHTML();
 
   if (folha.sub === "colaboradores") ligarFolhaColaboradores();
   else if (folha.sub === "grade") ligarFolhaGrade();
   else if (folha.sub === "valores") ligarFolhaValores();
   else if (folha.sub === "lancamentos") ligarFolhaLancamentos();
   else if (folha.sub === "extrato") ligarFolhaExtrato();
-  else ligarFolhaCompilado();
+  else if (folha.sub === "compilado") ligarFolhaCompilado();
+  else if (folha.sub === "folhapagamento") ligarFolhaPagamento();
+  else ligarFolhaControleInterno();
 }
 
 // ------------------------------------------------------------ colaboradores
 //
-// A pessoa (nome, e-mail, ativo/desligado) vem de Administrativo →
-// Colaboradores — aqui só se escolhe quem já existe lá e se completa o que é
-// de folha (tipo, nível, categoria). Pra cadastrar alguém novo, o caminho é
-// Administrativo, não aqui.
+// A identidade da pessoa (nome, e-mail, documentos, ativo/desligado) é o
+// `Professor` — "Pessoa nova" cria os dois (cadastro + perfil de folha) num
+// só passo; "Já está no Hub" só aponta pra quem o Administrativo já cadastrou.
+/** Quem faz aniversário neste mês, do dia mais próximo pro mais distante. */
+function aniversariantesDoMes() {
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesHoje = hoje.getMonth() + 1;
+  return folha.colaboradores
+    .filter((c) => c.professor.ativo && c.professor.dataNascimento)
+    .map((c) => {
+      const [, mes, dia] = c.professor.dataNascimento.slice(0, 10).split("-").map(Number);
+      return { nome: c.professor.nome, mes, dia };
+    })
+    .filter((a) => a.mes === mesHoje)
+    .sort((a, b) => a.dia - b.dia)
+    .map((a) => ({ ...a, hoje: a.dia === diaHoje }));
+}
+
 function folhaColaboradoresHTML() {
   const r = folha.rascunhoColaborador;
   const editando = folha.editandoColaborador
@@ -1005,8 +1078,14 @@ function folhaColaboradoresHTML() {
     : null;
   const ativos = folha.colaboradores.filter((c) => c.professor.ativo);
   const desligados = folha.colaboradores.filter((c) => !c.professor.ativo);
+  const aniversariantes = aniversariantesDoMes();
 
   return `
+    ${aniversariantes.length ? `
+      <div class="aviso info" style="margin-bottom:14px">
+        🎂 Aniversariantes de ${new Date().toLocaleDateString("pt-BR", { month: "long" })}:
+        ${aniversariantes.map((a) => `${escapar(a.nome)} (${String(a.dia).padStart(2, "0")})${a.hoje ? " — hoje!" : ""}`).join(", ")}
+      </div>` : ""}
     <div class="cartao">
       <div class="linha" style="margin-bottom:10px">
         <strong>${editando ? `Editar perfil de folha — ${escapar(editando.professor.nome)}` : "Adicionar colaborador"}</strong>
@@ -1057,6 +1136,17 @@ function folhaColaboradoresHTML() {
             </select>
             ${folha.disponiveis.length === 0 ? `<span class="meta">Todo colaborador ativo já tem perfil de folha.</span>` : ""}
           </div>`}
+        <details ${r.cpf || r.rg || r.dataNascimento ? "open" : ""}>
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--ink-3);font-weight:600">Dados pessoais (opcional)</summary>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_cpf">CPF</label>
+              <input id="cf_cpf" value="${escapar(r.cpf)}" placeholder="000.000.000-00"></div>
+            <div class="campo" style="flex:1;min-width:120px"><label class="rotulo" for="cf_rg">RG</label>
+              <input id="cf_rg" value="${escapar(r.rg)}"></div>
+            <div class="campo" style="flex:0 0 170px"><label class="rotulo" for="cf_nascimento">Data de nascimento</label>
+              <input id="cf_nascimento" type="date" value="${escapar(r.dataNascimento)}"></div>
+          </div>
+        </details>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
             <select id="cf_tipo">
@@ -1078,6 +1168,12 @@ function folhaColaboradoresHTML() {
             <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
           </select>
           <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_cref">CREF (opcional)</label>
+            <input id="cf_cref" value="${escapar(r.cref)}" placeholder="000000-G/PB"></div>
+          <div class="campo" style="flex:1;min-width:200px"><label class="rotulo" for="cf_pix">Chave PIX</label>
+            <input id="cf_pix" value="${escapar(r.chavePix)}" placeholder="CPF, e-mail, telefone ou aleatória"></div>
         </div>
         <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
         <button class="botao" type="button" id="btnSalvarColab">${editando ? "Salvar" : "Adicionar"}</button>
@@ -1152,13 +1248,29 @@ function ligarFolhaColaboradores() {
       pintarFolha();
     }));
 
-  el("cf_professor")?.addEventListener("change", (e) => { folha.rascunhoColaborador.professorId = e.target.value; });
+  el("cf_professor")?.addEventListener("change", (e) => {
+    folha.rascunhoColaborador.professorId = e.target.value;
+    // Prefixa os documentos se a pessoa escolhida já tiver algum salvo — não
+    // sobrescreve o que já estiver digitado.
+    const p = folha.disponiveis.find((x) => x.id === e.target.value);
+    if (p) {
+      folha.rascunhoColaborador.cpf ||= p.cpf || "";
+      folha.rascunhoColaborador.rg ||= p.rg || "";
+      folha.rascunhoColaborador.dataNascimento ||= p.dataNascimento ? String(p.dataNascimento).slice(0, 10) : "";
+      pintarFolha();
+    }
+  });
   el("cf_nome")?.addEventListener("input", (e) => { folha.rascunhoColaborador.nome = e.target.value; });
   el("cf_email")?.addEventListener("input", (e) => { folha.rascunhoColaborador.email = e.target.value; });
   el("cf_telefone")?.addEventListener("input", (e) => { folha.rascunhoColaborador.telefone = e.target.value; });
+  el("cf_cpf")?.addEventListener("input", (e) => { folha.rascunhoColaborador.cpf = e.target.value; });
+  el("cf_rg")?.addEventListener("input", (e) => { folha.rascunhoColaborador.rg = e.target.value; });
+  el("cf_nascimento")?.addEventListener("change", (e) => { folha.rascunhoColaborador.dataNascimento = e.target.value; });
   el("cf_tipo")?.addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
   el("cf_nivel")?.addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
   el("cf_categoria")?.addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
+  el("cf_cref")?.addEventListener("input", (e) => { folha.rascunhoColaborador.cref = e.target.value; });
+  el("cf_pix")?.addEventListener("input", (e) => { folha.rascunhoColaborador.chavePix = e.target.value; });
   el("cf_convidar")?.addEventListener("change", (e) => {
     folha.rascunhoColaborador.convidar = e.target.checked;
     pintarFolha();
@@ -1207,12 +1319,34 @@ function ligarFolhaColaboradores() {
       if (novo) {
         const professor = await api("/escola/professores", {
           method: "POST",
-          body: JSON.stringify({ nome: r.nome.trim(), email: r.email.trim(), telefone: r.telefone.trim(), ativo: true }),
+          body: JSON.stringify({
+            nome: r.nome.trim(), email: r.email.trim(), telefone: r.telefone.trim(), ativo: true,
+            cpf: r.cpf.trim(), rg: r.rg.trim(), dataNascimento: r.dataNascimento,
+          }),
         });
         professorId = professor.id;
+      } else {
+        // Existente ou editando: a pessoa já existe em Administrativo — só
+        // atualiza os documentos por cima do que já está lá, preservando
+        // nome/e-mail/telefone/ativo (esta tela não mexe nisso).
+        const identidadeAtual = folha.editandoColaborador
+          ? folha.colaboradores.find((c) => c.id === folha.editandoColaborador)?.professor
+          : folha.disponiveis.find((p) => p.id === professorId);
+        if (identidadeAtual) {
+          await api(`/escola/professores/${professorId}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              nome: identidadeAtual.nome, email: identidadeAtual.email || "", telefone: identidadeAtual.telefone || "",
+              ativo: identidadeAtual.ativo, cpf: r.cpf.trim(), rg: r.rg.trim(), dataNascimento: r.dataNascimento,
+            }),
+          });
+        }
       }
 
-      const corpo = { tipo: r.tipo, nivel: Number(r.nivel), categoriaFolha: r.categoriaFolha || "" };
+      const corpo = {
+        tipo: r.tipo, nivel: Number(r.nivel), categoriaFolha: r.categoriaFolha || "",
+        cref: r.cref.trim(), chavePix: r.chavePix.trim(),
+      };
       if (folha.editandoColaborador) {
         await api(`/folha/colaboradores/${folha.editandoColaborador}`, { method: "PUT", body: JSON.stringify(corpo) });
       } else {
@@ -1259,7 +1393,11 @@ function ligarFolhaColaboradores() {
       folha.editandoColaborador = c.id;
       folha.erroColaborador = "";
       folha.rascunhoColaborador = {
+        ...RASCUNHO_COLAB_VAZIO(),
         professorId: c.professorId, tipo: c.tipo, nivel: String(c.nivel), categoriaFolha: c.categoriaFolha || "",
+        cpf: c.professor.cpf || "", rg: c.professor.rg || "",
+        dataNascimento: c.professor.dataNascimento ? String(c.professor.dataNascimento).slice(0, 10) : "",
+        cref: c.cref || "", chavePix: c.chavePix || "",
       };
       pintarFolha();
       el("cf_tipo")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1849,6 +1987,362 @@ function folhaCompiladoHTML() {
 function ligarFolhaCompilado() {
   el("cp_mes")?.addEventListener("change", (e) => { folha.compiladoMes = e.target.value; pintarFolha(); });
   el("btnImprimirCompilado")?.addEventListener("click", () => window.print());
+}
+
+// ---------------------------------------------------------- folha de pagamento
+//
+// Diferente do Extrato/Compilado (Fase 2), a conta aqui é feita no servidor
+// (ver folhaColabCalc em folha.routes.ts): dias trabalhados vindo da Grade
+// Horária dia a dia, feriado por unidade, férias e VT antecipado no mês
+// seguinte são regra de negócio grande demais pra confiar só no navegador.
+function celulaOverride(mes, colaboradorId, campo, valorEfetivo, valorCalculado, sobrescrito, opts) {
+  opts = opts || {};
+  const step = opts.step || "0.01";
+  const decimals = opts.decimals != null ? opts.decimals : 2;
+  const largura = opts.width || "96px";
+  const chave = `${mes}|${colaboradorId}|${campo}`;
+  const resetBtn = sobrescrito
+    ? `<button type="button" class="botao fantasma no-imprimir" data-reset-override="${chave}" title="Restaurar cálculo automático (${Number(valorCalculado).toFixed(decimals)})" style="padding:2px 6px">↺</button>`
+    : "";
+  return `<span style="display:inline-flex;align-items:center;gap:4px;justify-content:flex-end">
+    <input type="number" step="${step}" value="${Number(valorEfetivo).toFixed(decimals)}" data-override="${chave}"
+      style="width:${largura};text-align:right;padding:4px 6px;border-radius:6px;border:1px solid ${sobrescrito ? "#f0c56b" : "#c9d2da"};background:${sobrescrito ? "#fff8e6" : "#fff"}">
+    ${resetBtn}
+  </span>`;
+}
+
+function renderRelatorioFolha(dados) {
+  const mes = dados.mes;
+  let somaBolsa = 0, somaComplementarE = 0, somaVtE = 0;
+  const linhasE = dados.estagiarios.map((c) => {
+    if (!c.temGrade) {
+      return `<tr><td>${escapar(c.nome)}</td><td class="num" colspan="3" style="color:var(--erro)">sem grade horária cadastrada</td></tr>`;
+    }
+    somaBolsa += c.bolsa; somaComplementarE += c.complementar; somaVtE += c.vt;
+    return `<tr>
+      <td>${escapar(c.nome)}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "bolsa", c.bolsa, c.bolsaCalculada, c.bolsaSobrescrita, { step: "0.01", width: "112px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "complementar", c.complementar, c.complementarCalculada, c.complementarSobrescrita, { step: "0.01", width: "112px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "vt", c.vt, c.vtCalculado, c.vtSobrescrito, { step: "1", decimals: 0, width: "64px" })}</td>
+    </tr>`;
+  }).join("");
+
+  let somaHn1 = 0, somaHn2 = 0, somaDias = 0, somaVtP = 0, somaDiariaP = 0;
+  const linhasP = dados.professores.map((c) => {
+    if (!c.temGrade) {
+      return `<tr><td>${escapar(c.nome)}</td><td class="num" colspan="5" style="color:var(--erro)">sem grade horária cadastrada</td></tr>`;
+    }
+    somaHn1 += c.hn1; somaHn2 += c.hn2; somaDias += c.dias; somaVtP += c.vt; somaDiariaP += c.diariaBonus;
+    return `<tr>
+      <td>${escapar(c.nome)}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "hn1", c.hn1, c.hn1Calculado, c.hn1Sobrescrito, { step: "0.5", decimals: 1, width: "72px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "hn2", c.hn2, c.hn2Calculado, c.hn2Sobrescrito, { step: "0.5", decimals: 1, width: "72px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "dias", c.dias, c.diasCalculado, c.diasSobrescrito, { step: "1", decimals: 0, width: "64px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "vt", c.vt, c.vtCalculado, c.vtSobrescrito, { step: "1", decimals: 0, width: "64px" })}</td>
+      <td class="num">${celulaOverride(mes, c.colaboradorId, "diariaBonus", c.diariaBonus, c.diariaBonusCalculado, c.diariaBonusSobrescrito, { step: "0.01", width: "112px" })}</td>
+    </tr>`;
+  }).join("");
+
+  const vh1 = dados.valorHoraNivel1 != null ? `R$${Number(dados.valorHoraNivel1).toFixed(2).replace(".", ",")} h/a` : "Hrs Nível 1";
+  const vh2 = dados.valorHoraNivel2 != null ? `R$${Number(dados.valorHoraNivel2).toFixed(2).replace(".", ",")} h/a` : "Hrs Nível 2";
+  const rotuloProx = rotuloMes(dados.proxMes);
+
+  return `
+    <div class="cartao">
+      <div class="linha" style="margin-bottom:6px"><strong>Estagiários</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Valor da Bolsa já desconta faltas sem atestado e desconto de VT antecipado. Diárias/Bônus são extras e bônus do mês
+        (não é salário). VT em dias, referência ${rotuloProx}.
+      </p>
+      ${dados.estagiarios.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Colaborador</th><th class="num">Valor da Bolsa</th><th class="num">Diárias/Bônus</th><th class="num">VT ${rotuloProx} (dias)</th></tr>
+            ${linhasE}
+            <tr class="footrow" style="font-weight:600">
+              <td>SOMATÓRIO</td><td class="num">${fmt.moeda(somaBolsa)}</td><td class="num">${fmt.moeda(somaComplementarE)}</td><td class="num">${somaVtE}</td>
+            </tr>
+          </table>
+        </div>` : `<div class="vazio">Nenhum estagiário cadastrado.</div>`}
+    </div>
+
+    <div class="cartao" style="margin-top:14px">
+      <div class="linha" style="margin-bottom:6px"><strong>Professores</strong></div>
+      <p class="meta" style="margin-bottom:10px">
+        Horas por nível já descontam faltas sem atestado (a contabilidade calcula o salário a partir delas). Diárias/Bônus
+        não é salário. VT em dias, referência ${rotuloProx}.
+      </p>
+      ${dados.professores.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Colaborador</th><th class="num">${vh1}</th><th class="num">${vh2}</th><th class="num">Dias Trabalhados</th>
+              <th class="num">VT ${rotuloProx} (dias)</th><th class="num">Diárias/Bônus</th></tr>
+            ${linhasP}
+            <tr class="footrow" style="font-weight:600">
+              <td>SOMATÓRIO</td><td class="num">${somaHn1}h</td><td class="num">${somaHn2}h</td>
+              <td class="num">${somaDias}</td><td class="num">${somaVtP}</td><td class="num">${fmt.moeda(somaDiariaP)}</td>
+            </tr>
+          </table>
+        </div>` : `<div class="vazio">Nenhum professor cadastrado.</div>`}
+    </div>`;
+}
+
+function folhaPagamentoHTML() {
+  const mes = folha.fpMes;
+  const dados = folha.fpDados;
+  const rf = folha.rascunhoFeriado;
+  const rv = folha.rascunhoFerias;
+  const colaboradoresAtivos = folha.colaboradores.filter((c) => c.professor.ativo)
+    .sort((a, b) => a.professor.nome.localeCompare(b.professor.nome, "pt-BR"));
+
+  return `
+    <div class="cartao no-imprimir">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="campo" style="flex:0 0 180px"><label class="rotulo" for="fp_mes">Mês de referência</label>
+          <select id="fp_mes">
+            ${mesesParaSeletor().map((m) => `<option value="${m}" ${mes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("")}
+          </select></div>
+        <button class="botao fantasma" type="button" id="btnImprimirFolha">Imprimir</button>
+      </div>
+      <p class="meta" style="margin-top:10px">
+        Horas normais vêm da Grade Horária (conta sozinho quantas segundas/terças/etc. caem no mês). Falta com atestado não
+        desconta; sem atestado desconta a turma/nível daquele dia. O VT é antecipado: pago junto com o salário deste mês, mas
+        contado na grade do <strong>mês seguinte</strong> (já descontando feriados/férias marcados pra lá). Todo número das
+        tabelas abaixo é editável — clique e digite pra corrigir; o ↺ ao lado restaura o cálculo automático.
+      </p>
+    </div>
+
+    <details class="cartao no-imprimir">
+      <summary style="cursor:pointer;font-weight:600">Feriados (${folha.feriados.length})</summary>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <div class="campo" style="flex:0 0 150px"><label class="rotulo" for="fr_data">Data</label>
+          <input id="fr_data" type="date" value="${escapar(rf.data)}"></div>
+        <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="fr_unidade">Unidade</label>
+          <select id="fr_unidade">
+            <option value="">Todas</option>
+            ${folha.unidades.map((u) => `<option value="${u.id}" ${rf.unidadeId === u.id ? "selected" : ""}>${escapar(u.nome)}</option>`).join("")}
+          </select></div>
+        <div class="campo" style="flex:2;min-width:200px"><label class="rotulo" for="fr_desc">Descrição</label>
+          <input id="fr_desc" value="${escapar(rf.descricao)}" placeholder="ex.: Feriado municipal de João Pessoa"></div>
+        <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="fr_conta">Conta como trabalhado?</label>
+          <select id="fr_conta">
+            <option value="nao" ${!rf.contaTrabalhado ? "selected" : ""}>Não</option>
+            <option value="sim" ${rf.contaTrabalhado ? "selected" : ""}>Sim</option>
+          </select></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="botao" type="button" id="btnAddFeriado">+ Salvar</button></div>
+      </div>
+      <div class="aviso erro ${folha.erroFeriado ? "" : "oculto"}" style="margin-top:10px">${escapar(folha.erroFeriado)}</div>
+      ${folha.feriados.length ? `
+        <table class="tabelinha" style="margin-top:12px">
+          <tr><th>Data</th><th>Unidade</th><th>Descrição</th><th>Conta trabalhado?</th><th></th></tr>
+          ${folha.feriados.map((f) => `
+            <tr>
+              <td>${fmt.data(f.data)}</td>
+              <td>${f.unidade?.nome || "Todas"}</td>
+              <td>${escapar(f.descricao || "—")}</td>
+              <td>${f.contaTrabalhado ? "Sim" : "Não"}</td>
+              <td class="num"><button class="botao fantasma" type="button" data-apagar-feriado="${f.id}">Apagar</button></td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio" style="margin-top:10px">Nenhum feriado cadastrado.</div>`}
+    </details>
+
+    <details class="cartao no-imprimir">
+      <summary style="cursor:pointer;font-weight:600">Férias (${folha.ferias.length})</summary>
+      <p class="meta" style="margin-top:10px">Enquanto o colaborador está de férias, os dias da grade dele nesse período não contam como trabalhados nem geram desconto.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="fe_colab">Colaborador</label>
+          <select id="fe_colab">
+            <option value="">Escolha…</option>
+            ${colaboradoresAtivos.map((c) => `<option value="${c.id}" ${rv.colaboradorId === c.id ? "selected" : ""}>${escapar(c.professor.nome)}</option>`).join("")}
+          </select></div>
+        <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="fe_inicio">Início</label>
+          <input id="fe_inicio" type="date" value="${escapar(rv.dataInicio)}"></div>
+        <div class="campo" style="flex:0 0 160px"><label class="rotulo" for="fe_fim">Fim</label>
+          <input id="fe_fim" type="date" value="${escapar(rv.dataFim)}"></div>
+        <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="fe_obs">Observação</label>
+          <input id="fe_obs" value="${escapar(rv.observacao)}" placeholder="ex.: 10 dias, seg a sex"></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="botao" type="button" id="btnAddFerias">+ Salvar</button></div>
+      </div>
+      <div class="aviso erro ${folha.erroFerias ? "" : "oculto"}" style="margin-top:10px">${escapar(folha.erroFerias)}</div>
+      ${folha.ferias.length ? `
+        <table class="tabelinha" style="margin-top:12px">
+          <tr><th>Colaborador</th><th>Início</th><th>Fim</th><th>Observação</th><th></th></tr>
+          ${folha.ferias.map((f) => `
+            <tr>
+              <td>${escapar(nomeColaborador(f.colaboradorId))}</td>
+              <td>${fmt.data(f.dataInicio)}</td>
+              <td>${fmt.data(f.dataFim)}</td>
+              <td>${escapar(f.observacao || "—")}</td>
+              <td class="num"><button class="botao fantasma" type="button" data-apagar-ferias="${f.id}">Apagar</button></td>
+            </tr>`).join("")}
+        </table>` : `<div class="vazio" style="margin-top:10px">Nenhuma férias cadastrada.</div>`}
+    </details>
+
+    ${!dados ? `<div class="carregando">Carregando…</div>` : dados.erro ? aviso({ message: dados.erro }) : renderRelatorioFolha(dados)}`;
+}
+
+function ligarFolhaPagamento() {
+  const secao = el("secFolha");
+
+  el("fp_mes")?.addEventListener("change", (e) => {
+    folha.fpMes = e.target.value;
+    folha.fpDados = null;
+    pintarFolha();
+    carregarFolhaPagamento();
+  });
+  el("btnImprimirFolha")?.addEventListener("click", () => window.print());
+
+  const rf = folha.rascunhoFeriado;
+  el("fr_data")?.addEventListener("change", (e) => { rf.data = e.target.value; });
+  el("fr_unidade")?.addEventListener("change", (e) => { rf.unidadeId = e.target.value; });
+  el("fr_desc")?.addEventListener("input", (e) => { rf.descricao = e.target.value; });
+  el("fr_conta")?.addEventListener("change", (e) => { rf.contaTrabalhado = e.target.value === "sim"; });
+  el("btnAddFeriado")?.addEventListener("click", async () => {
+    if (!rf.data) { folha.erroFeriado = "Escolha a data."; pintarFolha(); return; }
+    try {
+      await api("/folha/feriados", {
+        method: "POST",
+        body: JSON.stringify({
+          data: rf.data, unidadeId: rf.unidadeId || undefined,
+          descricao: rf.descricao.trim() || undefined, contaTrabalhado: rf.contaTrabalhado,
+        }),
+      });
+      folha.erroFeriado = "";
+      folha.rascunhoFeriado = RASCUNHO_FERIADO_VAZIO();
+      await carregarFolha();
+    } catch (e) { folha.erroFeriado = e.message; pintarFolha(); }
+  });
+  secao.querySelectorAll("[data-apagar-feriado]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar este feriado?")) return;
+      try {
+        await api(`/folha/feriados/${b.dataset.apagarFeriado}`, { method: "DELETE" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+
+  const rv = folha.rascunhoFerias;
+  el("fe_colab")?.addEventListener("change", (e) => { rv.colaboradorId = e.target.value; });
+  el("fe_inicio")?.addEventListener("change", (e) => { rv.dataInicio = e.target.value; });
+  el("fe_fim")?.addEventListener("change", (e) => { rv.dataFim = e.target.value; });
+  el("fe_obs")?.addEventListener("input", (e) => { rv.observacao = e.target.value; });
+  el("btnAddFerias")?.addEventListener("click", async () => {
+    if (!rv.colaboradorId) { folha.erroFerias = "Escolha o colaborador."; pintarFolha(); return; }
+    if (!rv.dataInicio || !rv.dataFim) { folha.erroFerias = "Preencha início e fim."; pintarFolha(); return; }
+    try {
+      await api("/folha/ferias", {
+        method: "POST",
+        body: JSON.stringify({
+          colaboradorId: rv.colaboradorId, dataInicio: rv.dataInicio, dataFim: rv.dataFim,
+          observacao: rv.observacao.trim() || undefined,
+        }),
+      });
+      folha.erroFerias = "";
+      folha.rascunhoFerias = RASCUNHO_FERIAS_VAZIO();
+      await carregarFolha();
+    } catch (e) { folha.erroFerias = e.message; pintarFolha(); }
+  });
+  secao.querySelectorAll("[data-apagar-ferias]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar estas férias?")) return;
+      try {
+        await api(`/folha/ferias/${b.dataset.apagarFerias}`, { method: "DELETE" });
+        await carregarFolha();
+      } catch (e) { alert(e.message); }
+    }));
+
+  secao.querySelectorAll("[data-override]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const [mes, colaboradorId, campo] = input.dataset.override.split("|");
+      try {
+        await api("/folha/overrides", {
+          method: "PUT",
+          body: JSON.stringify({ mes, colaboradorId, campo, valor: Number(input.value) || 0 }),
+        });
+        await carregarFolhaPagamento();
+      } catch (e) { alert(e.message); }
+    });
+  });
+  secao.querySelectorAll("[data-reset-override]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const [mes, colaboradorId, campo] = b.dataset.resetOverride.split("|");
+      try {
+        await api(`/folha/overrides/${mes}/${colaboradorId}/${campo}`, { method: "DELETE" });
+        await carregarFolhaPagamento();
+      } catch (e) { alert(e.message); }
+    }));
+}
+
+// ----------------------------------------------------------- controle interno
+function renderControleInterno(dados) {
+  let somaBase = 0, somaDiaria = 0, somaVtRs = 0, somaFerias = 0, somaTotal = 0;
+  const linhas = dados.linhas.map((l) => {
+    if (!l.temGrade) {
+      return `<tr><td>${escapar(l.nome)}</td><td>${TIPO_FOLHA_LABEL[l.tipo]}</td><td class="num" colspan="8" style="color:var(--erro)">sem grade horária cadastrada</td></tr>`;
+    }
+    somaBase += l.valorBase; somaDiaria += l.diariasBonus; somaVtRs += l.vtRs; somaFerias += l.diasFerias; somaTotal += l.total;
+    return `<tr>
+      <td>${escapar(l.nome)}</td>
+      <td>${TIPO_FOLHA_LABEL[l.tipo]}</td>
+      <td class="num">${l.niveis.join(", ") || "—"}</td>
+      <td class="num">${l.horasNoMes ? l.horasNoMes.toFixed(0) + "h" : "—"}</td>
+      <td class="num">${fmt.moeda(l.rhMedio)}</td>
+      <td class="num">${fmt.moeda(l.valorBase)}</td>
+      <td class="num">${fmt.moeda(l.diariasBonus)}</td>
+      <td class="num">${l.diasVt}</td>
+      <td class="num">${fmt.moeda(l.vtRs)}</td>
+      <td class="num">${l.diasFerias}</td>
+      <td class="num" style="font-weight:600">${fmt.moeda(l.total)}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="cartao">
+      ${dados.linhas.length ? `
+        <div class="rolagem">
+          <table class="tabelinha">
+            <tr><th>Colaborador</th><th>Tipo</th><th class="num">Nível(is)</th><th class="num">Horas no Mês</th><th class="num">R$/h médio</th>
+              <th class="num">Valor Base</th><th class="num">Diárias/Bônus</th><th class="num">Dias VT ${rotuloMes(dados.proxMes)}</th>
+              <th class="num">VT em R$</th><th class="num">Férias (dias)</th><th class="num">Total Estimado</th></tr>
+            ${linhas}
+            <tr class="footrow" style="font-weight:600">
+              <td colspan="5">SOMATÓRIO GERAL (estimativa)</td>
+              <td class="num">${fmt.moeda(somaBase)}</td><td class="num">${fmt.moeda(somaDiaria)}</td><td class="num">—</td>
+              <td class="num">${fmt.moeda(somaVtRs)}</td><td class="num">${somaFerias}</td><td class="num">${fmt.moeda(somaTotal)}</td>
+            </tr>
+          </table>
+        </div>` : `<div class="vazio">Nenhum colaborador cadastrado.</div>`}
+    </div>`;
+}
+
+function folhaControleInternoHTML() {
+  const mes = folha.ciMes;
+  const dados = folha.ciDados;
+  return `
+    <div class="cartao no-imprimir">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="campo" style="flex:0 0 180px"><label class="rotulo" for="ci_mes">Mês de referência</label>
+          <select id="ci_mes">
+            ${mesesParaSeletor().map((m) => `<option value="${m}" ${mes === m ? "selected" : ""}>${rotuloMes(m)}</option>`).join("")}
+          </select></div>
+        <button class="botao fantasma" type="button" id="btnImprimirInterno">Imprimir</button>
+      </div>
+      <p class="meta" style="margin-top:10px">
+        Só controle nosso — não é o que vai pra contabilidade. Valor estimado em R$ de tudo: quanto cada um faz por hora,
+        quanto isso dá em bolsa/diária, o VT já em R$ e o total estimado do mês.
+      </p>
+    </div>
+    ${!dados ? `<div class="carregando">Carregando…</div>` : dados.erro ? aviso({ message: dados.erro }) : renderControleInterno(dados)}`;
+}
+
+function ligarFolhaControleInterno() {
+  el("ci_mes")?.addEventListener("change", (e) => {
+    folha.ciMes = e.target.value;
+    folha.ciDados = null;
+    pintarFolha();
+    carregarControleInterno();
+  });
+  el("btnImprimirInterno")?.addEventListener("click", () => window.print());
 }
 
 async function decidirTela() {

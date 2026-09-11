@@ -283,6 +283,9 @@ CREATE TABLE "hub"."professores" (
     "nome" TEXT NOT NULL,
     "email" TEXT,
     "telefone" TEXT,
+    "cpf" TEXT,
+    "rg" TEXT,
+    "dataNascimento" DATE,
     "ativo" BOOLEAN NOT NULL DEFAULT true,
     "dataDesligamento" DATE,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -493,6 +496,8 @@ CREATE TABLE "hub"."folha_colaboradores" (
     "tipo" "hub"."TipoColaboradorFolha" NOT NULL,
     "nivel" INTEGER NOT NULL DEFAULT 1,
     "categoriaFolha" "hub"."CategoriaFolha",
+    "cref" TEXT,
+    "chavePix" TEXT,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "folha_colaboradores_pkey" PRIMARY KEY ("id")
@@ -643,6 +648,9 @@ CREATE UNIQUE INDEX "professores_legacyId_key" ON "hub"."professores"("legacyId"
 
 -- CreateIndex
 CREATE UNIQUE INDEX "professores_email_key" ON "hub"."professores"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "professores_cpf_key" ON "hub"."professores"("cpf");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "planos_legacyId_key" ON "hub"."planos"("legacyId");

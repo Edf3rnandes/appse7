@@ -101,6 +101,17 @@ const professorSchema = z.object({
     .optional()
     .transform((v) => (v === "" ? null : v)),
   telefone: z.string().max(30).optional(),
+  // Mesmo padrão do e-mail acima: "" apaga em vez de dar erro, senão não tem
+  // como corrigir um documento digitado errado.
+  cpf: z
+    .union([z.string().transform(somenteDigitos).refine(cpfValido, "CPF inválido."), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" ? null : v)),
+  rg: z.string().max(20).optional(),
+  dataNascimento: z
+    .union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")])
+    .optional()
+    .transform((v) => (v ? new Date(`${v}T00:00:00.000Z`) : null)),
   ativo: z.boolean().default(true),
 });
 
@@ -175,7 +186,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
           return {
             status: 409,
             mensagem: alvo.includes("cpf")
-              ? "Já existe um responsável com esse CPF."
+              ? "Já existe um cadastro com esse CPF."
               : "Esse registro já existe.",
           };
         }
