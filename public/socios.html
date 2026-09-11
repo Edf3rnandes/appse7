@@ -37,12 +37,28 @@
     .abas-socio { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
     .abas-socio button { border: 1px solid var(--rule); background: var(--card); color: var(--ink-2); padding: 8px 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 14px; }
     .abas-socio button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+    /* Menu retrátil no desktop — abaixo de 860px o menu já vira gaveta
+       (ver .hamburguer/.menu em app.css); aqui, ACIMA de 860px, o mesmo
+       botão recolhe a coluna fixa pra abrir espaço pra uma tabela larga,
+       lembrando o estado entre visitas. */
+    .retrair { display: none; }
+    @media (min-width: 861px) {
+      .retrair {
+        display: inline-flex; align-items: center; justify-content: center;
+        border: 0; background: none; color: var(--ink); font-size: 19px; line-height: 1;
+        padding: 6px 10px; margin-right: 4px; border-radius: 8px; cursor: pointer;
+      }
+      .retrair:hover { background: var(--surface-2); }
+      .menu[data-colapsado="true"] { flex: 0 0 0; width: 0; padding: 0; margin: 0; overflow: hidden; border: 0; }
+    }
   </style>
 </head>
 <body>
 
 <header class="topo">
   <button class="hamburguer oculto" id="btnMenu" type="button" aria-label="Abrir menu" aria-expanded="false">☰</button>
+  <button class="retrair" id="btnRetrairMenu" type="button" aria-label="Recolher menu" aria-expanded="true">☰</button>
   <div class="marca"><span class="se7">SE7</span><span class="sub">Diretoria</span></div>
   <div class="espaco"></div>
   <nav class="areas" id="areas" hidden></nav>
@@ -218,6 +234,23 @@ el("btnMenu").addEventListener("click", () =>
   abrirMenu(el("menu").dataset.aberto !== "true"));
 el("veu").addEventListener("click", fecharMenu);
 document.addEventListener("keydown", (e) => e.key === "Escape" && fecharMenu());
+
+// No desktop (ver .retrair no <style> acima), o mesmo menu recolhe pra dar
+// espaço a uma tabela larga — lembrado entre visitas, por pessoa, no navegador.
+const CHAVE_MENU_COLAPSADO = "se7_diretoria_menu_colapsado";
+function aplicarColapso(colapsado) {
+  el("menu").dataset.colapsado = String(colapsado);
+  el("btnRetrairMenu").setAttribute("aria-expanded", String(!colapsado));
+}
+let menuColapsado = false;
+try { menuColapsado = localStorage.getItem(CHAVE_MENU_COLAPSADO) === "true"; } catch {}
+aplicarColapso(menuColapsado);
+
+el("btnRetrairMenu").addEventListener("click", () => {
+  menuColapsado = !menuColapsado;
+  aplicarColapso(menuColapsado);
+  try { localStorage.setItem(CHAVE_MENU_COLAPSADO, String(menuColapsado)); } catch {}
+});
 
 // =================================================================== painel
 
