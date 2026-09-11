@@ -220,6 +220,23 @@ O que depende de outra coisa, e diz isso na tela em vez de quebrar:
 | Login com Google | `GOOGLE_CLIENT_ID` |
 | Alunos e matrículas históricas | a importação do dump |
 
+## Atualizar depois do primeiro deploy
+
+O passo 1 (`instalar-no-supabase.sql`) é para a primeira vez — depois que há
+matrícula de verdade cadastrada, ele se recusa a rodar de novo, de propósito.
+Uma função nova que precise de coluna ou tabela nova no banco vem, a partir
+daqui, com um arquivo próprio — `prisma/atualizar-<nome>.sql` — que só
+acrescenta o que falta, sem apagar nada. Mesmo caminho de sempre: SQL Editor
+do Supabase → cole o arquivo inteiro → Run. Pode rodar mais de uma vez sem
+doer, se não tiver certeza se já rodou.
+
+O código em si não precisa desse cuidado: o Render reconstrói sozinho a cada
+`git push` neste ramo, porque é o que o Blueprint do passo 2 configura.
+
+- `prisma/atualizar-cancelamento-bolsista.sql` — motivo do cancelamento
+  (lista + detalhe) e controle de bolsistas (isento de cobrança, com data de
+  revisão da bolsa) em `hub.matriculas`.
+
 ## Verificado
 
 Este roteiro foi executado inteiro num banco Postgres limpo, com o schema
