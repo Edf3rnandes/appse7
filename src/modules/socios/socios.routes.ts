@@ -4,7 +4,7 @@ import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { diaUtc, fecharDia } from "./fechamento.js";
-import { valorLiquido } from "../../lib/precos.js";
+import { receitaDe, valorLiquido } from "../../lib/precos.js";
 import {
   asaasConfigurado,
   AsaasIndisponivelError,
@@ -83,6 +83,7 @@ export interface MatriculaParaConta {
   expiraEm: Date | null;
   atualizadoEm: Date;
   unidade: { id: string; nome: string };
+  bolsista: boolean;
   plano: { valor: unknown; descontoPercentual: unknown };
 }
 
@@ -154,13 +155,14 @@ export async function sociosRoutes(app: FastifyInstance) {
         expiraEm: true,
         atualizadoEm: true,
         unidade: { select: { id: true, nome: true } },
+        bolsista: true,
         plano: { select: { valor: true, descontoPercentual: true } },
       },
     })) as MatriculaParaConta[];
 
     const serie = janela.map((mes) => {
       const ativas = matriculas.filter((m) => ativaEm(m, mes.fim, mes.inicio));
-      const receita = ativas.reduce((s, m) => s + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
+      const receita = ativas.reduce((s, m) => s + receitaDe(m), 0);
 
       const novas = matriculas.filter(
         (m) =>
@@ -202,7 +204,7 @@ export async function sociosRoutes(app: FastifyInstance) {
       const ativas = matriculas.filter(
         (m) => m.unidade.id === u.id && ativaEm(m, mesCorrente.fim, mesCorrente.inicio),
       );
-      const receita = ativas.reduce((s, m) => s + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
+      const receita = ativas.reduce((s, m) => s + receitaDe(m), 0);
       const capacidade = u.turmas.reduce((s, t) => s + (t.capacidade ?? 0), 0);
 
       return {
@@ -369,6 +371,7 @@ export async function sociosRoutes(app: FastifyInstance) {
             arquivadoEm: true,
             expiraEm: true,
             atualizadoEm: true,
+            bolsista: true,
             plano: { select: { valor: true, descontoPercentual: true } },
           },
         },
@@ -382,7 +385,7 @@ export async function sociosRoutes(app: FastifyInstance) {
       })) as unknown as MatriculaParaConta[];
 
       const ativas = paraConta.filter((m) => ativaEm(m, mesCorrente.fim, mesCorrente.inicio));
-      const receita = ativas.reduce((soma, m) => soma + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
+      const receita = ativas.reduce((soma, m) => soma + receitaDe(m), 0);
       const capacidade = t.capacidade ?? 0;
 
       // Preço de referência da turma vazia: a mediana dos planos ativos ligados

@@ -199,6 +199,9 @@ export async function cobrancaRoutes(app: FastifyInstance) {
     if (matricula.status === StatusMatricula.CANCELADA) {
       return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
     }
+    if (matricula.bolsista) {
+      return reply.code(409).send({ message: "Aluno bolsista não recebe cobrança." });
+    }
 
     const ehTaxa = tipo === "TAXA";
     const resultado = await comTravaDaMatricula(id, async () => {
@@ -286,6 +289,9 @@ export async function cobrancaRoutes(app: FastifyInstance) {
     if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
     if (matricula.status === StatusMatricula.CANCELADA) {
       return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
+    }
+    if (matricula.bolsista) {
+      return reply.code(409).send({ message: "Aluno bolsista não recebe cobrança." });
     }
 
     const resultado = await comTravaDaMatricula(id, async () => {

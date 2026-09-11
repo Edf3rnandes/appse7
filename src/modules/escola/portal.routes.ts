@@ -197,7 +197,26 @@ export async function portalRoutes(app: FastifyInstance) {
     });
 
     if (!responsavel?.asaasCustomer) {
-      return { faturas: [], aviso: "Cadastro ainda sem financeiro vinculado." };
+      // Bolsista nunca chega a ter cliente no Asaas — não existe cobrança
+      // pra criar cliente nenhum. Sem isso, a aba de Faturas de uma família
+      // bolsista mostra o mesmo aviso genérico de "financeiro não
+      // vinculado", que parece cadastro incompleto, não uma escolha.
+      const matriculas = await prisma.matricula.findMany({
+        where: {
+          responsavelId: request.user.responsavelId!,
+          arquivadoEm: null,
+          status: { not: StatusMatricula.CANCELADA },
+        },
+        select: { bolsista: true },
+      });
+      const soBolsista = matriculas.length > 0 && matriculas.every((m) => m.bolsista);
+
+      return {
+        faturas: [],
+        aviso: soBolsista
+          ? "Aluno bolsista — não há cobrança de mensalidade."
+          : "Cadastro ainda sem financeiro vinculado.",
+      };
     }
 
     const faturas = await listarFaturasDoCliente(responsavel.asaasCustomer);

@@ -809,10 +809,11 @@ export async function cadastroRoutes(app: FastifyInstance) {
   // ------------------------------------------------------------- matrículas
   app.get("/escola/matriculas", equipe, async (request) => {
     const { busca, limite, pagina, incluirArquivados } = paginacao.parse(request.query);
-    const { status, turmaId } = z
+    const { status, turmaId, bolsista } = z
       .object({
         status: z.nativeEnum(StatusMatricula).optional(),
         turmaId: z.string().uuid().optional(),
+        bolsista: z.coerce.boolean().optional(),
       })
       .parse(request.query);
 
@@ -825,6 +826,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
       ...(incluirArquivados ? {} : { arquivadoEm: null }),
       ...(status ? { status } : {}),
       ...(turmaId ? { turmaId } : {}),
+      ...(bolsista === undefined ? {} : { bolsista }),
       ...(busca
         ? {
             OR: [
@@ -983,13 +985,17 @@ export async function cadastroRoutes(app: FastifyInstance) {
    */
   app.patch("/escola/matriculas/:id", equipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const { status, observacao, principal, turmaId, planoId } = z
+    const { status, observacao, principal, turmaId, planoId, bolsista, bolsaRevisarEm } = z
       .object({
         status: z.nativeEnum(StatusMatricula).optional(),
         observacao: z.string().max(1000).optional(),
         principal: z.boolean().optional(),
         turmaId: z.string().uuid().optional(),
         planoId: z.string().uuid().optional(),
+        bolsista: z.boolean().optional(),
+        // Só aceita string vazia (pra limpar) quando `bolsista` já veio, senão
+        // "" bolaRevisarEm sozinho não quer dizer nada.
+        bolsaRevisarEm: dataOpcional.or(z.literal("")),
       })
       .parse(request.body);
 
@@ -999,13 +1005,21 @@ export async function cadastroRoutes(app: FastifyInstance) {
       });
     }
 
-    if ([status, observacao, principal, turmaId, planoId].every((v) => v === undefined)) {
+    if ([status, observacao, principal, turmaId, planoId, bolsista, bolsaRevisarEm].every((v) => v === undefined)) {
       return reply.code(400).send({ message: "Nada para alterar." });
     }
 
     const dados: Prisma.MatriculaUpdateInput = {
       ...(principal === undefined ? {} : { principal }),
       ...(observacao === undefined ? {} : { observacao }),
+      ...(bolsista === undefined ? {} : { bolsista }),
+      // Desmarcar bolsista limpa a data de revisão junto — não faz sentido
+      // uma data de "rever a bolsa" sobrar numa matrícula que não é mais
+      // bolsista.
+      ...(bolsista === false ? { bolsaRevisarEm: null } : {}),
+      ...(bolsaRevisarEm === undefined
+        ? {}
+        : { bolsaRevisarEm: bolsaRevisarEm === "" ? null : bolsaRevisarEm }),
     };
 
     if (status !== undefined) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { valorLiquido } from "../src/lib/precos.js";
+import { receitaDe, valorLiquido } from "../src/lib/precos.js";
 
 /**
  * Valor líquido do plano — o que a família paga de verdade se pagar até o
@@ -39,5 +39,18 @@ describe("valorLiquido", () => {
     // desconto de família aplicado por igual aos dois.
     assert.equal(joao + marcos, 295);
     assert.notEqual(joao + marcos, (150 + 200) * 0.8); // não é "20% pra todo mundo"
+  });
+});
+
+describe("receitaDe", () => {
+  it("bolsista soma zero, não importa o valor do plano", () => {
+    const m = { bolsista: true, plano: { valor: 200, descontoPercentual: 20 } };
+    assert.equal(receitaDe(m), 0);
+  });
+
+  it("aluno pagante soma o valor líquido normal, igual valorLiquido", () => {
+    const m = { bolsista: false, plano: { valor: 200, descontoPercentual: 20 } };
+    assert.equal(receitaDe(m), valorLiquido(200, 20));
+    assert.equal(receitaDe(m), 160);
   });
 });

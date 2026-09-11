@@ -14,3 +14,14 @@ export function valorLiquido(valor: unknown, descontoPercentual: unknown): numbe
   const desconto = Number(descontoPercentual ?? 0);
   return bruto * (1 - desconto / 100);
 }
+
+/**
+ * Quanto uma matrícula soma na receita prevista — zero se for bolsista.
+ *
+ * Bolsista ocupa vaga (conta como matrícula ativa, para ocupação e vagas
+ * ociosas) mas não é dinheiro entrando: o plano dele continua com valor de
+ * tabela só para efeito de exibição ("Mensal, R$150"), nunca de conta.
+ */
+export function receitaDe(m: { bolsista: boolean; plano: { valor: unknown; descontoPercentual: unknown } }): number {
+  return m.bolsista ? 0 : valorLiquido(m.plano.valor, m.plano.descontoPercentual);
+}

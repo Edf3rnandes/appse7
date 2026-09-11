@@ -1,6 +1,6 @@
 import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { valorLiquido } from "../../lib/precos.js";
+import { receitaDe } from "../../lib/precos.js";
 
 /**
  * O fechamento do dia.
@@ -54,6 +54,7 @@ export async function fecharDia(dia: Date, origem: OrigemFechamento = "AUTOMATIC
       arquivadoEm: true,
       expiraEm: true,
       atualizadoEm: true,
+      bolsista: true,
       plano: { select: { valor: true, descontoPercentual: true } },
     },
   });
@@ -87,8 +88,9 @@ export async function fecharDia(dia: Date, origem: OrigemFechamento = "AUTOMATIC
 
   // Valor líquido (com o desconto por pagamento em dia, próprio de cada
   // plano) — o que a escola de fato espera receber, não o valor de tabela.
-  // Ver o comentário de valorLiquido() em src/lib/precos.ts.
-  const receita = ativas.reduce((s, m) => s + valorLiquido(m.plano.valor, m.plano.descontoPercentual), 0);
+  // Bolsista soma zero: ocupa vaga, mas não é dinheiro entrando. Ver
+  // receitaDe() em src/lib/precos.ts.
+  const receita = ativas.reduce((s, m) => s + receitaDe(m), 0);
 
   // Vagas ociosas: só faz sentido contra a capacidade de hoje, porque
   // capacidade de turma também não tem histórico. Para o dia corrente é exato;

@@ -389,6 +389,8 @@ CREATE TABLE "hub"."matriculas" (
     "planoId" TEXT NOT NULL,
     "observacao" TEXT,
     "expiraEm" DATE,
+    "bolsista" BOOLEAN NOT NULL DEFAULT false,
+    "bolsaRevisarEm" DATE,
     "principal" BOOLEAN NOT NULL DEFAULT true,
     "asaasReferencia" TEXT,
     "asaasPagamento" TEXT,

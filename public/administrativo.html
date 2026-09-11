@@ -551,6 +551,7 @@ const mat = {
   familia: {},
   busca: "",
   status: "",
+  soBolsista: false,
   pagina: 1,
   limite: 20,
   turmas: [],
@@ -579,6 +580,7 @@ async function carregarMatriculas() {
     const [lista, turmas, financeiro] = await Promise.all([
       api(`/escola/matriculas?limite=${mat.limite}&pagina=${mat.pagina}` +
         (mat.status ? `&status=${mat.status}` : "") +
+        (mat.soBolsista ? `&bolsista=true` : "") +
         (mat.busca ? `&busca=${encodeURIComponent(mat.busca)}` : "")),
       mat.turmas.length ? Promise.resolve(mat.turmas) : api("/escola/turmas"),
       mat.financeiro ?? api("/financeiro/estado").catch(() => null),
@@ -663,6 +665,10 @@ function pintarMatriculas(total) {
              ["CRIADA", "Criadas"], ["CANCELADA", "Canceladas"]]
             .map(([v, t]) => `<option value="${v}" ${mat.status === v ? "selected" : ""}>${t}</option>`).join("")}
         </select>
+        <label class="marcavel" style="flex:0 0 auto">
+          <input type="checkbox" id="filtroBolsista" ${mat.soBolsista ? "checked" : ""}>
+          <span>Só bolsistas</span>
+        </label>
       </div>
 
       ${mat.itens.length === 0
@@ -684,6 +690,11 @@ function pintarMatriculas(total) {
   });
   el("filtroStatus").addEventListener("change", (e) => {
     mat.status = e.target.value;
+    mat.pagina = 1;
+    carregarMatriculas();
+  });
+  el("filtroBolsista").addEventListener("change", (e) => {
+    mat.soBolsista = e.target.checked;
     mat.pagina = 1;
     carregarMatriculas();
   });
@@ -853,6 +864,30 @@ function pintarMatriculas(total) {
       }
     }));
 
+  painel.querySelectorAll("[data-bolsista]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.dataset.bolsista;
+      const m = mat.itens.find((x) => x.id === id);
+
+      if (m.bolsista) {
+        await mudarBolsista(id, { bolsista: false });
+        return;
+      }
+
+      // Data de revisão é opcional — bolsa sem prazo definido também existe.
+      const dataDigitada = prompt(
+        "Marcar como bolsista — não recebe cobrança de taxa nem mensalidade.\n\n" +
+          "Revisar a bolsa até (AAAA-MM-DD) — deixe em branco se não houver prazo:",
+        "",
+      );
+      if (dataDigitada === null) return;
+      const dataTexto = dataDigitada.trim();
+      if (dataTexto && !/^\d{4}-\d{2}-\d{2}$/.test(dataTexto)) {
+        return alert("Data precisa estar no formato AAAA-MM-DD.");
+      }
+      await mudarBolsista(id, { bolsista: true, bolsaRevisarEm: dataTexto || undefined });
+    }));
+
   // ------------------------------------------------------- cancelamento
   painel.querySelectorAll("[data-cancel-voltar]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -1006,7 +1041,10 @@ function linhaMatricula(m) {
           </span>
           ${escapar(m.aluno.nome)}
         </span>
-        <span class="pilula ${tom}">${escapar(texto)}</span>
+        <span style="display:flex;gap:6px;align-items:center">
+          ${m.bolsista ? `<span class="pilula" style="background:var(--accent-suave);color:var(--accent)">Bolsista</span>` : ""}
+          <span class="pilula ${tom}">${escapar(texto)}</span>
+        </span>
       </div>
       <div class="meta" style="margin-top:3px">
         ${escapar(m.turma.nome)} · ${escapar(m.unidade.nome)} · ${escapar(m.plano.nome)}
@@ -1016,6 +1054,10 @@ function linhaMatricula(m) {
         ${m.responsavel.cpf ? " · " + fmt.cpf(m.responsavel.cpf) : ""}
         ${m.principal ? "" : ` · <span style="color:var(--ink-3)">vinculada</span>`}
       </div>
+      ${!m.bolsista || !m.bolsaRevisarEm ? "" : `
+        <div class="meta" style="margin-top:3px${new Date(m.bolsaRevisarEm) < new Date() ? ";color:var(--erro)" : ""}">
+          revisar a bolsa até ${fmt.data(m.bolsaRevisarEm)}
+        </div>`}
       ${m.status !== "CANCELADA" ? "" : `
         <div class="meta" style="margin-top:3px">
           cancelada em ${fmt.data(m.canceladaEm)}
@@ -1037,7 +1079,7 @@ function linhaMatricula(m) {
       <div class="barra-acoes" style="margin-top:8px">
         ${acoes.map(([para, rotulo]) =>
           `<button class="botao fantasma" type="button" data-id="${m.id}" data-acao="${para}">${rotulo}</button>`).join("")}
-        ${m.status === "CANCELADA" || !mat.financeiro?.emissaoAtiva ? "" : `
+        ${m.status === "CANCELADA" || m.bolsista || !mat.financeiro?.emissaoAtiva ? "" : `
           <button class="botao fantasma" type="button" data-cobrar="${m.id}" data-tipo="MENSALIDADE">Cobrar mensalidade</button>
           <button class="botao fantasma" type="button" data-cobrar="${m.id}" data-tipo="TAXA">Cobrar taxa</button>
           <button class="botao fantasma" type="button" data-parcelar="${m.id}">Emitir parcelas do plano</button>`}
@@ -1049,6 +1091,10 @@ function linhaMatricula(m) {
         <button class="botao fantasma" type="button" data-principal="${m.id}" data-valor="${!m.principal}">
           ${m.principal ? "Tornar vinculada" : "Tornar principal"}
         </button>
+        ${m.status === "CANCELADA" ? "" : `
+          <button class="botao fantasma" type="button" data-bolsista="${m.id}">
+            ${m.bolsista ? "Tirar bolsista" : "Marcar bolsista"}
+          </button>`}
         ${m.status === "CANCELADA" ? "" : `
           <button class="botao fantasma" type="button" data-editar="${m.id}">
             ${editando ? "Fechar edição" : "Trocar turma/plano"}
@@ -1169,6 +1215,16 @@ async function mudarStatus(id, status) {
   } catch (e) {
     const painel = el("painelMatriculas");
     painel.insertAdjacentHTML("afterbegin", aviso(e));
+  }
+}
+
+async function mudarBolsista(id, corpo) {
+  try {
+    await api(`/escola/matriculas/${id}`, { method: "PATCH", body: JSON.stringify(corpo) });
+    await carregarMatriculas();
+    invalidarSecao("painelInicio");
+  } catch (e) {
+    el("painelMatriculas").insertAdjacentHTML("afterbegin", aviso(e));
   }
 }
 

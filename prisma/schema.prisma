@@ -628,6 +628,13 @@ model Matricula {
   observacao String?
   expiraEm   DateTime? @db.Date
 
+  // Bolsista: matriculado de verdade (turma, presença, portal), mas isento
+  // de cobrança — nem taxa, nem mensalidade. `bolsaRevisarEm` é a data pra
+  // rever se a bolsa continua valendo; opcional porque nem toda bolsa tem
+  // prazo definido.
+  bolsista       Boolean   @default(false)
+  bolsaRevisarEm DateTime? @db.Date
+
   // Matrícula principal do responsável, ou vinculada a ela.
   //
   // É o plano família: um responsável paga por dois ou três filhos, e uma das
