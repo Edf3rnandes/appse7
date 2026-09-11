@@ -403,9 +403,13 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
    estava saindo da tela. No desktop é uma coluna fixa; abaixo de 860px vira
    gaveta atrás do ☰, que é o único formato que funciona num celular.
    ========================================================================== */
+/* Sem `margin: 0 auto`, de propósito: um bloco de 1080px centralizado numa
+   tela de 1920px sobrava ~420px vazios de cada lado — o menu parecia flutuar
+   longe da borda. Encostado à esquerda e mais largo, a tela usa o espaço de
+   quem trabalha o dia inteiro nisso, numa tela grande, numa tabela larga. */
 .layout {
   display: flex; gap: 26px; align-items: flex-start;
-  max-width: 1080px; margin: 0 auto; padding: 22px 16px 64px;
+  max-width: 1440px; margin: 0; padding: 22px 16px 64px;
 }
 .menu { flex: 0 0 208px; position: sticky; top: 22px; display: flex; flex-direction: column; gap: 3px; }
 .conteudo { flex: 1; min-width: 0; }
