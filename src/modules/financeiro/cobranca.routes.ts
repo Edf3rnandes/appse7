@@ -11,6 +11,7 @@ import {
   cancelarCobranca,
   criarCliente,
   criarCobranca,
+  criarParcelamento,
   listarCobrancasDaMatricula,
   listarVencidas,
 } from "../../services/asaas/asaas.client.js";
@@ -65,6 +66,44 @@ export function proximoVencimento(dia: number): string {
  */
 export function vencimentoDaTaxa(): string {
   return somarDias(hoje(), 1).toISOString().slice(0, 10);
+}
+
+/**
+ * Cobrança do tipo pedido, já em aberto, se houver.
+ *
+ * O Asaas é a fonte da verdade aqui, não o nosso banco: uma cobrança criada
+ * e não gravada por uma falha de rede continuaria valendo para a família.
+ * Usado tanto pela emissão avulsa quanto pelo parcelamento — os dois
+ * geram cobrança descrita como "Mensalidade", então um parcelamento não
+ * nasce em cima de uma avulsa esquecida em aberto, nem o contrário.
+ */
+async function cobrancaEmAberto(matriculaId: string, tipo: "TAXA" | "MENSALIDADE") {
+  const jaExistem = await listarCobrancasDaMatricula(matriculaId);
+  return jaExistem.find(
+    (c) =>
+      ["PENDING", "OVERDUE", "AWAITING_RISK_ANALYSIS"].includes(c.status) &&
+      (c.description ?? "").startsWith(tipo === "TAXA" ? "Taxa" : "Mensalidade"),
+  );
+}
+
+/** O responsável precisa existir no Asaas. Criamos na primeira cobrança e guardamos o id — não a cada emissão. */
+async function garantirClienteAsaas(matricula: {
+  responsavelId: string;
+  responsavel: { asaasCustomer: string | null; nome: string; cpf: string; email: string | null; telefone: string | null };
+}): Promise<string> {
+  if (matricula.responsavel.asaasCustomer) return matricula.responsavel.asaasCustomer;
+
+  const criado = await criarCliente({
+    nome: matricula.responsavel.nome,
+    cpf: matricula.responsavel.cpf,
+    email: matricula.responsavel.email,
+    telefone: matricula.responsavel.telefone,
+  });
+  await prisma.responsavel.update({
+    where: { id: matricula.responsavelId },
+    data: { asaasCustomer: criado.id },
+  });
+  return criado.id;
 }
 
 export async function cobrancaRoutes(app: FastifyInstance) {
@@ -132,15 +171,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
       return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
     }
 
-    // Cobrança em aberto do mesmo tipo já existe? O Asaas é a fonte da
-    // verdade aqui, não o nosso banco: uma cobrança criada e não gravada por
-    // uma falha de rede continuaria valendo para a família.
-    const jaExistem = await listarCobrancasDaMatricula(id);
-    const emAberto = jaExistem.find(
-      (c) =>
-        ["PENDING", "OVERDUE", "AWAITING_RISK_ANALYSIS"].includes(c.status) &&
-        (c.description ?? "").startsWith(tipo === "TAXA" ? "Taxa" : "Mensalidade"),
-    );
+    const emAberto = await cobrancaEmAberto(id, tipo);
     if (emAberto) {
       return reply.code(409).send({
         message: `Já existe uma cobrança de ${tipo === "TAXA" ? "taxa" : "mensalidade"} em aberto, com vencimento em ${emAberto.dueDate}.`,
@@ -148,22 +179,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
       });
     }
 
-    // O responsável precisa existir no Asaas. Criamos na primeira cobrança e
-    // guardamos o id — não a cada emissão.
-    let clienteAsaas = matricula.responsavel.asaasCustomer;
-    if (!clienteAsaas) {
-      const criado = await criarCliente({
-        nome: matricula.responsavel.nome,
-        cpf: matricula.responsavel.cpf,
-        email: matricula.responsavel.email,
-        telefone: matricula.responsavel.telefone,
-      });
-      clienteAsaas = criado.id;
-      await prisma.responsavel.update({
-        where: { id: matricula.responsavelId },
-        data: { asaasCustomer: clienteAsaas },
-      });
-    }
+    const clienteAsaas = await garantirClienteAsaas(matricula);
 
     const ehTaxa = tipo === "TAXA";
     const cobranca = await criarCobranca({
@@ -194,6 +210,86 @@ export async function cobrancaRoutes(app: FastifyInstance) {
     });
 
     request.log.info({ matricula: id, tipo }, "cobrança emitida no Asaas");
+
+    return reply.code(201).send(cobranca);
+  });
+
+  /**
+   * Emite de uma vez todas as parcelas da mensalidade do plano — o
+   * parcelamento nativo do Asaas, não N chamadas daqui.
+   *
+   * `parcelas` vem do plano por padrão, mas é editável na hora: é o que
+   * cobre o caso do aluno que entrou depois do dia 10 — lança-se a
+   * diferença do mês em "Cobrar mensalidade" (avulsa, valor livre) e aqui só
+   * o que sobra do contrato (11 parcelas de um Mensal, 5 de um Semestral),
+   * com o vencimento da primeira já no mês seguinte.
+   */
+  app.post("/financeiro/matriculas/:id/parcelas", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const { parcelas, valor, vencimento } = z
+      .object({
+        parcelas: z.number().int().min(1).max(24).optional(),
+        valor: z.number().positive().optional(),
+        vencimento: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Use AAAA-MM-DD.")
+          .optional(),
+      })
+      .parse(request.body);
+
+    const config = await lerConfig();
+    if (!config.emissaoAtiva) throw new EmissaoDesligadaError();
+
+    const matricula = await prisma.matricula.findUnique({
+      where: { id },
+      include: {
+        aluno: { select: { nome: true } },
+        responsavel: true,
+        turma: { select: { nome: true } },
+        plano: { select: { nome: true, valor: true, parcelas: true, descontoPercentual: true, descontoAteDias: true } },
+      },
+    });
+    if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
+    if (matricula.status === StatusMatricula.CANCELADA) {
+      return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
+    }
+
+    const emAberto = await cobrancaEmAberto(id, "MENSALIDADE");
+    if (emAberto) {
+      return reply.code(409).send({
+        message: `Já existe uma cobrança de mensalidade em aberto, com vencimento em ${emAberto.dueDate}.`,
+        cobranca: emAberto,
+      });
+    }
+
+    const clienteAsaas = await garantirClienteAsaas(matricula);
+
+    const cobranca = await criarParcelamento({
+      clienteAsaas,
+      parcelas: parcelas ?? matricula.plano.parcelas,
+      valorParcela: valor ?? Number(matricula.plano.valor),
+      vencimento: vencimento ?? proximoVencimento(config.diaVencimento),
+      descricao: `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,
+      referencia: id,
+      descontoPercentual: matricula.plano.descontoPercentual,
+      descontoAteDias: matricula.plano.descontoAteDias,
+    });
+
+    await prisma.matricula.update({
+      where: { id },
+      data: {
+        asaasPagamento: cobranca.id,
+        linkPagamento: cobranca.invoiceUrl,
+        ...(matricula.status === StatusMatricula.CRIADA
+          ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
+          : {}),
+      },
+    });
+
+    request.log.info(
+      { matricula: id, parcelas: parcelas ?? matricula.plano.parcelas },
+      "parcelamento emitido no Asaas",
+    );
 
     return reply.code(201).send(cobranca);
   });

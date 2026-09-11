@@ -184,6 +184,10 @@ export async function criarCliente(dados: {
 export interface CobrancaAsaas extends FaturaAsaas {
   externalReference: string | null;
   customer: string;
+  // Só vem preenchido quando a cobrança nasceu de um parcelamento — o id que
+  // amarra as N parcelas entre si no Asaas.
+  installment?: string | null;
+  installmentNumber?: number | null;
 }
 
 /**
@@ -212,6 +216,49 @@ export async function criarCobranca(dados: {
     customer: dados.clienteAsaas,
     billingType: "UNDEFINED",
     value: dados.valor,
+    dueDate: dados.vencimento,
+    description: dados.descricao,
+    externalReference: dados.referencia,
+    ...(dados.descontoPercentual
+      ? {
+          discount: {
+            value: dados.descontoPercentual,
+            dueDateLimitDays: dados.descontoAteDias ?? 0,
+            type: "PERCENTAGE",
+          },
+        }
+      : {}),
+  });
+}
+
+/**
+ * Cria um parcelamento — as N mensalidades do plano de uma vez, amarradas
+ * pelo `installment` que o Asaas devolve.
+ *
+ * `installmentValue` em vez de `value`: cada parcela sai com o mesmo valor, o
+ * da mensalidade. (A alternativa do Asaas, `totalValue`, divide um total e
+ * empurra o resto de arredondamento pra última parcela — não é o que as
+ * condições do plano prometem, que é uma mensalidade fixa repetida.)
+ *
+ * A resposta é só a PRIMEIRA parcela — é o suficiente pra guardar o link de
+ * pagamento e o id que abre o vínculo com as demais; as outras N-1 nascem no
+ * Asaas sem round-trip nenhum daqui.
+ */
+export async function criarParcelamento(dados: {
+  clienteAsaas: string;
+  parcelas: number;
+  valorParcela: number;
+  vencimento: string;
+  descricao: string;
+  referencia: string;
+  descontoPercentual?: number;
+  descontoAteDias?: number;
+}): Promise<CobrancaAsaas> {
+  return post<CobrancaAsaas>("/payments", {
+    customer: dados.clienteAsaas,
+    billingType: "UNDEFINED",
+    installmentCount: dados.parcelas,
+    installmentValue: dados.valorParcela,
     dueDate: dados.vencimento,
     description: dados.descricao,
     externalReference: dados.referencia,

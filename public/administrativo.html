@@ -709,6 +709,67 @@ function pintarMatriculas(total) {
       }
     }));
 
+  painel.querySelectorAll("[data-parcelar]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.dataset.parcelar;
+      const m = mat.itens.find((x) => x.id === id);
+
+      // O padrão é o número de parcelas do plano — editável na hora porque é
+      // o que cobre quem entrou depois do dia 10: lança-se a diferença do mês
+      // em "Cobrar mensalidade" (avulsa) e aqui só o que sobra do contrato
+      // (11 parcelas de um Mensal, 5 de um Semestral), com a 1ª já no mês
+      // seguinte.
+      const parcelasDigitadas = prompt(
+        `Emitir as parcelas da mensalidade no Asaas — plano ${m.plano.nome}.\n\n` +
+          "Número de parcelas:",
+        String(m.plano.parcelas),
+      );
+      if (parcelasDigitadas === null) return;
+      const parcelas = Number(parcelasDigitadas.trim());
+      if (!Number.isInteger(parcelas) || parcelas < 1 || parcelas > 24) {
+        return alert("Número de parcelas inválido — de 1 a 24.");
+      }
+
+      const valorDigitado = prompt("Valor de cada parcela (R$) — deixe em branco pra usar o valor do plano:", "");
+      if (valorDigitado === null) return;
+
+      const vencimentoDigitado = prompt(
+        "Vencimento da 1ª parcela (AAAA-MM-DD) — deixe em branco pra usar o dia configurado:",
+        "",
+      );
+      if (vencimentoDigitado === null) return;
+
+      const valorTexto = valorDigitado.trim();
+      const vencimentoTexto = vencimentoDigitado.trim();
+      const valor = valorTexto ? Number(valorTexto.replace(",", ".")) : undefined;
+      if (valorTexto && (Number.isNaN(valor) || valor <= 0)) return alert("Valor inválido.");
+      if (vencimentoTexto && !/^\d{4}-\d{2}-\d{2}$/.test(vencimentoTexto)) {
+        return alert("Vencimento precisa estar no formato AAAA-MM-DD.");
+      }
+
+      b.disabled = true;
+      b.textContent = "Emitindo…";
+      try {
+        const c = await api(`/financeiro/matriculas/${id}/parcelas`, {
+          method: "POST",
+          body: JSON.stringify({ parcelas, valor, vencimento: vencimentoTexto || undefined }),
+        });
+        await carregarMatriculas();
+        el("painelMatriculas").insertAdjacentHTML(
+          "afterbegin",
+          `<div class="aviso info" style="margin-bottom:12px">
+             ${parcelas} parcela${parcelas === 1 ? "" : "s"} de ${fmt.moeda(c.value)} criada${parcelas === 1 ? "" : "s"},
+             a 1ª com vencimento em ${fmt.data(c.dueDate)}.
+             ${c.invoiceUrl ? `<a href="${escapar(c.invoiceUrl)}" target="_blank" rel="noopener">Abrir fatura</a>` : ""}
+           </div>`,
+        );
+      } catch (e) {
+        el("painelMatriculas").insertAdjacentHTML("afterbegin", aviso(e));
+        b.disabled = false;
+        b.textContent = "Emitir parcelas do plano";
+      }
+    }));
+
   painel.querySelectorAll("[data-principal]").forEach((b) =>
     b.addEventListener("click", async () => {
       try {
@@ -902,7 +963,8 @@ function linhaMatricula(m) {
           `<button class="botao fantasma" type="button" data-id="${m.id}" data-acao="${para}">${rotulo}</button>`).join("")}
         ${m.status === "CANCELADA" || !mat.financeiro?.emissaoAtiva ? "" : `
           <button class="botao fantasma" type="button" data-cobrar="${m.id}" data-tipo="MENSALIDADE">Cobrar mensalidade</button>
-          <button class="botao fantasma" type="button" data-cobrar="${m.id}" data-tipo="TAXA">Cobrar taxa</button>`}
+          <button class="botao fantasma" type="button" data-cobrar="${m.id}" data-tipo="TAXA">Cobrar taxa</button>
+          <button class="botao fantasma" type="button" data-parcelar="${m.id}">Emitir parcelas do plano</button>`}
         ${m.linkPagamento ? `
           <a class="link-botao" href="${escapar(m.linkPagamento)}" target="_blank" rel="noopener">Última fatura</a>` : ""}
         <button class="botao fantasma" type="button" data-familia="${m.id}">

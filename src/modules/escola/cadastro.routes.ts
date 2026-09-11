@@ -837,7 +837,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
           responsavel: { select: { id: true, nome: true, telefone: true, cpf: true } },
           turma: { select: { id: true, nome: true } },
           unidade: { select: { id: true, nome: true } },
-          plano: { select: { id: true, nome: true, valor: true } },
+          plano: { select: { id: true, nome: true, valor: true, parcelas: true } },
         },
       }),
     ]);
