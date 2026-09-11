@@ -79,7 +79,7 @@ precisam ser preenchidas à mão:
 |---|---|---|
 | `DATABASE_URL` | **o mesmo valor do serviço se7-cobrancas** — é o que faz o cronograma ser a mesma tabela nos dois sistemas | sim |
 | `ADMIN_EMAILS` | seu e-mail. Quem administra a escola. Aceita vários, separados por vírgula | sim |
-| `SOCIO_EMAILS` | seu e-mail de novo. Quem vê o resultado da escola | sim, para a área dos sócios abrir |
+| `SOCIO_EMAILS` | seu e-mail de novo. Quem vê o resultado da escola | sim, para a área da Diretoria abrir |
 | `SEED_ADMIN_SENHA` | uma senha forte | só se quiser entrar sem Google |
 | `GOOGLE_CLIENT_ID` | o ID do projeto no Google Cloud | só para o login com Google |
 | `ASAAS_API_KEY` | a chave da conta | só para ver cobranças; **ela sozinha não emite nada** |
@@ -95,7 +95,7 @@ código a iguala à `DATABASE_URL` quando está vazia.
 **Sobre o plano gratuito.** Ele hiberna depois de alguns minutos parado, e a
 primeira visita depois disso demora uns 30 segundos. O fechamento das 23:59 não
 se perde por causa disso: ao voltar, o sistema reconstrói os dias que faltaram e
-marca cada um como `RECONSTRUIDO`, para a tela dos sócios não mostrar
+marca cada um como `RECONSTRUIDO`, para a tela da Diretoria não mostrar
 reconstrução com cara de número exato. Para o número do dia ser sempre exato, o
 plano pago.
 
@@ -131,9 +131,9 @@ Com o serviço no ar, seis endereços:
 | Portal do aluno | `/portal.html` | responsável, com Google ou senha |
 | Área do professor | `/professor.html` | professor, por convite |
 | Administrativo | `/administrativo.html` | ADMIN e ADMINISTRATIVO |
-| Sócios | `/socios.html` | SÓCIO |
+| Diretoria | `/socios.html` | SÓCIO |
 
-O administrativo e a área dos sócios se enxergam: quem tem os dois papéis
+O administrativo e a área da Diretoria se enxergam: quem tem os dois papéis
 troca de área pelo canto superior direito, sem sair.
 
 ---
@@ -185,8 +185,8 @@ Tudo, menos os alunos que ainda estão lá:
 - cadastro de aluno, matrícula de família e renovação pelo administrativo;
 - chamada do professor, frequência por turma e por aluno;
 - portal do responsável: alunos, frequência, faturas, endereço e foto;
-- painel dos sócios: receita prevista, adesão, turmas ociosas e com demanda;
-- Folha (aba Folha, dentro da área dos sócios): reconstrução nativa de uma
+- painel da Diretoria: receita prevista, adesão, turmas ociosas e com demanda;
+- Folha (aba Folha, dentro da área da Diretoria): reconstrução nativa de uma
   plataforma de folha de pagamento e financeiro que existia à parte, num
   banco próprio. Em andamento por fases — a primeira trouxe Colaboradores,
   Grade Horária e Valores; lançamentos, o cálculo da folha e o módulo
@@ -223,4 +223,4 @@ E o passo 2 foi ensaiado do jeito que o Render executa: `npm run build`, depois
 `node dist/db/seed.js && node dist/server.js` — exatamente os comandos do
 `render.yaml`, a partir do código compilado, e não do `tsx` do dia a dia.
 O `/health` respondeu, as cinco páginas e os arquivos estáticos vieram com 200,
-o login por senha funcionou e as seis rotas da área dos sócios responderam.
+o login por senha funcionou e as seis rotas da área da Diretoria responderam.

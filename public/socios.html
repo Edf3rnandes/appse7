@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>Sócios · SE7 Vôlei de Praia</title>
+  <title>Diretoria · SE7 Vôlei de Praia</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d6f7a'/%3E%3Cpath d='M16 1c6 6 6 24 0 30M1 16c8-5 22-5 30 0M6 5c2 8 8 17 16 22' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
   <style>
@@ -42,7 +42,7 @@
 <body>
 
 <header class="topo">
-  <div class="marca"><span class="se7">SE7</span><span class="sub">Sócios</span></div>
+  <div class="marca"><span class="se7">SE7</span><span class="sub">Diretoria</span></div>
   <div class="espaco"></div>
   <nav class="areas" id="areas" hidden></nav>
   <div class="usuario oculto" id="boxUsuario">
@@ -53,7 +53,7 @@
 </header>
 
 <main class="centro" id="telaLogin" hidden>
-  <h1 style="font-size:26px">Área dos sócios</h1>
+  <h1 style="font-size:26px">Diretoria</h1>
   <p style="color:var(--ink-2);margin:14px 0 28px">
     Entre com a conta da escola.
   </p>
@@ -62,9 +62,9 @@
 </main>
 
 <main class="centro" id="telaSemPermissao" hidden>
-  <h1 style="font-size:22px">Esta área é dos sócios</h1>
+  <h1 style="font-size:22px">Esta área é da Diretoria</h1>
   <p style="color:var(--ink-2);margin:14px 0 24px">
-    Você entrou como <strong id="emailSemPermissao"></strong>, que não é uma conta de sócio.
+    Você entrou como <strong id="emailSemPermissao"></strong>, que não tem acesso à Diretoria.
   </p>
   <nav class="areas" id="areasSemPermissao"></nav>
   <button class="botao fantasma" type="button" id="btnTrocar" style="margin-top:18px">
@@ -792,7 +792,9 @@ const CODIGO_DIAS_LABEL = {
   QS: "QS — Quarta e Sexta", SEX: "SEX — Sexta", SAB: "SAB — Sábado",
 };
 
-const RASCUNHO_COLAB_VAZIO = () => ({ professorId: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "" });
+const RASCUNHO_COLAB_VAZIO = () => ({
+  professorId: "", nome: "", email: "", telefone: "", tipo: "PROFESSOR", nivel: "1", categoriaFolha: "",
+});
 const RASCUNHO_GRADE_VAZIO = () => ({
   colaboradorId: "", unidadeId: "", turma: "", codigo: "TQ", horario: "", duracaoHoras: "",
   tipo: "PROFESSOR", nivel: "1", semVt: false, dataInicio: "", dataFim: "",
@@ -809,6 +811,10 @@ const folha = {
   valores: [],
   unidades: [],
   editandoColaborador: null,
+  // "Pessoa nova" é o padrão de propósito: quem cuida da folha é a Diretoria,
+  // e forçar uma parada em Administrativo antes toda vez que alguém novo
+  // entra na equipe era exatamente o atrito que pediram pra tirar.
+  modoNovoColaborador: true,
   rascunhoColaborador: RASCUNHO_COLAB_VAZIO(),
   erroColaborador: "",
   editandoGrade: null,
@@ -883,54 +889,63 @@ function folhaColaboradoresHTML() {
   const ativos = folha.colaboradores.filter((c) => c.professor.ativo);
   const desligados = folha.colaboradores.filter((c) => !c.professor.ativo);
 
-  const semQuemAdicionar = !editando && folha.disponiveis.length === 0;
-
   return `
     <div class="cartao">
       <div class="linha" style="margin-bottom:10px">
-        <strong>${editando ? `Editar perfil de folha — ${escapar(editando.professor.nome)}` : "Adicionar colaborador à folha"}</strong>
+        <strong>${editando ? `Editar perfil de folha — ${escapar(editando.professor.nome)}` : "Adicionar colaborador"}</strong>
         ${editando ? `<button class="botao fantasma" type="button" id="btnCancelarColab">Cancelar</button>` : ""}
       </div>
-      ${semQuemAdicionar ? `
-        <p class="meta">
-          Todo colaborador ativo já tem perfil de folha, ou ainda não há nenhum cadastrado.
-          Pra adicionar alguém novo à equipe, o caminho é
-          <strong>Administrativo → Colaboradores</strong> — a Folha só completa o que já existe lá.
-        </p>` : `
-        <div class="pilha" style="gap:12px">
-          ${editando ? "" : `
-            <div class="campo"><label class="rotulo" for="cf_professor">Colaborador (cadastrado em Administrativo)</label>
-              <select id="cf_professor">
-                <option value="">Escolha…</option>
-                ${folha.disponiveis.map((p) => `<option value="${p.id}" ${r.professorId === p.id ? "selected" : ""}>${escapar(p.nome)}</option>`).join("")}
-              </select>
-              <span class="meta">Não encontrou a pessoa? Cadastre em Administrativo → Colaboradores primeiro.</span>
-            </div>`}
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
-              <select id="cf_tipo">
-                <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
-                <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
-              </select></div>
-            <div class="campo" style="flex:0 0 120px"><label class="rotulo" for="cf_nivel">Nível</label>
-              <select id="cf_nivel">
-                <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
-                <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
-                <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
-              </select></div>
-          </div>
-          <div class="campo"><label class="rotulo" for="cf_categoria">Aparece na Folha como</label>
-            <select id="cf_categoria">
-              <option value="" ${!r.categoriaFolha ? "selected" : ""}>(igual ao Tipo)</option>
-              <option value="PROFESSOR" ${r.categoriaFolha === "PROFESSOR" ? "selected" : ""}>Professor</option>
-              <option value="ESTAGIARIO" ${r.categoriaFolha === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
-              <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
-            </select>
-            <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
-          </div>
-          <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
-          <button class="botao" type="button" id="btnSalvarColab">${editando ? "Salvar" : "Adicionar à folha"}</button>
+      ${editando ? "" : `
+        <div class="abas-socio" role="tablist" style="margin-bottom:14px">
+          <button role="tab" type="button" data-modo-colab="novo" aria-selected="${folha.modoNovoColaborador}">Pessoa nova</button>
+          <button role="tab" type="button" data-modo-colab="existente" aria-selected="${!folha.modoNovoColaborador}">Já está no Hub</button>
         </div>`}
+      <div class="pilha" style="gap:12px">
+        ${editando ? "" : folha.modoNovoColaborador ? `
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="cf_nome">Nome</label>
+              <input id="cf_nome" value="${escapar(r.nome)}" placeholder="Nome completo"></div>
+            <div class="campo" style="flex:1;min-width:180px"><label class="rotulo" for="cf_email">E-mail (opcional)</label>
+              <input id="cf_email" type="email" value="${escapar(r.email)}" placeholder="pessoa@gmail.com"></div>
+          </div>
+          <div class="campo"><label class="rotulo" for="cf_telefone">Telefone (opcional)</label>
+            <input id="cf_telefone" value="${escapar(r.telefone)}" placeholder="83 99999-0000"></div>
+          <span class="meta">
+            Cria o cadastro em Administrativo → Colaboradores e o perfil de folha juntos, num passo só.
+            Convite de acesso ao Hub, se ela precisar entrar, é lá.
+          </span>` : `
+          <div class="campo"><label class="rotulo" for="cf_professor">Colaborador</label>
+            <select id="cf_professor">
+              <option value="">Escolha…</option>
+              ${folha.disponiveis.map((p) => `<option value="${p.id}" ${r.professorId === p.id ? "selected" : ""}>${escapar(p.nome)}</option>`).join("")}
+            </select>
+            ${folha.disponiveis.length === 0 ? `<span class="meta">Todo colaborador ativo já tem perfil de folha.</span>` : ""}
+          </div>`}
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="campo" style="flex:1;min-width:160px"><label class="rotulo" for="cf_tipo">Tipo (define o valor/hora)</label>
+            <select id="cf_tipo">
+              <option value="PROFESSOR" ${r.tipo === "PROFESSOR" ? "selected" : ""}>Professor</option>
+              <option value="ESTAGIARIO" ${r.tipo === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+            </select></div>
+          <div class="campo" style="flex:0 0 120px"><label class="rotulo" for="cf_nivel">Nível</label>
+            <select id="cf_nivel">
+              <option value="1" ${r.nivel === "1" ? "selected" : ""}>1</option>
+              <option value="2" ${r.nivel === "2" ? "selected" : ""}>2</option>
+              <option value="3" ${r.nivel === "3" ? "selected" : ""}>3</option>
+            </select></div>
+        </div>
+        <div class="campo"><label class="rotulo" for="cf_categoria">Aparece na Folha como</label>
+          <select id="cf_categoria">
+            <option value="" ${!r.categoriaFolha ? "selected" : ""}>(igual ao Tipo)</option>
+            <option value="PROFESSOR" ${r.categoriaFolha === "PROFESSOR" ? "selected" : ""}>Professor</option>
+            <option value="ESTAGIARIO" ${r.categoriaFolha === "ESTAGIARIO" ? "selected" : ""}>Estagiário</option>
+            <option value="AVULSO" ${r.categoriaFolha === "AVULSO" ? "selected" : ""}>Avulso (não entra na Folha)</option>
+          </select>
+          <span class="meta">Só decide em qual tabela da Folha ele entra — o valor da hora continua vindo do Tipo.</span>
+        </div>
+        <div class="aviso erro ${folha.erroColaborador ? "" : "oculto"}">${escapar(folha.erroColaborador)}</div>
+        <button class="botao" type="button" id="btnSalvarColab">${editando ? "Salvar" : "Adicionar"}</button>
+      </div>
     </div>
 
     <div class="cartao" style="margin-top:14px">
@@ -983,7 +998,17 @@ function folhaColaboradoresHTML() {
 function ligarFolhaColaboradores() {
   const secao = el("secFolha");
 
+  secao.querySelectorAll("[data-modo-colab]").forEach((b) =>
+    b.addEventListener("click", () => {
+      folha.modoNovoColaborador = b.dataset.modoColab === "novo";
+      folha.erroColaborador = "";
+      pintarFolha();
+    }));
+
   el("cf_professor")?.addEventListener("change", (e) => { folha.rascunhoColaborador.professorId = e.target.value; });
+  el("cf_nome")?.addEventListener("input", (e) => { folha.rascunhoColaborador.nome = e.target.value; });
+  el("cf_email")?.addEventListener("input", (e) => { folha.rascunhoColaborador.email = e.target.value; });
+  el("cf_telefone")?.addEventListener("input", (e) => { folha.rascunhoColaborador.telefone = e.target.value; });
   el("cf_tipo")?.addEventListener("change", (e) => { folha.rascunhoColaborador.tipo = e.target.value; });
   el("cf_nivel")?.addEventListener("change", (e) => { folha.rascunhoColaborador.nivel = e.target.value; });
   el("cf_categoria")?.addEventListener("change", (e) => { folha.rascunhoColaborador.categoriaFolha = e.target.value; });
@@ -997,22 +1022,37 @@ function ligarFolhaColaboradores() {
 
   el("btnSalvarColab")?.addEventListener("click", async () => {
     const r = folha.rascunhoColaborador;
-    if (!folha.editandoColaborador && !r.professorId) {
-      folha.erroColaborador = "Escolha o colaborador.";
-      pintarFolha();
-      return;
+    const novo = !folha.editandoColaborador && folha.modoNovoColaborador;
+    const existente = !folha.editandoColaborador && !folha.modoNovoColaborador;
+
+    if (novo && !r.nome.trim()) {
+      folha.erroColaborador = "Digite o nome."; pintarFolha(); return;
     }
-    const corpo = {
-      tipo: r.tipo,
-      nivel: Number(r.nivel),
-      categoriaFolha: r.categoriaFolha || "",
-    };
-    if (!folha.editandoColaborador) corpo.professorId = r.professorId;
+    if (existente && !r.professorId) {
+      folha.erroColaborador = "Escolha o colaborador."; pintarFolha(); return;
+    }
+
+    const botao = el("btnSalvarColab");
+    botao.disabled = true;
+
     try {
+      // Pessoa nova: cria o cadastro em Administrativo primeiro (mesma rota
+      // que a tela de lá usa) e só depois o perfil de folha, com o id que
+      // acabou de nascer — as duas gravações, um clique só.
+      let professorId = r.professorId;
+      if (novo) {
+        const professor = await api("/escola/professores", {
+          method: "POST",
+          body: JSON.stringify({ nome: r.nome.trim(), email: r.email.trim(), telefone: r.telefone.trim(), ativo: true }),
+        });
+        professorId = professor.id;
+      }
+
+      const corpo = { tipo: r.tipo, nivel: Number(r.nivel), categoriaFolha: r.categoriaFolha || "" };
       if (folha.editandoColaborador) {
         await api(`/folha/colaboradores/${folha.editandoColaborador}`, { method: "PUT", body: JSON.stringify(corpo) });
       } else {
-        await api("/folha/colaboradores", { method: "POST", body: JSON.stringify(corpo) });
+        await api("/folha/colaboradores", { method: "POST", body: JSON.stringify({ ...corpo, professorId }) });
       }
       folha.editandoColaborador = null;
       folha.erroColaborador = "";
@@ -1020,6 +1060,7 @@ function ligarFolhaColaboradores() {
       await carregarFolha();
     } catch (e) {
       folha.erroColaborador = e.message;
+      botao.disabled = false;
       pintarFolha();
     }
   });

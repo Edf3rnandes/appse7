@@ -830,7 +830,7 @@ model PaginaImagem {
 // ---------------------------------------------------------------------------
 // Folha de pagamento — reconstrução nativa de uma plataforma que já existia
 // separada (HTML próprio, banco Supabase à parte), trazida pra dentro do Hub
-// a pedido de quem usa. Mora na aba dos sócios, não no administrativo: é
+// a pedido de quem usa. Mora na aba da Diretoria (área dos sócios), não no administrativo: é
 // controle de pagamento da equipe, papel de quem responde pela sociedade.
 //
 // "ColaboradorFolha" NÃO é um cadastro de pessoa — é o complemento de

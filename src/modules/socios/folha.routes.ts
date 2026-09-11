@@ -13,7 +13,7 @@ import { prisma } from "../../lib/prisma.js";
  * porquê disto NÃO duplica esse cadastro, só complementa com o que é
  * específico de folha (tipo pra fins de pagamento, nível, categoria).
  *
- * Mora na aba dos sócios: é controle de pagamento da equipe, não operação
+ * Mora na aba da Diretoria (área dos sócios): é controle de pagamento da equipe, não operação
  * do dia a dia da escola — por isso um módulo próprio, e não mais rotas
  * dentro de socios.routes.ts (que hoje é praticamente só leitura). Mas quem
  * a pessoa É continua sendo decidido só em Administrativo.

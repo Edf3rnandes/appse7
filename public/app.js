@@ -277,7 +277,7 @@ export function areasDisponiveis(eu, atual) {
   // Sócio primeiro: é a área de quem tem a visão mais ampla, e quem entra por
   // ela quase sempre quer o painel, não a lista de matrículas do dia.
   if (papeis.includes("SOCIO")) {
-    areas.push({ chave: "socios", nome: "Sócios", href: "/socios.html" });
+    areas.push({ chave: "socios", nome: "Diretoria", href: "/socios.html" });
   }
   if (papeis.includes("SOCIO") || papeis.includes("ADMIN") || papeis.includes("ADMINISTRATIVO")) {
     areas.push({ chave: "administrativo", nome: "Administrativo", href: "/administrativo.html" });

@@ -4926,7 +4926,7 @@ function ligarAcessos() {
       let dataDesligamento;
       if (desativando) {
         if (!confirm(`Desativar o cadastro de "${prof?.nome ?? ""}"? Ele sai das turmas novas, mas o histórico fica.`)) return;
-        // A Folha de pagamento (Sócios) usa esta data pra saber se a pessoa
+        // A Folha de pagamento (Diretoria) usa esta data pra saber se a pessoa
         // ainda contava num mês passado — sem ela, só dá pra saber "ativo hoje".
         dataDesligamento = prompt("Data de desligamento (AAAA-MM-DD):", new Date().toISOString().slice(0, 10));
         if (!dataDesligamento) return;
