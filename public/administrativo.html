@@ -326,6 +326,20 @@ const STATUS_MATRICULA = {
   CANCELADA: ["erro", "Cancelada"],
 };
 
+/** Espelha o aviso de Folha → Colaboradores (Diretoria) aqui no Início — mesmo dado, dois lugares. */
+function cartaoAniversariantes(hub) {
+  if (!hub.aniversariantes.length) return "";
+  const hoje = new Date().getDate();
+  const nomeMes = new Date().toLocaleDateString("pt-BR", { month: "long" });
+  const lista = hub.aniversariantes
+    .map((a) => `${escapar(a.nome)} (${String(a.dia).padStart(2, "0")})${a.dia === hoje ? " — hoje!" : ""}`)
+    .join(", ");
+  return `<div class="cartao" style="margin-bottom:14px">
+    <div class="linha"><strong>🎂 Aniversariantes de ${nomeMes}</strong></div>
+    <p class="meta" style="margin-top:8px">${lista}</p>
+  </div>`;
+}
+
 function cartaoOcorrencias(hub) {
   if (hub.ocorrenciasAbertas === 0) {
     return `<div class="cartao" style="margin-bottom:14px">
@@ -463,7 +477,7 @@ async function carregarInicio() {
   try {
     const { hub, escola } = await api("/conteudo/painel");
     painel.innerHTML =
-      cartaoOcorrencias(hub) + cartaoSemana(hub) + cartaoEventos(hub) + cartaoEscola(escola);
+      cartaoAniversariantes(hub) + cartaoOcorrencias(hub) + cartaoSemana(hub) + cartaoEventos(hub) + cartaoEscola(escola);
 
     // Os botões só existem em alguns estados do painel — daí o optional
     // chaining: procurar um elemento que não foi desenhado jogaria a tela

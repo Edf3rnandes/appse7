@@ -176,7 +176,7 @@ export async function conteudoRoutes(app: FastifyInstance) {
     // escrever o caso de dezembro à mão só criaria uma chance a mais de errar.
     const inicioDoProximoMes = primeiroDiaDoMes(agora.getUTCFullYear(), mes + 1);
 
-    const [ocorrenciasAbertas, ocorrenciasRecentes, eventos, semanaAtual, escola] =
+    const [ocorrenciasAbertas, ocorrenciasRecentes, eventos, semanaAtual, escola, professoresComNascimento] =
       await Promise.all([
         prisma.ocorrencia.count({ where: { status: StatusOcorrencia.ABERTA } }),
         prisma.ocorrencia.findMany({
@@ -195,7 +195,19 @@ export async function conteudoRoutes(app: FastifyInstance) {
           .then((linhas) => (linhas[0] ? { semana: linhas[0].semana, tema: linhas[0].tema } : null))
           .catch(() => null),
         numerosDaEscola(inicioDoMes, inicioDoProximoMes),
+        // Sem filtro de mês no SQL de propósito: comparar mês de uma DATE pelo
+        // Prisma exigiria SQL cru, e a tabela de professores é pequena — filtrar
+        // em memória é simples e não tem risco de fuso empurrar o dia errado.
+        prisma.professor.findMany({
+          where: { ativo: true, dataNascimento: { not: null } },
+          select: { id: true, nome: true, dataNascimento: true },
+        }),
       ]);
+
+    const aniversariantes = professoresComNascimento
+      .filter((p) => p.dataNascimento!.getUTCMonth() + 1 === mes)
+      .map((p) => ({ id: p.id, nome: p.nome, dia: p.dataNascimento!.getUTCDate() }))
+      .sort((a, b) => a.dia - b.dia);
 
     return {
       hub: {
@@ -204,6 +216,7 @@ export async function conteudoRoutes(app: FastifyInstance) {
         eventos,
         semanaAtual,
         semanaDeReferencia: segunda,
+        aniversariantes,
       },
       escola,
     };
