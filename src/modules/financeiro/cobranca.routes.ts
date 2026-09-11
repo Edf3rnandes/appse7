@@ -86,6 +86,35 @@ async function cobrancaEmAberto(matriculaId: string, tipo: "TAXA" | "MENSALIDADE
   );
 }
 
+/**
+ * Serializa emissões de cobrança para a MESMA matrícula.
+ *
+ * O guarda de "já existe cobrança em aberto" checa o Asaas antes de criar —
+ * mas entre o clique duplo checar e o clique duplo criar, os dois podem
+ * passar pelo "ainda não existe" ao mesmo tempo, e os dois criam. Aconteceu
+ * de verdade num teste com duas requisições disparadas juntas, antes desta
+ * trava existir.
+ *
+ * `pg_advisory_xact_lock` é do Postgres, não da aplicação: trava por id da
+ * matrícula mesmo que o Hub um dia rode em mais de um processo, e libera
+ * sozinha quando a transação termina — sem risco de ficar presa se a
+ * chamada ao Asaas no meio do caminho estourar. `hashtext` transforma o id
+ * (um texto) no inteiro que a trava exige.
+ *
+ * O timeout da transação é maior que o da chamada ao Asaas de propósito: a
+ * trava tem que sobreviver ao tempo que o Asaas pode levar pra responder,
+ * não competir com ele.
+ */
+async function comTravaDaMatricula<T>(matriculaId: string, fn: () => Promise<T>): Promise<T> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${matriculaId}))`;
+      return fn();
+    },
+    { timeout: 15000 },
+  );
+}
+
 /** O responsável precisa existir no Asaas. Criamos na primeira cobrança e guardamos o id — não a cada emissão. */
 async function garantirClienteAsaas(matricula: {
   responsavelId: string;
@@ -171,47 +200,52 @@ export async function cobrancaRoutes(app: FastifyInstance) {
       return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
     }
 
-    const emAberto = await cobrancaEmAberto(id, tipo);
-    if (emAberto) {
+    const ehTaxa = tipo === "TAXA";
+    const resultado = await comTravaDaMatricula(id, async () => {
+      const emAberto = await cobrancaEmAberto(id, tipo);
+      if (emAberto) return { emAberto };
+
+      const clienteAsaas = await garantirClienteAsaas(matricula);
+      const cobranca = await criarCobranca({
+        clienteAsaas,
+        valor: valor ?? (ehTaxa ? config.taxaMatricula : Number(matricula.plano.valor)),
+        vencimento: vencimento ?? (ehTaxa ? vencimentoDaTaxa() : proximoVencimento(config.diaVencimento)),
+        descricao: ehTaxa
+          ? `Taxa de matrícula — ${matricula.aluno.nome} — ${matricula.turma.nome}`
+          : `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,
+        referencia: id,
+        // O desconto até o vencimento é o que as condições do plano prometem, e
+        // vale para a mensalidade; a taxa de matrícula não tem desconto.
+        descontoPercentual: ehTaxa ? undefined : matricula.plano.descontoPercentual,
+        descontoAteDias: ehTaxa ? undefined : matricula.plano.descontoAteDias,
+      });
+
+      await prisma.matricula.update({
+        where: { id },
+        data: {
+          asaasPagamento: cobranca.id,
+          linkPagamento: cobranca.invoiceUrl,
+          // Emitida a cobrança, a matrícula deixa de ser "criada" e passa a
+          // esperar o pagamento — que é o que o administrativo vê na tela.
+          ...(matricula.status === StatusMatricula.CRIADA
+            ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
+            : {}),
+        },
+      });
+
+      return { cobranca };
+    });
+
+    if (resultado.emAberto) {
       return reply.code(409).send({
-        message: `Já existe uma cobrança de ${tipo === "TAXA" ? "taxa" : "mensalidade"} em aberto, com vencimento em ${emAberto.dueDate}.`,
-        cobranca: emAberto,
+        message: `Já existe uma cobrança de ${ehTaxa ? "taxa" : "mensalidade"} em aberto, com vencimento em ${resultado.emAberto.dueDate}.`,
+        cobranca: resultado.emAberto,
       });
     }
 
-    const clienteAsaas = await garantirClienteAsaas(matricula);
-
-    const ehTaxa = tipo === "TAXA";
-    const cobranca = await criarCobranca({
-      clienteAsaas,
-      valor: valor ?? (ehTaxa ? config.taxaMatricula : Number(matricula.plano.valor)),
-      vencimento: vencimento ?? (ehTaxa ? vencimentoDaTaxa() : proximoVencimento(config.diaVencimento)),
-      descricao: ehTaxa
-        ? `Taxa de matrícula — ${matricula.aluno.nome} — ${matricula.turma.nome}`
-        : `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,
-      referencia: id,
-      // O desconto até o vencimento é o que as condições do plano prometem, e
-      // vale para a mensalidade; a taxa de matrícula não tem desconto.
-      descontoPercentual: ehTaxa ? undefined : matricula.plano.descontoPercentual,
-      descontoAteDias: ehTaxa ? undefined : matricula.plano.descontoAteDias,
-    });
-
-    await prisma.matricula.update({
-      where: { id },
-      data: {
-        asaasPagamento: cobranca.id,
-        linkPagamento: cobranca.invoiceUrl,
-        // Emitida a cobrança, a matrícula deixa de ser "criada" e passa a
-        // esperar o pagamento — que é o que o administrativo vê na tela.
-        ...(matricula.status === StatusMatricula.CRIADA
-          ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
-          : {}),
-      },
-    });
-
     request.log.info({ matricula: id, tipo }, "cobrança emitida no Asaas");
 
-    return reply.code(201).send(cobranca);
+    return reply.code(201).send(resultado.cobranca);
   });
 
   /**
@@ -254,44 +288,49 @@ export async function cobrancaRoutes(app: FastifyInstance) {
       return reply.code(409).send({ message: "Matrícula cancelada não recebe cobrança." });
     }
 
-    const emAberto = await cobrancaEmAberto(id, "MENSALIDADE");
-    if (emAberto) {
+    const resultado = await comTravaDaMatricula(id, async () => {
+      const emAberto = await cobrancaEmAberto(id, "MENSALIDADE");
+      if (emAberto) return { emAberto };
+
+      const clienteAsaas = await garantirClienteAsaas(matricula);
+      const cobranca = await criarParcelamento({
+        clienteAsaas,
+        parcelas: parcelas ?? matricula.plano.parcelas,
+        valorParcela: valor ?? Number(matricula.plano.valor),
+        vencimento: vencimento ?? proximoVencimento(config.diaVencimento),
+        descricao: `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,
+        referencia: id,
+        descontoPercentual: matricula.plano.descontoPercentual,
+        descontoAteDias: matricula.plano.descontoAteDias,
+      });
+
+      await prisma.matricula.update({
+        where: { id },
+        data: {
+          asaasPagamento: cobranca.id,
+          linkPagamento: cobranca.invoiceUrl,
+          ...(matricula.status === StatusMatricula.CRIADA
+            ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
+            : {}),
+        },
+      });
+
+      return { cobranca };
+    });
+
+    if (resultado.emAberto) {
       return reply.code(409).send({
-        message: `Já existe uma cobrança de mensalidade em aberto, com vencimento em ${emAberto.dueDate}.`,
-        cobranca: emAberto,
+        message: `Já existe uma cobrança de mensalidade em aberto, com vencimento em ${resultado.emAberto.dueDate}.`,
+        cobranca: resultado.emAberto,
       });
     }
-
-    const clienteAsaas = await garantirClienteAsaas(matricula);
-
-    const cobranca = await criarParcelamento({
-      clienteAsaas,
-      parcelas: parcelas ?? matricula.plano.parcelas,
-      valorParcela: valor ?? Number(matricula.plano.valor),
-      vencimento: vencimento ?? proximoVencimento(config.diaVencimento),
-      descricao: `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,
-      referencia: id,
-      descontoPercentual: matricula.plano.descontoPercentual,
-      descontoAteDias: matricula.plano.descontoAteDias,
-    });
-
-    await prisma.matricula.update({
-      where: { id },
-      data: {
-        asaasPagamento: cobranca.id,
-        linkPagamento: cobranca.invoiceUrl,
-        ...(matricula.status === StatusMatricula.CRIADA
-          ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
-          : {}),
-      },
-    });
 
     request.log.info(
       { matricula: id, parcelas: parcelas ?? matricula.plano.parcelas },
       "parcelamento emitido no Asaas",
     );
 
-    return reply.code(201).send(cobranca);
+    return reply.code(201).send(resultado.cobranca);
   });
 
   app.get("/financeiro/matriculas/:id/cobrancas", equipe, async (request) => {
