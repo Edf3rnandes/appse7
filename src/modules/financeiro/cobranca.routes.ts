@@ -3,6 +3,7 @@ import { z } from "zod";
 import { StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
+import { hoje, somarDias } from "../../lib/datas.js";
 import { lerConfig } from "../conteudo/conteudo.routes.js";
 import {
   AsaasIndisponivelError,
@@ -44,12 +45,25 @@ const idParams = z.object({ id: z.string().uuid() });
  * As condições dos planos dizem "DATA DE VENCIMENTO: Dia 10". Se hoje já
  * passou do dia 10, cobrar no dia 10 deste mês seria emitir algo já vencido.
  */
-function proximoVencimento(dia: number): string {
-  const hoje = new Date();
-  const alvo = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), dia));
+export function proximoVencimento(dia: number): string {
+  const agora = new Date();
+  const alvo = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), dia));
 
-  if (alvo <= hoje) alvo.setUTCMonth(alvo.getUTCMonth() + 1);
+  if (alvo <= agora) alvo.setUTCMonth(alvo.getUTCMonth() + 1);
   return alvo.toISOString().slice(0, 10);
+}
+
+/**
+ * O vencimento da taxa de matrícula: 24h a partir de agora, não o dia
+ * configurado.
+ *
+ * O dia fixo é regra da mensalidade recorrente, que segue as condições do
+ * plano. A taxa é cobrada avulsa, no ato da matrícula — dar até o próximo dia
+ * 10 pra ela dava, num caso real, quase um mês de prazo pra um pagamento
+ * único.
+ */
+export function vencimentoDaTaxa(): string {
+  return somarDias(hoje(), 1).toISOString().slice(0, 10);
 }
 
 export async function cobrancaRoutes(app: FastifyInstance) {
@@ -154,7 +168,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
     const cobranca = await criarCobranca({
       clienteAsaas,
       valor: valor ?? (ehTaxa ? config.taxaMatricula : Number(matricula.plano.valor)),
-      vencimento: vencimento ?? proximoVencimento(config.diaVencimento),
+      vencimento: vencimento ?? (ehTaxa ? vencimentoDaTaxa() : proximoVencimento(config.diaVencimento)),
       descricao: ehTaxa
         ? `Taxa de matrícula — ${matricula.aluno.nome} — ${matricula.turma.nome}`
         : `Mensalidade — ${matricula.aluno.nome} — ${matricula.turma.nome} — ${matricula.plano.nome}`,

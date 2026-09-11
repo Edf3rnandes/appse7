@@ -636,12 +636,14 @@ function pintarMatriculas(total) {
   painel.querySelectorAll("[data-cobrar]").forEach((b) =>
     b.addEventListener("click", async () => {
       const tipo = b.dataset.tipo;
-      const rotulo = tipo === "TAXA" ? "a taxa de matrícula" : "a mensalidade";
+      const ehTaxa = tipo === "TAXA";
+      const rotulo = ehTaxa ? "a taxa de matrícula" : "a mensalidade";
 
       // Valor e vencimento ficam abertos na hora de emitir — em branco usa o
-      // padrão (valor do plano/taxa configurada, dia de vencimento
-      // configurado); preenchido serve pro caso combinado no balcão, como
-      // proporcional de quem entrou no meio do mês.
+      // padrão (valor do plano/taxa configurada); preenchido serve pro caso
+      // combinado no balcão, como proporcional de quem entrou no meio do mês.
+      // O padrão de vencimento também muda por tipo: a taxa é avulsa e vence
+      // em 24h, a mensalidade segue o dia configurado.
       const valorDigitado = prompt(
         `Emitir ${rotulo} no Asaas — a família recebe a cobrança.\n\n` +
           "Valor (R$) — deixe em branco pra usar o padrão:",
@@ -650,7 +652,9 @@ function pintarMatriculas(total) {
       if (valorDigitado === null) return;
 
       const vencimentoDigitado = prompt(
-        "Vencimento (AAAA-MM-DD) — deixe em branco pra usar o dia configurado:",
+        ehTaxa
+          ? "Vencimento (AAAA-MM-DD) — deixe em branco pra usar amanhã (24h):"
+          : "Vencimento (AAAA-MM-DD) — deixe em branco pra usar o dia configurado:",
         "",
       );
       if (vencimentoDigitado === null) return;
