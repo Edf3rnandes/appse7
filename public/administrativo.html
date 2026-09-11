@@ -554,6 +554,21 @@ const mat = {
   turmas: [],
   // Estado do formulário de nova matrícula. `aberto` false = só a lista.
   novo: novaMatriculaVazia(false),
+  // Formulário de cancelamento aberto por linha — motivo, detalhe, e o que
+  // fazer com cobrança em aberto no Asaas.
+  cancelando: {},
+  // Formulário de troca de turma/plano aberto por linha.
+  editando: {},
+};
+
+const MOTIVOS_CANCELAMENTO = {
+  MUDOU_CIDADE: "Mudou de cidade",
+  FINANCEIRO: "Financeiro",
+  INSATISFACAO: "Insatisfação com o serviço",
+  HORARIO_INCOMPATIVEL: "Horário incompatível",
+  SAUDE_LESAO: "Saúde / lesão",
+  OUTRA_ESCOLA: "Foi para outra escola ou esporte",
+  OUTRO: "Outro motivo",
 };
 
 async function carregarMatriculas() {
@@ -616,7 +631,12 @@ function pintarMatriculas(total) {
   });
 
   painel.querySelectorAll("[data-acao]").forEach((b) =>
-    b.addEventListener("click", () => mudarStatus(b.dataset.id, b.dataset.acao)));
+    b.addEventListener("click", () => {
+      // Cancelar não é uma troca de status como as outras — precisa de
+      // motivo, então abre o formulário em vez de mudar na hora.
+      if (b.dataset.acao === "CANCELADA") return abrirCancelamento(b.dataset.id, total);
+      mudarStatus(b.dataset.id, b.dataset.acao);
+    }));
 
   painel.querySelectorAll("[data-familia]").forEach((b) =>
     b.addEventListener("click", async () => {
@@ -703,6 +723,136 @@ function pintarMatriculas(total) {
       }
     }));
 
+  // ------------------------------------------------------- cancelamento
+  painel.querySelectorAll("[data-cancel-voltar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      delete mat.cancelando[b.dataset.cancelVoltar];
+      pintarMatriculas(total);
+    }));
+
+  painel.querySelectorAll("[data-cancel-motivo]").forEach((s) =>
+    s.addEventListener("change", (e) => {
+      mat.cancelando[s.dataset.cancelMotivo].motivo = e.target.value;
+    }));
+
+  painel.querySelectorAll("[data-cancel-detalhe]").forEach((t) =>
+    t.addEventListener("input", (e) => {
+      mat.cancelando[t.dataset.cancelDetalhe].detalhe = e.target.value;
+    }));
+
+  painel.querySelectorAll("[data-cancel-futuras]").forEach((c) =>
+    c.addEventListener("change", (e) => {
+      mat.cancelando[c.dataset.cancelFuturas].apagarFuturas = e.target.checked;
+    }));
+
+  painel.querySelectorAll("[data-cancel-vencidas]").forEach((c) =>
+    c.addEventListener("change", (e) => {
+      mat.cancelando[c.dataset.cancelVencidas].apagarVencidas = e.target.checked;
+    }));
+
+  painel.querySelectorAll("[data-cancel-confirmar]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.dataset.cancelConfirmar;
+      const estado = mat.cancelando[id];
+      const recado = el(`cancRecado-${id}`);
+      recado.classList.add("oculto");
+
+      if (!estado.motivo) {
+        recado.textContent = "Escolha o motivo do cancelamento.";
+        recado.classList.remove("oculto");
+        return;
+      }
+
+      estado.enviando = true;
+      pintarMatriculas(total);
+      try {
+        const r = await api(`/financeiro/matriculas/${id}/cancelar`, {
+          method: "POST",
+          body: JSON.stringify({
+            motivo: estado.motivo,
+            motivoDetalhe: estado.detalhe.trim() || undefined,
+            apagarFuturas: estado.apagarFuturas,
+            apagarVencidas: estado.apagarVencidas,
+          }),
+        });
+        delete mat.cancelando[id];
+        await carregarMatriculas();
+        invalidarSecao("painelInicio");
+        if (r.erros?.length) {
+          el("painelMatriculas").insertAdjacentHTML(
+            "afterbegin",
+            `<div class="aviso erro" style="margin-bottom:12px">
+               Matrícula cancelada, mas: ${r.erros.map(escapar).join(" · ")}
+             </div>`,
+          );
+        }
+      } catch (e) {
+        estado.enviando = false;
+        pintarMatriculas(total);
+        el(`cancRecado-${id}`).textContent = e.message;
+        el(`cancRecado-${id}`).classList.remove("oculto");
+      }
+    }));
+
+  // ------------------------------------------------------- trocar turma/plano
+  painel.querySelectorAll("[data-editar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const id = b.dataset.editar;
+      if (mat.editando[id]) {
+        delete mat.editando[id];
+        return pintarMatriculas(total);
+      }
+      const m = mat.itens.find((x) => x.id === id);
+      mat.editando[id] = { turmaId: m.turma.id, planoId: m.plano.id };
+      pintarMatriculas(total);
+    }));
+
+  painel.querySelectorAll("[data-edit-voltar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      delete mat.editando[b.dataset.editVoltar];
+      pintarMatriculas(total);
+    }));
+
+  painel.querySelectorAll("[data-edit-turma]").forEach((s) =>
+    s.addEventListener("change", (e) => {
+      const id = s.dataset.editTurma;
+      const turma = mat.turmas.find((t) => t.id === e.target.value);
+      mat.editando[id].turmaId = e.target.value;
+      // Plano pertence à turma: trocar de turma zera a escolha, senão
+      // sobraria um plano que não vale para a turma nova.
+      mat.editando[id].planoId = turma?.planos[0]?.plano.id ?? "";
+      pintarMatriculas(total);
+    }));
+
+  painel.querySelectorAll("[data-edit-plano]").forEach((s) =>
+    s.addEventListener("change", (e) => {
+      mat.editando[s.dataset.editPlano].planoId = e.target.value;
+      pintarMatriculas(total);
+    }));
+
+  painel.querySelectorAll("[data-edit-salvar]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.dataset.editSalvar;
+      const ed = mat.editando[id];
+      const recado = el(`editRecado-${id}`);
+      recado.classList.add("oculto");
+      try {
+        await api(`/escola/matriculas/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ turmaId: ed.turmaId, planoId: ed.planoId }),
+        });
+        delete mat.editando[id];
+        // As turmas voltam a ser lidas: a vaga ocupada/liberada pela troca
+        // precisa sumir/aparecer na contagem da próxima consulta.
+        mat.turmas = [];
+        await carregarMatriculas();
+        invalidarSecao("painelInicio");
+      } catch (e) {
+        recado.textContent = e.message;
+        recado.classList.remove("oculto");
+      }
+    }));
+
   if (mat.novo.aberto) ligarNovaMatricula(total);
 }
 
@@ -713,6 +863,8 @@ function linhaMatricula(m) {
   const [tom, texto] = STATUS_MATRICULA[m.status] || ["neutra", m.status];
   const acoes = STATUS_ACOES[m.status] || [];
   const familia = mat.familia?.[m.id];
+  const cancelando = mat.cancelando[m.id];
+  const editando = mat.editando[m.id];
   return `
     <div class="registro">
       <div class="linha">
@@ -727,6 +879,12 @@ function linhaMatricula(m) {
         ${m.responsavel.cpf ? " · " + fmt.cpf(m.responsavel.cpf) : ""}
         ${m.principal ? "" : ` · <span style="color:var(--ink-3)">vinculada</span>`}
       </div>
+      ${m.status !== "CANCELADA" ? "" : `
+        <div class="meta" style="margin-top:3px">
+          cancelada em ${fmt.data(m.canceladaEm)}
+          ${m.motivoCancelamento ? ` · ${escapar(MOTIVOS_CANCELAMENTO[m.motivoCancelamento] ?? m.motivoCancelamento)}` : ""}
+          ${m.motivoCancelamentoDetalhe ? ` · ${escapar(m.motivoCancelamentoDetalhe)}` : ""}
+        </div>`}
 
       ${familia === undefined ? "" : familia.length === 0
         ? `<p class="meta" style="margin-top:6px">Única matrícula desse responsável.</p>`
@@ -753,6 +911,114 @@ function linhaMatricula(m) {
         <button class="botao fantasma" type="button" data-principal="${m.id}" data-valor="${!m.principal}">
           ${m.principal ? "Tornar vinculada" : "Tornar principal"}
         </button>
+        ${m.status === "CANCELADA" ? "" : `
+          <button class="botao fantasma" type="button" data-editar="${m.id}">
+            ${editando ? "Fechar edição" : "Trocar turma/plano"}
+          </button>`}
+      </div>
+
+      ${!cancelando ? "" : formCancelamento(m, cancelando)}
+      ${!editando ? "" : formEditarTurma(m, editando)}
+    </div>`;
+}
+
+/** Motivo (lista) + detalhe (livre) + o que fazer com cobrança em aberto no Asaas. */
+function formCancelamento(m, c) {
+  const futuras = (c.cobrancas ?? []).filter((x) => ["PENDING", "AWAITING_RISK_ANALYSIS"].includes(x.status));
+  const vencidas = (c.cobrancas ?? []).filter((x) => x.status === "OVERDUE");
+  const somaFuturas = futuras.reduce((s, x) => s + x.value, 0);
+  const somaVencidas = vencidas.reduce((s, x) => s + x.value, 0);
+
+  return `
+    <div class="cartao" style="margin-top:10px;border:1px solid var(--rule-forte)">
+      <div class="rotulo" style="margin-bottom:8px">Cancelar matrícula de ${escapar(m.aluno.nome)}</div>
+      <div class="pilha" style="gap:12px">
+        <div class="campo">
+          <label class="rotulo" for="cancMotivo-${m.id}">Motivo</label>
+          <select class="selecao" id="cancMotivo-${m.id}" data-cancel-motivo="${m.id}">
+            <option value="">Selecione…</option>
+            ${Object.entries(MOTIVOS_CANCELAMENTO).map(([v, t]) => `
+              <option value="${v}" ${c.motivo === v ? "selected" : ""}>${t}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo">
+          <label class="rotulo" for="cancDetalhe-${m.id}">Detalhe (opcional)</label>
+          <textarea id="cancDetalhe-${m.id}" data-cancel-detalhe="${m.id}" rows="2">${escapar(c.detalhe)}</textarea>
+        </div>
+
+        ${!mat.financeiro?.emissaoAtiva
+          ? `<p class="meta">Emissão pelo Hub está desligada — cobrança no Asaas não é tocada por aqui.</p>`
+          : c.carregando
+            ? `<p class="meta">Consultando cobranças no Asaas…</p>`
+            : `
+              <label class="marcavel">
+                <input type="checkbox" data-cancel-futuras="${m.id}" ${c.apagarFuturas ? "checked" : ""}>
+                <span>Apagar ${futuras.length} cobrança${futuras.length === 1 ? "" : "s"} futura${futuras.length === 1 ? "" : "s"} em aberto${futuras.length ? ` (${fmt.moeda(somaFuturas)})` : ""}</span>
+              </label>
+              ${vencidas.length === 0 ? "" : `
+                <label class="marcavel" style="margin-top:6px">
+                  <input type="checkbox" data-cancel-vencidas="${m.id}" ${c.apagarVencidas ? "checked" : ""}>
+                  <span>Existe${vencidas.length > 1 ? "m" : ""} ${vencidas.length} cobrança${vencidas.length > 1 ? "s" : ""} vencida${vencidas.length > 1 ? "s" : ""}, somando ${fmt.moeda(somaVencidas)} — apagar também?</span>
+                </label>`}`}
+
+        <div id="cancRecado-${m.id}" class="aviso erro oculto"></div>
+        <div class="barra-acoes">
+          <button class="botao" type="button" data-cancel-confirmar="${m.id}" ${c.enviando ? "disabled" : ""}>
+            ${c.enviando ? "Cancelando…" : "Confirmar cancelamento"}
+          </button>
+          <button class="botao fantasma" type="button" data-cancel-voltar="${m.id}">Voltar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Trocar turma e/ou plano de uma matrícula já feita.
+ *
+ * As duas coisas são independentes: trocar só a turma é uma correção, sem
+ * efeito financeiro. Plano diferente do atual reinicia a contagem de
+ * parcelas — o aviso deixa isso claro antes de salvar.
+ */
+function formEditarTurma(m, ed) {
+  const turma = mat.turmas.find((t) => t.id === ed.turmaId);
+  return `
+    <div class="cartao" style="margin-top:10px;border:1px solid var(--rule-forte)">
+      <div class="rotulo" style="margin-bottom:8px">Trocar turma/plano de ${escapar(m.aluno.nome)}</div>
+      <div class="pilha" style="gap:12px">
+        <div class="campo">
+          <label class="rotulo" for="editTurma-${m.id}">Turma</label>
+          <select class="selecao" id="editTurma-${m.id}" data-edit-turma="${m.id}">
+            ${opcoesDeTurma(ed.turmaId)}
+          </select>
+        </div>
+
+        ${!turma ? "" : `
+          <div class="campo">
+            <label class="rotulo" for="editPlano-${m.id}">Plano</label>
+            ${turma.planos.length ? `
+              <select class="selecao" id="editPlano-${m.id}" data-edit-plano="${m.id}">
+                ${turma.planos.map((p) => `
+                  <option value="${p.plano.id}" ${p.plano.id === ed.planoId ? "selected" : ""}>
+                    ${escapar(p.plano.nome)} · ${fmt.moeda(p.plano.valor)}
+                  </option>`).join("")}
+              </select>`
+              : `<div class="aviso alerta">Essa turma não tem plano ligado. Ligue um plano à turma antes de trocar.</div>`}
+          </div>`}
+
+        ${ed.planoId === m.plano.id ? "" : `
+          <p class="meta">
+            Trocar o plano reinicia a contagem de parcelas a partir de hoje. Cobrança já
+            emitida no plano antigo continua como está — se sobrar diferença do mês, lance
+            uma cobrança avulsa em "Cobrar mensalidade", com o valor combinado.
+          </p>`}
+
+        <div id="editRecado-${m.id}" class="aviso erro oculto"></div>
+        <div class="barra-acoes">
+          <button class="botao" type="button" data-edit-salvar="${m.id}" ${ed.turmaId && ed.planoId ? "" : "disabled"}>
+            Salvar
+          </button>
+          <button class="botao fantasma" type="button" data-edit-voltar="${m.id}">Cancelar</button>
+        </div>
       </div>
     </div>`;
 }
@@ -765,6 +1031,38 @@ async function mudarStatus(id, status) {
   } catch (e) {
     const painel = el("painelMatriculas");
     painel.insertAdjacentHTML("afterbegin", aviso(e));
+  }
+}
+
+/**
+ * Abre o formulário de cancelamento e, se a emissão estiver ligada, já
+ * consulta as cobranças em aberto no Asaas — é o que decide se aparece a
+ * pergunta sobre vencidas.
+ */
+async function abrirCancelamento(id, total) {
+  mat.cancelando[id] = {
+    motivo: "",
+    detalhe: "",
+    apagarFuturas: true,
+    apagarVencidas: false,
+    cobrancas: null,
+    carregando: Boolean(mat.financeiro?.emissaoAtiva),
+    enviando: false,
+  };
+  pintarMatriculas(total);
+
+  if (!mat.financeiro?.emissaoAtiva) return;
+  try {
+    const r = await api(`/financeiro/matriculas/${id}/cobrancas`);
+    if (!mat.cancelando[id]) return; // fechou o formulário antes da resposta chegar
+    mat.cancelando[id].cobrancas = r.cobrancas;
+    mat.cancelando[id].carregando = false;
+    pintarMatriculas(total);
+  } catch {
+    if (!mat.cancelando[id]) return;
+    mat.cancelando[id].cobrancas = [];
+    mat.cancelando[id].carregando = false;
+    pintarMatriculas(total);
   }
 }
 
@@ -1542,14 +1840,19 @@ async function carregarRelCancelados() {
               <div class="registro">
                 <div class="linha">
                   <span class="titulo">${escapar(m.aluno.nome)}</span>
-                  <span class="meta">${fmt.data(m.canceladaEm)}</span>
+                  <span class="meta">${fmt.data(m.criadoEm)} – ${fmt.data(m.canceladaEm)}</span>
                 </div>
                 <div class="meta" style="margin-top:3px">
-                  ${escapar(m.turma.nome)} · ${escapar(m.unidade.nome)}
+                  ${escapar(m.turma.nome)} · ${escapar(m.unidade.nome)} · ${escapar(m.plano.nome)}
                 </div>
                 <div class="meta">
                   resp. ${escapar(m.responsavel.nome)}${m.responsavel.telefone ? " · " + escapar(m.responsavel.telefone) : ""}
                 </div>
+                ${m.motivoCancelamento ? `
+                  <div class="meta" style="margin-top:4px">
+                    <strong>${escapar(MOTIVOS_CANCELAMENTO[m.motivoCancelamento] ?? m.motivoCancelamento)}</strong>
+                    ${m.motivoCancelamentoDetalhe ? " · " + escapar(m.motivoCancelamentoDetalhe) : ""}
+                  </div>` : ""}
                 ${m.observacao ? `<div class="meta" style="margin-top:4px">${escapar(m.observacao)}</div>` : ""}
               </div>`).join("")}
       </div>`;

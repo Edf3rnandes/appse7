@@ -4,7 +4,7 @@ import { DiaDaSemana, Prisma, StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
-import { hoje, mesesAFrente } from "../../lib/datas.js";
+import { hoje, mesesAFrente, somarDias } from "../../lib/datas.js";
 
 /**
  * Cadastro da escola: unidades, turmas, planos, professores, responsáveis,
@@ -610,9 +610,12 @@ export async function cadastroRoutes(app: FastifyInstance) {
       .object({ de: dataOpcional, ate: dataOpcional, unidadeId: z.string().uuid().optional() })
       .parse(request.query);
 
-    const fim = ate ?? new Date();
+    // `ate` chega como meia-noite UTC do dia escolhido — um cancelamento
+    // feito às 15h desse mesmo dia ficaria fora do filtro se comparado com
+    // `lte`. Empurrar um dia e comparar com `lt` inclui o dia inteiro.
+    const fim = ate ? somarDias(ate, 1) : new Date();
     const inicio = de ?? new Date(fim.getFullYear(), fim.getMonth(), 1);
-    const janela = { gte: inicio, lte: fim };
+    const janela = { gte: inicio, lt: fim };
     const unidade = unidadeId ? { unidadeId } : {};
 
     const [canceladas, confirmadas] = await Promise.all([
@@ -624,6 +627,7 @@ export async function cadastroRoutes(app: FastifyInstance) {
           responsavel: { select: { nome: true, telefone: true } },
           turma: { select: { nome: true } },
           unidade: { select: { nome: true } },
+          plano: { select: { nome: true } },
         },
       }),
       prisma.matricula.count({
@@ -951,43 +955,114 @@ export async function cadastroRoutes(app: FastifyInstance) {
     return reply.code(201).send(criada);
   });
 
+  /**
+   * Situação, observação, matrícula principal — e agora turma e plano.
+   *
+   * Cancelar não passa mais por aqui: precisa de motivo, e de decidir o que
+   * fazer com cobrança em aberto no Asaas, então tem rota própria (POST
+   * /financeiro/matriculas/:id/cancelar). Aqui só sobrou reativar.
+   *
+   * Turma e plano são independentes de propósito: trocar só a turma (uma
+   * correção, uma mudança de horário) não mexe em nada financeiro. Só quando
+   * o plano também muda é que a contagem de parcelas reinicia — as parcelas
+   * do plano novo valem a partir de hoje, não do que sobrava do antigo. O que
+   * já foi cobrado no plano velho não é desfeito aqui: a diferença do mês,
+   * se houver, é uma cobrança avulsa separada (a mesma tela de "Emitir
+   * cobrança" já aceita valor e vencimento livres).
+   */
   app.patch("/escola/matriculas/:id", equipe, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const { status, observacao, principal } = z
+    const { status, observacao, principal, turmaId, planoId } = z
       .object({
         status: z.nativeEnum(StatusMatricula).optional(),
         observacao: z.string().max(1000).optional(),
         principal: z.boolean().optional(),
+        turmaId: z.string().uuid().optional(),
+        planoId: z.string().uuid().optional(),
       })
       .parse(request.body);
 
-    if (status === undefined && principal === undefined && observacao === undefined) {
-      return reply.code(400).send({ message: "Nada para alterar." });
-    }
-
-    // Só o `principal` mudou: não é troca de situação, e mexer em
-    // `canceladaEm` aqui apagaria a data de um cancelamento real.
-    if (status === undefined) {
-      return prisma.matricula.update({
-        where: { id },
-        data: {
-          ...(principal === undefined ? {} : { principal }),
-          ...(observacao === undefined ? {} : { observacao }),
-        },
+    if (status === StatusMatricula.CANCELADA) {
+      return reply.code(409).send({
+        message: "Cancelamento precisa de motivo — use o botão Cancelar, na linha da matrícula.",
       });
     }
 
-    return prisma.matricula.update({
-      where: { id },
-      data: {
-        status,
-        ...(principal === undefined ? {} : { principal }),
-        ...(observacao === undefined ? {} : { observacao }),
-        // Reativar limpa o carimbo, senão a tela mostra "cancelada em" numa
-        // matrícula que voltou a valer.
-        canceladaEm: status === StatusMatricula.CANCELADA ? new Date() : null,
-      },
-    });
+    if ([status, observacao, principal, turmaId, planoId].every((v) => v === undefined)) {
+      return reply.code(400).send({ message: "Nada para alterar." });
+    }
+
+    const dados: Prisma.MatriculaUpdateInput = {
+      ...(principal === undefined ? {} : { principal }),
+      ...(observacao === undefined ? {} : { observacao }),
+    };
+
+    if (status !== undefined) {
+      dados.status = status;
+      // Reativar limpa o carimbo e o motivo do cancelamento — senão a tela
+      // mostra "cancelada em, por quê" numa matrícula que voltou a valer.
+      dados.canceladaEm = null;
+      dados.motivoCancelamento = null;
+      dados.motivoCancelamentoDetalhe = null;
+    }
+
+    if (turmaId !== undefined || planoId !== undefined) {
+      const atual = await prisma.matricula.findUnique({
+        where: { id },
+        select: { alunoId: true, turmaId: true, planoId: true },
+      });
+      if (!atual) return reply.code(404).send({ message: "Matrícula não encontrada." });
+
+      const turmaMudou = turmaId !== undefined && turmaId !== atual.turmaId;
+      const planoMudou = planoId !== undefined && planoId !== atual.planoId;
+
+      if (turmaMudou) {
+        const turma = await prisma.turma.findUnique({
+          where: { id: turmaId },
+          include: {
+            _count: {
+              select: { matriculas: { where: { status: StatusMatricula.CONFIRMADA, arquivadoEm: null } } },
+            },
+          },
+        });
+        if (!turma) return reply.code(404).send({ message: "Turma não encontrada." });
+        if (turma.capacidade != null && turma._count.matriculas >= turma.capacidade) {
+          return reply.code(409).send({
+            message:
+              turma.capacidade === 1
+                ? `A turma ${turma.nome} tem uma vaga só, e ela já está preenchida.`
+                : `A turma ${turma.nome} está com as ${turma.capacidade} vagas preenchidas.`,
+          });
+        }
+
+        const duplicada = await prisma.matricula.findFirst({
+          where: {
+            id: { not: id },
+            alunoId: atual.alunoId,
+            turmaId,
+            arquivadoEm: null,
+            status: {
+              in: [StatusMatricula.CRIADA, StatusMatricula.PAGAMENTO_PENDENTE, StatusMatricula.CONFIRMADA],
+            },
+          },
+        });
+        if (duplicada) {
+          return reply.code(409).send({ message: "Esse aluno já está matriculado nessa turma." });
+        }
+
+        dados.turma = { connect: { id: turmaId } };
+        dados.unidade = { connect: { id: turma.unidadeId } };
+      }
+
+      if (planoMudou) {
+        const plano = await prisma.plano.findUnique({ where: { id: planoId } });
+        if (!plano) return reply.code(404).send({ message: "Plano não encontrado." });
+        dados.plano = { connect: { id: planoId } };
+        dados.expiraEm = mesesAFrente(plano.parcelas);
+      }
+    }
+
+    return prisma.matricula.update({ where: { id }, data: dados });
   });
 
   app.delete("/escola/matriculas/:id", equipe, async (request, reply) => {

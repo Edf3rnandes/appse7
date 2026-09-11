@@ -596,6 +596,19 @@ enum StatusMatricula {
   @@schema("hub")
 }
 
+// Por que uma matrícula foi cancelada — a lista que a Diretoria escolheu.
+enum MotivoCancelamento {
+  MUDOU_CIDADE
+  FINANCEIRO
+  INSATISFACAO
+  HORARIO_INCOMPATIVEL
+  SAUDE_LESAO
+  OUTRA_ESCOLA
+  OUTRO
+
+  @@schema("hub")
+}
+
 model Matricula {
   id       String          @id @default(uuid())
   legacyId Int?            @unique
@@ -636,6 +649,11 @@ model Matricula {
   asaasPayload    Json?
 
   canceladaEm  DateTime?
+  // Só têm valor quando `status` é CANCELADA — o cancelamento com motivo é o
+  // único jeito de chegar lá (ver POST /financeiro/matriculas/:id/cancelar).
+  // Reativar limpa os dois, do mesmo jeito que já limpava `canceladaEm`.
+  motivoCancelamento        MotivoCancelamento?
+  motivoCancelamentoDetalhe String?
   arquivadoEm  DateTime?
   criadoEm     DateTime  @default(now())
   atualizadoEm DateTime  @updatedAt

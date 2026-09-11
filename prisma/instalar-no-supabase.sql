@@ -98,6 +98,9 @@ CREATE TYPE "hub"."DiaDaSemana" AS ENUM ('DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA'
 -- CreateEnum
 CREATE TYPE "hub"."StatusMatricula" AS ENUM ('CRIADA', 'PAGAMENTO_PENDENTE', 'CONFIRMADA', 'CANCELADA');
 
+-- CreateEnum
+CREATE TYPE "hub"."MotivoCancelamento" AS ENUM ('MUDOU_CIDADE', 'FINANCEIRO', 'INSATISFACAO', 'HORARIO_INCOMPATIVEL', 'SAUDE_LESAO', 'OUTRA_ESCOLA', 'OUTRO');
+
 CREATE TYPE "hub"."SlotPaginaImagem" AS ENUM ('CARROSSEL', 'SOBRE_NOS', 'HORARIOS', 'VALORES');
 
 CREATE TYPE "hub"."TipoColaboradorFolha" AS ENUM ('PROFESSOR', 'ESTAGIARIO');
@@ -392,6 +395,8 @@ CREATE TABLE "hub"."matriculas" (
     "linkPagamento" TEXT,
     "asaasPayload" JSONB,
     "canceladaEm" TIMESTAMP(3),
+    "motivoCancelamento" "hub"."MotivoCancelamento",
+    "motivoCancelamentoDetalhe" TEXT,
     "arquivadoEm" TIMESTAMP(3),
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "atualizadoEm" TIMESTAMP(3) NOT NULL,

@@ -125,6 +125,41 @@ async function post<T>(caminho: string, corpo: unknown): Promise<T> {
   }
 }
 
+// Ao contrário de POST, apagar de novo uma cobrança já apagada não duplica
+// nada — o Asaas responde 404 e o cancelamento segue em frente. Por isso esta
+// é a única das três que aceita ser chamada mais de uma vez sem risco.
+async function del(caminho: string): Promise<void> {
+  if (!asaasConfigurado) {
+    throw new AsaasIndisponivelError("Integracao com o Asaas nao configurada (ASAAS_API_KEY).");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), cfg.ASAAS_TIMEOUT_MS);
+
+  try {
+    const resposta = await fetch(`${cfg.ASAAS_BASE_URL}${caminho}`, {
+      method: "DELETE",
+      headers: { access_token: cfg.ASAAS_API_KEY, "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+
+    if (!resposta.ok && resposta.status !== 404) {
+      const dados = (await resposta.json().catch(() => ({}))) as {
+        errors?: { description?: string }[];
+      };
+      const motivo = dados.errors?.[0]?.description;
+      throw new AsaasIndisponivelError(
+        motivo ? `Asaas recusou: ${motivo}` : `Asaas respondeu ${resposta.status}.`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof AsaasIndisponivelError) throw err;
+    throw new AsaasIndisponivelError("Nao foi possivel falar com o Asaas.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface ClienteAsaas {
   id: string;
   name: string;
@@ -168,6 +203,10 @@ export async function criarCobranca(dados: {
   descricao: string;
   referencia: string;
   descontoPercentual?: number;
+  // Dias antes do vencimento em que o desconto deixa de valer, no sentido do
+  // próprio Asaas: 0 vale até o dia do vencimento (o padrão prometido pelas
+  // condições do plano); um número maior fecha a janela mais cedo.
+  descontoAteDias?: number;
 }): Promise<CobrancaAsaas> {
   return post<CobrancaAsaas>("/payments", {
     customer: dados.clienteAsaas,
@@ -178,8 +217,11 @@ export async function criarCobranca(dados: {
     externalReference: dados.referencia,
     ...(dados.descontoPercentual
       ? {
-          // Desconto até o vencimento, como as condições do plano dizem.
-          discount: { value: dados.descontoPercentual, dueDateLimitDays: 0, type: "PERCENTAGE" },
+          discount: {
+            value: dados.descontoPercentual,
+            dueDateLimitDays: dados.descontoAteDias ?? 0,
+            type: "PERCENTAGE",
+          },
         }
       : {}),
   });
@@ -191,6 +233,18 @@ export async function listarCobrancasDaMatricula(matriculaId: string): Promise<C
     `/payments?externalReference=${encodeURIComponent(matriculaId)}&limit=50&order=desc`,
   );
   return resposta.data ?? [];
+}
+
+/**
+ * Cancela (apaga) uma cobrança no Asaas.
+ *
+ * Usado no cancelamento de matrícula: a família não pode continuar sendo
+ * cobrada por um plano que já não existe mais. O Asaas só deixa apagar
+ * cobrança que ainda não foi paga — uma já recebida (RECEIVED/CONFIRMED)
+ * responde erro, e quem chama decide o que fazer com isso.
+ */
+export async function cancelarCobranca(id: string): Promise<void> {
+  await del(`/payments/${encodeURIComponent(id)}`);
 }
 
 /** Todas as cobranças vencidas da escola — a tela Financeiro > Cobranças vencidas. */

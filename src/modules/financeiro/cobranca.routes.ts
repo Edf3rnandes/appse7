@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { StatusMatricula } from "@prisma/client";
+import { MotivoCancelamento, StatusMatricula } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { hoje, somarDias } from "../../lib/datas.js";
@@ -8,6 +8,7 @@ import { lerConfig } from "../conteudo/conteudo.routes.js";
 import {
   AsaasIndisponivelError,
   asaasConfigurado,
+  cancelarCobranca,
   criarCliente,
   criarCobranca,
   listarCobrancasDaMatricula,
@@ -123,7 +124,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
         aluno: { select: { nome: true } },
         responsavel: true,
         turma: { select: { nome: true } },
-        plano: { select: { nome: true, valor: true, descontoPercentual: true } },
+        plano: { select: { nome: true, valor: true, descontoPercentual: true, descontoAteDias: true } },
       },
     });
     if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
@@ -176,6 +177,7 @@ export async function cobrancaRoutes(app: FastifyInstance) {
       // O desconto até o vencimento é o que as condições do plano prometem, e
       // vale para a mensalidade; a taxa de matrícula não tem desconto.
       descontoPercentual: ehTaxa ? undefined : matricula.plano.descontoPercentual,
+      descontoAteDias: ehTaxa ? undefined : matricula.plano.descontoAteDias,
     });
 
     await prisma.matricula.update({
@@ -199,6 +201,84 @@ export async function cobrancaRoutes(app: FastifyInstance) {
   app.get("/financeiro/matriculas/:id/cobrancas", equipe, async (request) => {
     const { id } = idParams.parse(request.params);
     return { cobrancas: await listarCobrancasDaMatricula(id) };
+  });
+
+  const cancelarSchema = z.object({
+    motivo: z.nativeEnum(MotivoCancelamento),
+    motivoDetalhe: z.string().max(1000).optional(),
+    // Cobrança já paga nunca entra aqui — só o que ainda pode ser apagado.
+    // "Futuras" cobre PENDING e AWAITING_RISK_ANALYSIS; "vencidas" é OVERDUE,
+    // e a tela pede confirmação em separado porque apagar uma cobrança
+    // vencida é abrir mão de uma dívida que ainda pode ser cobrada.
+    apagarFuturas: z.boolean().default(false),
+    apagarVencidas: z.boolean().default(false),
+  });
+
+  /**
+   * Cancela a matrícula com motivo — o único caminho para chegar a
+   * CANCELADA (ver o bloqueio no PATCH de /escola/matriculas).
+   *
+   * Apagar cobrança no Asaas é opcional e best-effort: uma falha ao apagar
+   * uma cobrança não pode impedir o cancelamento de valer, senão a família
+   * fica presa numa matrícula que já devia ter acabado por causa de uma
+   * falha na integração. As falhas voltam na resposta para o administrativo
+   * decidir o que fazer — apagar à mão no Asaas, por exemplo.
+   */
+  app.post("/financeiro/matriculas/:id/cancelar", equipe, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const { motivo, motivoDetalhe, apagarFuturas, apagarVencidas } = cancelarSchema.parse(
+      request.body,
+    );
+
+    const matricula = await prisma.matricula.findUnique({ where: { id } });
+    if (!matricula) return reply.code(404).send({ message: "Matrícula não encontrada." });
+    if (matricula.status === StatusMatricula.CANCELADA) {
+      return reply.code(409).send({ message: "Essa matrícula já está cancelada." });
+    }
+
+    let cobrancasApagadas = 0;
+    const erros: string[] = [];
+
+    if (apagarFuturas || apagarVencidas) {
+      const config = await lerConfig();
+      if (!config.emissaoAtiva) {
+        erros.push(
+          "Emissão pelo Hub está desligada — nenhuma cobrança foi apagada por aqui, confira no Asaas.",
+        );
+      } else {
+        const cobrancas = await listarCobrancasDaMatricula(id);
+        const alvo = cobrancas.filter(
+          (c) =>
+            (apagarFuturas && ["PENDING", "AWAITING_RISK_ANALYSIS"].includes(c.status)) ||
+            (apagarVencidas && c.status === "OVERDUE"),
+        );
+
+        for (const cobranca of alvo) {
+          try {
+            await cancelarCobranca(cobranca.id);
+            cobrancasApagadas += 1;
+          } catch (erro) {
+            erros.push(
+              `${cobranca.description ?? cobranca.id}: ${erro instanceof Error ? erro.message : "erro desconhecido"}`,
+            );
+          }
+        }
+      }
+    }
+
+    const cancelada = await prisma.matricula.update({
+      where: { id },
+      data: {
+        status: StatusMatricula.CANCELADA,
+        canceladaEm: new Date(),
+        motivoCancelamento: motivo,
+        motivoCancelamentoDetalhe: motivoDetalhe ?? null,
+      },
+    });
+
+    request.log.info({ matricula: id, motivo, cobrancasApagadas }, "matrícula cancelada");
+
+    return { matricula: cancelada, cobrancasApagadas, erros };
   });
 
   /**
