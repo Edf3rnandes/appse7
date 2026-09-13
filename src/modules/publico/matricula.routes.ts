@@ -7,6 +7,7 @@ import { cpfValido, somenteDigitos } from "../../lib/cpf.js";
 import { mesesAFrente } from "../../lib/datas.js";
 import { tratadorDeErro } from "../../lib/erros.js";
 import { lerConfig } from "../conteudo/conteudo.routes.js";
+import { emitirTaxaAutomatica } from "../financeiro/cobranca.routes.js";
 import {
   buscarCep,
   CepIndisponivelError,
@@ -18,9 +19,11 @@ import { buscarAvaliacoesGoogle } from "./avaliacoes.js";
 /**
  * Matrícula pelo site — o que a família preenche.
  *
- * Não é "pré-matrícula": a matrícula é esta, e os boletos do plano são
- * lançados depois. O que falta até ela valer é a confirmação do
- * administrativo, que acontece no painel.
+ * Não é "pré-matrícula": a matrícula é esta. A taxa de matrícula é cobrada
+ * na hora, assim que o cadastro é gravado (ver `emitirTaxaAutomatica`); os
+ * boletos do plano continuam saindo depois, emitidos pelo administrativo
+ * quando ele confirma que a taxa caiu — é o que falta até a matrícula virar
+ * mensalidade de verdade.
  *
  * Equivale ao POST /api/enrollment do sistema atual, que o site
  * se7voleidepraia.com.br chama. As diferenças não são de gosto; cada uma
@@ -473,6 +476,25 @@ export async function publicoRoutes(app: FastifyInstance) {
       "matrícula recebida pelo site",
     );
 
+    // A taxa é cobrada aqui, depois que a matrícula já está gravada — nunca
+    // dentro da transação acima, porque essa chamada fala com um serviço de
+    // fora e não pode segurar (nem desfazer) a gravação do cadastro. Falha ao
+    // emitir não é erro para a família: a matrícula vale do mesmo jeito, e o
+    // administrativo emite na mão pelo painel, como sempre fez.
+    const linksPorMatricula = new Map<string, string | null>();
+    for (const m of resultado) {
+      try {
+        const { linkPagamento } = await emitirTaxaAutomatica(m.id);
+        linksPorMatricula.set(m.id, linkPagamento);
+      } catch (erro) {
+        request.log.warn(
+          { matricula: m.id, erro: erro instanceof Error ? erro.message : erro },
+          "falha ao emitir a taxa de matrícula automaticamente",
+        );
+        linksPorMatricula.set(m.id, null);
+      }
+    }
+
     return reply.code(201).send({
       mensagem: "Matrícula registrada!",
       // O grupo de WhatsApp da turma, quando ela tem um. É o campo `link` da
@@ -487,6 +509,9 @@ export async function publicoRoutes(app: FastifyInstance) {
         plano: m.plano.nome,
         valor: m.plano.valor,
         parcelas: m.plano.parcelas,
+        // Nulo quando a emissão está desligada, o Asaas falhou, ou já havia
+        // uma taxa em aberto — a tela cai para "acompanhe pelo portal".
+        linkPagamentoTaxa: linksPorMatricula.get(m.id) ?? null,
       })),
     });
   });

@@ -420,15 +420,40 @@ function pintar() {
 
 function pintarRecibo() {
   const r = estado.recibo;
+  const taxasEmitidas = r.matriculas.filter((m) => m.linkPagamentoTaxa);
+
   el("tela").innerHTML = `
     <div class="cartao" style="text-align:center">
       <div style="font-size:40px;line-height:1">🏐</div>
       <h1 style="font-size:22px;margin:10px 0">${escapar(r.mensagem)}</h1>
       <p class="meta">Guarde esta tela ou tire um print.</p>
       <p class="meta" style="margin-top:6px">
-        Os boletos do plano são lançados depois da confirmação.
+        Os boletos do plano são lançados depois, quando a escola confirmar o
+        pagamento da taxa de matrícula.
       </p>
     </div>
+
+    ${taxasEmitidas.length ? `
+      <div class="cartao" style="margin-top:14px">
+        <div class="rotulo" style="margin-bottom:8px">Pague a taxa de matrícula</div>
+        ${taxasEmitidas.map((m) => `
+          <div class="item">
+            <div class="corpo">
+              <div class="titulo">${escapar(m.aluno)}</div>
+              <div class="meta">Taxa de matrícula</div>
+            </div>
+            <div class="lado">
+              <a class="link-botao" href="${escapar(m.linkPagamentoTaxa)}" target="_blank" rel="noopener">Pagar</a>
+            </div>
+          </div>`).join("")}
+      </div>` : `
+      <div class="cartao" style="margin-top:14px">
+        <div class="rotulo" style="margin-bottom:8px">Taxa de matrícula</div>
+        <p class="meta">
+          A cobrança da taxa vai ser enviada em breve pela escola — acompanhe pelo
+          portal ou pelo WhatsApp.
+        </p>
+      </div>`}
 
     <div class="cartao" style="margin-top:14px">
       <div class="rotulo" style="margin-bottom:8px">Acompanhe pelo portal</div>

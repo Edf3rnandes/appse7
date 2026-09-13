@@ -105,7 +105,7 @@ async function cobrancaEmAberto(matriculaId: string, tipo: "TAXA" | "MENSALIDADE
  * trava tem que sobreviver ao tempo que o Asaas pode levar pra responder,
  * não competir com ele.
  */
-async function comTravaDaMatricula<T>(matriculaId: string, fn: () => Promise<T>): Promise<T> {
+export async function comTravaDaMatricula<T>(matriculaId: string, fn: () => Promise<T>): Promise<T> {
   return prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${matriculaId}))`;
@@ -116,7 +116,7 @@ async function comTravaDaMatricula<T>(matriculaId: string, fn: () => Promise<T>)
 }
 
 /** O responsável precisa existir no Asaas. Criamos na primeira cobrança e guardamos o id — não a cada emissão. */
-async function garantirClienteAsaas(matricula: {
+export async function garantirClienteAsaas(matricula: {
   responsavelId: string;
   responsavel: { asaasCustomer: string | null; nome: string; cpf: string; email: string | null; telefone: string | null };
 }): Promise<string> {
@@ -133,6 +133,62 @@ async function garantirClienteAsaas(matricula: {
     data: { asaasCustomer: criado.id },
   });
   return criado.id;
+}
+
+/**
+ * Emite a taxa de matrícula sozinha, sem o administrativo apertar botão —
+ * chamada pela rota pública assim que a família confirma a matrícula pelo
+ * site (ver `publicoRoutes`).
+ *
+ * Best-effort de propósito: se o Asaas falhar aqui, a matrícula já foi
+ * criada e continua CRIADA — o administrativo ainda emite na mão pelo botão
+ * "Cobrar taxa", igual fazia antes desta função existir. O cadastro da
+ * família nunca fica preso esperando o Asaas responder.
+ */
+export async function emitirTaxaAutomatica(
+  matriculaId: string,
+): Promise<{ emitida: boolean; linkPagamento: string | null }> {
+  const config = await lerConfig();
+  if (!config.emissaoAtiva) return { emitida: false, linkPagamento: null };
+
+  const matricula = await prisma.matricula.findUnique({
+    where: { id: matriculaId },
+    include: {
+      aluno: { select: { nome: true } },
+      responsavel: true,
+      turma: { select: { nome: true } },
+    },
+  });
+  if (!matricula || matricula.bolsista || matricula.status === StatusMatricula.CANCELADA) {
+    return { emitida: false, linkPagamento: null };
+  }
+
+  return comTravaDaMatricula(matriculaId, async () => {
+    const emAberto = await cobrancaEmAberto(matriculaId, "TAXA");
+    if (emAberto) return { emitida: false, linkPagamento: emAberto.invoiceUrl };
+
+    const clienteAsaas = await garantirClienteAsaas(matricula);
+    const cobranca = await criarCobranca({
+      clienteAsaas,
+      valor: config.taxaMatricula,
+      vencimento: vencimentoDaTaxa(),
+      descricao: `Taxa de matrícula — ${matricula.aluno.nome} — ${matricula.turma.nome}`,
+      referencia: matriculaId,
+    });
+
+    await prisma.matricula.update({
+      where: { id: matriculaId },
+      data: {
+        asaasPagamento: cobranca.id,
+        linkPagamento: cobranca.invoiceUrl,
+        ...(matricula.status === StatusMatricula.CRIADA
+          ? { status: StatusMatricula.PAGAMENTO_PENDENTE }
+          : {}),
+      },
+    });
+
+    return { emitida: true, linkPagamento: cobranca.invoiceUrl };
+  });
 }
 
 export async function cobrancaRoutes(app: FastifyInstance) {
